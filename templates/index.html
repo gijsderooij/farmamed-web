@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmamed — Recept indienen</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --teal:     #7bb8b8;
+      --teal-dk:  #5a9898;
+      --teal-lt:  #e8f4f4;
+      --cream:    #faf8f5;
+      --text:     #2c3e3e;
+      --muted:    #7a9090;
+      --border:   #dde8e8;
+      --white:    #ffffff;
+      --danger:   #c0392b;
+      --success:  #27ae60;
+      --radius:   12px;
+      --shadow:   0 4px 24px rgba(90,152,152,0.12);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--cream);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    header {
+      background: var(--teal);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 28px;
+      font-weight: 300;
+      color: white;
+      letter-spacing: 0.02em;
+    }
+
+    .logo span {
+      font-size: 13px;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      display: block;
+      letter-spacing: 0.12em;
+      opacity: 0.85;
+      text-transform: uppercase;
+    }
+
+    /* Main layout */
+    main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Upload zone */
+    .upload-zone {
+      background: var(--white);
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 48px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: var(--teal);
+      background: var(--teal-lt);
+    }
+
+    .upload-zone.hidden { display: none; }
+
+    .upload-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      background: var(--teal-lt);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .upload-icon svg { width: 28px; height: 28px; stroke: var(--teal-dk); }
+
+    .upload-zone h2 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 24px;
+      font-weight: 400;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .upload-zone p {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .upload-btn {
+      background: var(--teal);
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .upload-btn:hover { background: var(--teal-dk); }
+
+    .upload-types {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 12px;
+    }
+
+    input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    /* Analyse loader */
+    .analyse-loader {
+      background: var(--white);
+      border-radius: var(--radius);
+      padding: 40px 32px;
+      text-align: center;
+      box-shadow: var(--shadow);
+      display: none;
+    }
+
+    .analyse-loader.visible { display: block; }
+
+    .loader-ring {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--teal-lt);
+      border-top-color: var(--teal);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .analyse-loader p {
+      font-size: 15px;
+      color: var(--muted);
+    }
+
+    .analyse-loader .stap {
+      font-size: 13px;
+      color: var(--teal);
+      margin-top: 8px;
+      font-weight: 500;
+    }
+
+    /* Chat */
+    .chat-container {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .chat-container.visible {
+      display: flex;
+    }
+
+    .chat-header {
+      background: var(--teal-lt);
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .agent-avatar {
+      width: 40px;
+      height: 40px;
+      background: var(--teal);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 18px;
+    }
+
+    .agent-info strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .agent-info span {
+      font-size: 12px;
+      color: var(--success);
+    }
+
+    /* Recept samenvatting */
+    .recept-kaart {
+      margin: 16px 20px 0;
+      background: var(--teal-lt);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-size: 13px;
+      border-left: 3px solid var(--teal);
+    }
+
+    .recept-kaart h4 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--teal-dk);
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .recept-velden {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 16px;
+    }
+
+    .recept-veld {
+      display: flex;
+      gap: 6px;
+    }
+
+    .recept-veld .label {
+      color: var(--muted);
+      min-width: 80px;
+    }
+
+    .recept-veld .waarde {
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .verlopen-badge {
+      display: inline-block;
+      background: #fdecea;
+      color: var(--danger);
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+      margin-top: 8px;
+    }
+
+    /* Berichten */
+    .berichten {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 200px;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    .bericht {
+      display: flex;
+      gap: 10px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .bericht.agent { align-items: flex-start; }
+    .bericht.klant { flex-direction: row-reverse; }
+
+    .bericht-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--teal);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .bericht.klant .bericht-avatar {
+      background: var(--border);
+      color: var(--muted);
+    }
+
+    .bericht-tekst {
+      background: var(--teal-lt);
+      padding: 10px 14px;
+      border-radius: 12px;
+      border-top-left-radius: 4px;
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 85%;
+    }
+
+    .bericht.klant .bericht-tekst {
+      background: var(--teal);
+      color: white;
+      border-top-left-radius: 12px;
+      border-top-right-radius: 4px;
+    }
+
+    /* Typen indicator */
+    .typt {
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 0 20px 8px;
+    }
+
+    .typt.visible { display: flex; }
+
+    .typt-dots {
+      background: var(--teal-lt);
+      padding: 10px 16px;
+      border-radius: 12px;
+      border-top-left-radius: 4px;
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .typt-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--teal);
+      animation: bounce 1.2s infinite;
+    }
+
+    .typt-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typt-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+      40% { transform: translateY(-6px); opacity: 1; }
+    }
+
+    /* Input */
+    .chat-input {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+    }
+
+    .chat-input input {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .chat-input input:focus {
+      border-color: var(--teal);
+    }
+
+    .chat-input button {
+      background: var(--teal);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+
+    .chat-input button:hover { background: var(--teal-dk); }
+    .chat-input button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Actieknoppen */
+    .actie-knoppen {
+      padding: 0 20px 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .actie-btn {
+      background: var(--white);
+      border: 1px solid var(--teal);
+      color: var(--teal-dk);
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    .actie-btn:hover {
+      background: var(--teal);
+      color: white;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 16px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    Farmamed
+    <span>Bereidingsapotheek</span>
+  </div>
+</header>
+
+<main>
+  <div class="container">
+
+    <!-- Upload zone -->
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="bestandInput" accept=".pdf,.jpg,.jpeg,.png">
+      <div class="upload-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <h2>Upload uw recept</h2>
+      <p>Sleep uw recept hierheen of klik op de knop om een bestand te kiezen.<br>Wij lezen uw recept automatisch uit.</p>
+      <button class="upload-btn" onclick="event.stopPropagation()">Recept kiezen</button>
+      <p class="upload-types">PDF, JPG of PNG — max 10 MB</p>
+    </div>
+
+    <!-- Analyse loader -->
+    <div class="analyse-loader" id="analyseLoader">
+      <div class="loader-ring"></div>
+      <p>Uw recept wordt geanalyseerd…</p>
+      <p class="stap" id="analyseStap">Tekst uitlezen</p>
+    </div>
+
+    <!-- Chat -->
+    <div class="chat-container" id="chatContainer">
+      <div class="chat-header">
+        <div class="agent-avatar">F</div>
+        <div class="agent-info">
+          <strong>Farmamed Apotheek</strong>
+          <span>● Online</span>
+        </div>
+      </div>
+
+      <div class="recept-kaart" id="receptKaart" style="display:none">
+        <h4>Uitgelezen recept</h4>
+        <div class="recept-velden" id="receptVelden"></div>
+      </div>
+
+      <div class="berichten" id="berichten"></div>
+
+      <div class="typt" id="typt">
+        <div class="bericht-avatar">F</div>
+        <div class="typt-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+
+      <div class="actie-knoppen" id="actieKnoppen"></div>
+
+      <div class="chat-input">
+        <input type="text" id="berichtInput" placeholder="Stel een vraag…" disabled>
+        <button id="verstuurBtn" onclick="verstuurBericht()" disabled>Verstuur</button>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  Farmamed Bereidingsapotheek — Uw recept wordt veilig verwerkt en niet opgeslagen
+</footer>
+
+<script>
+  let receptData = null;
+  let chatGeschiedenis = [];
+
+  // --- Upload ---
+  const uploadZone = document.getElementById('uploadZone');
+  const bestandInput = document.getElementById('bestandInput');
+
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) verwerkBestand(e.dataTransfer.files[0]);
+  });
+
+  bestandInput.addEventListener('change', e => {
+    if (e.target.files[0]) verwerkBestand(e.target.files[0]);
+  });
+
+  async function verwerkBestand(bestand) {
+    uploadZone.classList.add('hidden');
+    document.getElementById('analyseLoader').classList.add('visible');
+
+    // Stap labels
+    const stap = document.getElementById('analyseStap');
+    stap.textContent = 'Recept uploaden…';
+    setTimeout(() => stap.textContent = 'Tekst uitlezen met AI…', 1500);
+    setTimeout(() => stap.textContent = 'Velden verwerken…', 3000);
+
+    const formData = new FormData();
+    formData.append('bestand', bestand);
+
+    try {
+      const res = await fetch('/api/analyseer-recept', { method: 'POST', body: formData });
+      receptData = await res.json();
+      toonChat();
+    } catch (e) {
+      alert('Er ging iets mis bij het uploaden. Probeer het opnieuw.');
+      uploadZone.classList.remove('hidden');
+      document.getElementById('analyseLoader').classList.remove('visible');
+    }
+  }
+
+  function toonChat() {
+    document.getElementById('analyseLoader').classList.remove('visible');
+    document.getElementById('chatContainer').classList.add('visible');
+
+    // Toon recept kaart
+    if (receptData && !receptData.fout) {
+      const kaart = document.getElementById('receptKaart');
+      kaart.style.display = 'block';
+      const velden = document.getElementById('receptVelden');
+      const tonen = [
+        ['Medicijn', receptData.medicijn],
+        ['Concentratie', receptData.concentratie],
+        ['Hoeveelheid', receptData.hoeveelheid],
+        ['Patiënt', receptData.patient_naam],
+        ['Geboortedatum', receptData.geboortedatum],
+        ['Datum recept', receptData.recept_datum],
+        ['Voorschrijver', receptData.voorschrijver],
+      ];
+      velden.innerHTML = tonen
+        .filter(([, v]) => v && v !== 'null')
+        .map(([l, v]) => `
+          <div class="recept-veld">
+            <span class="label">${l}</span>
+            <span class="waarde">${v}</span>
+          </div>`)
+        .join('');
+
+      if (receptData.geldig === false) {
+        kaart.insertAdjacentHTML('beforeend', '<span class="verlopen-badge">⚠ Recept mogelijk verlopen</span>');
+      }
+    }
+
+    // Start gesprek
+    document.getElementById('berichtInput').disabled = false;
+    document.getElementById('verstuurBtn').disabled = false;
+    document.getElementById('berichtInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') verstuurBericht();
+    });
+
+    startGesprek();
+  }
+
+  async function startGesprek() {
+    toonTypIndicator(true);
+    const naam = receptData?.patient_naam || '';
+    const medicijn = receptData?.medicijn || 'uw medicijn';
+    const geldig = receptData?.geldig !== false;
+
+    chatGeschiedenis.push({
+      role: 'user',
+      content: `Ik heb zojuist mijn recept geüpload. Begroet mij en bevestig wat je hebt gevonden.`
+    });
+
+    const antwoord = await haalAgentAntwoord();
+    toonTypIndicator(false);
+    voegBerichtToe('agent', antwoord);
+
+    // Actieknoppen
+    toonActieKnoppen([
+      { label: '✓ Gegevens kloppen', actie: 'Ja, de gegevens kloppen. Wat is de volgende stap?' },
+      { label: '✎ Gegevens aanpassen', actie: 'Ik wil een gegeven aanpassen.' },
+      { label: '? Vraag stellen', actie: null },
+    ]);
+  }
+
+  function toonActieKnoppen(knoppen) {
+    const container = document.getElementById('actieKnoppen');
+    container.innerHTML = knoppen.map(k => `
+      <button class="actie-btn" onclick="klikActie('${k.actie?.replace(/'/g, "\\'") || ''}')">${k.label}</button>
+    `).join('');
+  }
+
+  function klikActie(actie) {
+    if (!actie) return;
+    document.getElementById('actieKnoppen').innerHTML = '';
+    voegBerichtToe('klant', actie);
+    chatGeschiedenis.push({ role: 'user', content: actie });
+    haalEnToonAntwoord();
+  }
+
+  async function verstuurBericht() {
+    const input = document.getElementById('berichtInput');
+    const tekst = input.value.trim();
+    if (!tekst) return;
+
+    input.value = '';
+    document.getElementById('actieKnoppen').innerHTML = '';
+    voegBerichtToe('klant', tekst);
+    chatGeschiedenis.push({ role: 'user', content: tekst });
+    await haalEnToonAntwoord();
+  }
+
+  async function haalEnToonAntwoord() {
+    toonTypIndicator(true);
+    const antwoord = await haalAgentAntwoord();
+    toonTypIndicator(false);
+    voegBerichtToe('agent', antwoord);
+    chatGeschiedenis.push({ role: 'assistant', content: antwoord });
+  }
+
+  async function haalAgentAntwoord() {
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          berichten: chatGeschiedenis,
+          recept_context: receptData || {}
+        })
+      });
+      const data = await res.json();
+      chatGeschiedenis.push({ role: 'assistant', content: data.antwoord });
+      return data.antwoord;
+    } catch (e) {
+      return 'Er is een fout opgetreden. Probeer het opnieuw of neem contact op.';
+    }
+  }
+
+  function voegBerichtToe(rol, tekst) {
+    const container = document.getElementById('berichten');
+    const div = document.createElement('div');
+    div.className = `bericht ${rol}`;
+    div.innerHTML = `
+      <div class="bericht-avatar">${rol === 'agent' ? 'F' : '👤'}</div>
+      <div class="bericht-tekst">${tekst.replace(/\n/g, '<br>')}</div>
+    `;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function toonTypIndicator(zichtbaar) {
+    document.getElementById('typt').classList.toggle('visible', zichtbaar);
+    document.getElementById('berichten').scrollTop = 9999;
+  }
+</script>
+
+</body>
+</html>
