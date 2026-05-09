@@ -587,13 +587,13 @@
     bestandNaam = bestand.name;
     bestandUrl = URL.createObjectURL(bestand);
 
-    document.getElementById('uploadScherm').style.display = 'none';
+    const us = document.getElementById('uploadScherm'); if (us) us.style.display = 'none';
     document.getElementById('loaderScherm').classList.add('zichtbaar');
 
     const stap = document.getElementById('loaderStap');
-    stap.textContent = 'Uploaden…';
-    setTimeout(() => stap.textContent = 'Tekst uitlezen met AI…', 1000);
-    setTimeout(() => stap.textContent = 'Velden verwerken…', 2500);
+    if (stap) stap.textContent = 'Uploaden…';
+    setTimeout(() => { if (stap) stap.textContent = 'Tekst uitlezen met AI…'; }, 1000);
+    setTimeout(() => { if (stap) stap.textContent = 'Velden verwerken…'; }, 2500);
 
     const formData = new FormData();
     formData.append('bestand', bestand);
@@ -603,7 +603,7 @@
       receptData = await res.json();
       toonWerkblad();
     } catch (e) {
-      alert('Fout: ' + e.message + '\n\nType: ' + e.name);
+      alert('Fout bij uploaden. Probeer opnieuw.');
       nieuweUpload();
     }
   }
