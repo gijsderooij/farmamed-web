@@ -603,7 +603,7 @@
       receptData = await res.json();
       toonWerkblad();
     } catch (e) {
-      alert('Fout bij uploaden. Probeer opnieuw.');
+      alert('Fout: ' + e.message + '\n\nType: ' + e.name);
       nieuweUpload();
     }
   }
