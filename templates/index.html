@@ -198,7 +198,7 @@
           <div class="veld-rij"><span class="veld-label">Postcode & plaats <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-postcode_plaats" type="text" placeholder="1234AB Plaatsnaam" required></div>
           <div class="veld-rij"><span class="veld-label">E-mailadres <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-email" type="email" placeholder="Verplicht" required></div>
           <div class="veld-rij"><span class="veld-label">Telefoonnummer <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-telefoon" type="tel" placeholder="Verplicht" required></div>
-          <div class="veld-rij" id="bsn-rij"><span class="veld-label">BSN-nummer <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-bsn" type="text" placeholder="Verplicht" required></div>
+          <div class="veld-rij"><span class="veld-label">BSN-nummer <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-bsn" type="text" placeholder="Verplicht" required></div>
         </div>
         <p style="font-size:11px;color:var(--muted);margin-top:4px"><span style="color:var(--danger)">*</span> Alle velden zijn verplicht</p>
       </div>
@@ -330,8 +330,8 @@
       'v-voornaam': data.patient_naam ? data.patient_naam.split(' ')[0] : '',
       'v-achternaam': data.patient_naam ? data.patient_naam.split(' ').slice(1).join(' ') : '',
       'v-geboortedatum': data.geboortedatum,
-      'v-straat': data.adres ? data.adres.split(',')[0] : '',
-      'v-postcode_plaats': data.adres ? data.adres.split(',').slice(1).join(',').trim() : '',
+      'v-straat': data.straat || (data.adres ? data.adres.split(',')[0] : ''),
+      'v-postcode_plaats': data.postcode_plaats || (data.adres ? data.adres.split(',').slice(1).join(',').trim() : ''),
       'v-email': data.email,
       'v-telefoon': data.telefoon,
       'v-bsn': data.bsn,
@@ -390,8 +390,7 @@
     document.querySelectorAll('.rol-btn')[rol === 'patient' ? 0 : 1].classList.add('actief');
     const isApotheker = rol === 'apotheker';
     if (el('wcTab')) el('wcTab').style.display = isApotheker ? 'block' : 'none';
-    const bsnRij = el('bsn-rij');
-    if (bsnRij) bsnRij.style.display = isApotheker ? 'grid' : 'none';
+    // BSN altijd tonen - verplicht voor beide rollen
   }
 
   function toonTab(naam) {
@@ -410,8 +409,7 @@
   }
 
   function bevestigGegevens() {
-    const verplicht = ['v-voornaam', 'v-achternaam', 'v-geboortedatum', 'v-straat', 'v-postcode_plaats', 'v-email', 'v-telefoon'];
-    if (huidigeRol === 'apotheker') verplicht.push('v-bsn');
+    const verplicht = ['v-voornaam', 'v-achternaam', 'v-geboortedatum', 'v-straat', 'v-postcode_plaats', 'v-email', 'v-telefoon', 'v-bsn'];
     const ontbrekend = verplicht.filter(id => { const e = el(id); return !e || !e.value.trim(); });
     if (ontbrekend.length > 0) {
       ontbrekend.forEach(id => { const e = el(id); if (e) e.style.borderColor = 'var(--danger)'; });
