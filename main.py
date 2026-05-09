@@ -94,21 +94,30 @@ async def analyseer_recept(bestand: UploadFile = File(...)):
     prompt = """Analyseer dit recept en extraheer de velden als JSON.
 Geef ALLEEN JSON terug, geen uitleg of markdown.
 
+BELANGRIJK voor adres en naam:
+- Het patiëntblok staat meestal in deze volgorde: voor- en achternaam, straatnaam + huisnummer, postcode + woonplaats
+- Lees het ADRESBLOK van de PATIËNT uit, NIET het adres van de apotheek of voorschrijver
+- De "straat" is de straatnaam + huisnummer van de PATIËNT
+- De "postcode_plaats" is de postcode + woonplaats van de PATIËNT
+- NIET de naam van de voorschrijver of arts gebruiken als woonplaats (bijv. "van Coevorden" is een achternaam, geen stad)
+- De voorschrijver staat apart vermeld als arts/huisarts/specialist, NIET als woonplaats van de patiënt
+
 {
   "recept_datum": "DD-MM-YYYY of null",
-  "medicijn": "volledige naam inclusief concentratie",
-  "concentratie": "bijv. 0.02%",
-  "hoeveelheid": "bijv. 30 gram",
-  "iter": "aantal herhalingen of null",
-  "gebruiksaanwijzing": "volledige instructie",
-  "patient_naam": "voor- en achternaam",
+  "medicijn": "volledige naam inclusief concentratie, bijv. Tretinoïne 0.02% crème",
+  "hoeveelheid": "bijv. 30 gram of 3 tubes van 30 gram",
+  "iter": "aantal herhalingen of null, bijv. 2x iter",
+  "gebruiksaanwijzing": "volledige instructie na S: of Sig:",
+  "patient_naam": "volledige voor- en achternaam van de PATIËNT",
   "geboortedatum": "DD-MM-YYYY of null",
-  "bsn": "9-cijferig nummer of null",
-  "email": "emailadres of null",
-  "telefoon": "telefoonnummer of null",
-  "voorschrijver": "naam arts",
-  "agb_code": "AGB-code of null",
-  "big_nummer": "BIG-nummer of null",
+  "bsn": "9-cijferig BSN-nummer van de patiënt of null",
+  "straat": "straatnaam + huisnummer van de PATIËNT (niet van arts of apotheek)",
+  "postcode_plaats": "postcode + woonplaats van de PATIËNT (niet van arts of apotheek)",
+  "email": "emailadres van de patiënt of null",
+  "telefoon": "telefoonnummer van de patiënt of null",
+  "voorschrijver": "naam van de arts/voorschrijver (niet de patiënt)",
+  "agb_code": "AGB-code van de arts of null",
+  "big_nummer": "BIG-nummer van de arts of null",
   "geldig": true,
   "vertrouwen": 85
 }"""
