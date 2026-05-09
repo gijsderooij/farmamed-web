@@ -574,9 +574,25 @@
           <div class="veld-groep-titel">Recept informatie</div>
           <div class="veld-rij"><span class="veld-label">Datum recept</span><input class="veld-input" id="v-recept_datum" type="text" placeholder="—"></div>
           <div class="veld-rij"><span class="veld-label">Medicijn</span><input class="veld-input" id="v-medicijn" type="text" placeholder="—"></div>
-          <div class="veld-rij"><span class="veld-label">Concentratie</span><input class="veld-input" id="v-concentratie" type="text" placeholder="—"></div>
           <div class="veld-rij"><span class="veld-label">Hoeveelheid</span><input class="veld-input" id="v-hoeveelheid" type="text" placeholder="—"></div>
-          <div class="veld-rij"><span class="veld-label">Iter</span><input class="veld-input" id="v-iter" type="text" placeholder="—"></div>
+          <div class="veld-rij">
+            <span class="veld-label">Herhaalrecept?</span>
+            <select class="veld-input" id="v-iter">
+              <option value="">— Onbekend</option>
+              <option value="Eenmalig">Eenmalig</option>
+              <option value="Geldig tot datum">Geldig tot datum</option>
+              <option value="Geldig gedurende periode">Geldig gedurende periode</option>
+              <option value="1x iter">1x herhaling</option>
+              <option value="2x iter">2x herhalingen</option>
+              <option value="3x iter">3x herhalingen</option>
+              <option value="4x iter">4x herhalingen</option>
+              <option value="5x iter">5x herhalingen</option>
+            </select>
+          </div>
+          <div class="veld-rij" id="iter-datum-rij" style="display:none">
+            <span class="veld-label">Geldig tot</span>
+            <input class="veld-input" id="v-iter-datum" type="text" placeholder="DD-MM-YYYY">
+          </div>
           <div class="veld-rij" style="align-items:flex-start"><span class="veld-label" style="padding-top:8px">Gebruiksaanwijzing</span><textarea class="veld-input" id="v-gebruiksaanwijzing" rows="3" placeholder="—"></textarea></div>
         </div>
         <div id="receptGeldigheid"></div>
@@ -586,12 +602,40 @@
       <div class="tab-inhoud" id="tab-patient">
         <div class="veld-groep">
           <div class="veld-groep-titel">Patiëntgegevens</div>
-          <div class="veld-rij"><span class="veld-label">Naam</span><input class="veld-input" id="v-patient_naam" type="text" placeholder="—"></div>
-          <div class="veld-rij"><span class="veld-label">Geboortedatum</span><input class="veld-input" id="v-geboortedatum" type="text" placeholder="DD-MM-YYYY"></div>
-          <div class="veld-rij"><span class="veld-label">BSN</span><input class="veld-input" id="v-bsn" type="text" placeholder="—"></div>
-          <div class="veld-rij"><span class="veld-label">Telefoon</span><input class="veld-input" id="v-telefoon" type="text" placeholder="—"></div>
-          <div class="veld-rij"><span class="veld-label">E-mail</span><input class="veld-input" id="v-email" type="text" placeholder="—"></div>
+          <div class="veld-rij">
+            <span class="veld-label">Voornaam <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-voornaam" type="text" placeholder="Verplicht" required>
+          </div>
+          <div class="veld-rij">
+            <span class="veld-label">Achternaam <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-achternaam" type="text" placeholder="Verplicht" required>
+          </div>
+          <div class="veld-rij">
+            <span class="veld-label">Geboortedatum <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-geboortedatum" type="text" placeholder="DD-MM-YYYY" required>
+          </div>
+          <div class="veld-rij">
+            <span class="veld-label">Straat & huisnr. <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-straat" type="text" placeholder="Verplicht" required>
+          </div>
+          <div class="veld-rij">
+            <span class="veld-label">Postcode & plaats <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-postcode_plaats" type="text" placeholder="1234AB Plaatsnaam" required>
+          </div>
+          <div class="veld-rij">
+            <span class="veld-label">E-mailadres <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-email" type="email" placeholder="Verplicht" required>
+          </div>
+          <div class="veld-rij">
+            <span class="veld-label">Telefoonnummer <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-telefoon" type="tel" placeholder="Verplicht" required>
+          </div>
+          <div class="veld-rij">
+            <span class="veld-label">BSN-nummer <span style="color:var(--danger)">*</span></span>
+            <input class="veld-input" id="v-bsn" type="text" placeholder="Verplicht" required>
+          </div>
         </div>
+        <p style="font-size:11px;color:var(--muted);margin-top:4px"><span style="color:var(--danger)">*</span> Alle velden zijn verplicht</p>
       </div>
 
       <!-- Tab: Voorschrijver -->
@@ -672,6 +716,16 @@
 
   function el(id) { return document.getElementById(id); }
 
+  // Toon datum veld als "Geldig tot datum" geselecteerd
+  document.addEventListener('change', function(e) {
+    if (e.target && e.target.id === 'v-iter') {
+      const datumRij = document.getElementById('iter-datum-rij');
+      if (datumRij) {
+        datumRij.style.display = e.target.value === 'Geldig tot datum' ? 'grid' : 'none';
+      }
+    }
+  });
+
   function toonWerkblad() {
     if (el('loaderScherm')) el('loaderScherm').classList.remove('zichtbaar');
     if (el('werkblad')) el('werkblad').classList.add('zichtbaar');
@@ -691,6 +745,9 @@
 
     // Velden vullen
     vulVelden(receptData);
+
+    // Iter/herhaalrecept instellen
+    setIterWaarde(receptData.iter);
 
     // Vertrouwen badge
     const v = receptData.vertrouwen || 0;
@@ -731,12 +788,16 @@
       'v-medicijn': data.medicijn,
       'v-concentratie': data.concentratie,
       'v-hoeveelheid': data.hoeveelheid,
-      'v-iter': data.iter,
+      // iter wordt apart afgehandeld via setIterWaarde
+
       'v-gebruiksaanwijzing': data.gebruiksaanwijzing,
-      'v-patient_naam': data.patient_naam,
+      'v-voornaam': data.patient_naam ? data.patient_naam.split(' ')[0] : '',
+      'v-achternaam': data.patient_naam ? data.patient_naam.split(' ').slice(1).join(' ') : '',
       'v-geboortedatum': data.geboortedatum,
       'v-bsn': data.bsn,
       'v-telefoon': data.telefoon,
+      'v-straat': data.adres ? data.adres.split(',')[0] : '',
+      'v-postcode_plaats': data.adres ? data.adres.split(',').slice(1).join(',').trim() : '',
       'v-email': data.email,
       'v-voorschrijver': data.voorschrijver,
       'v-agb_code': data.agb_code,
@@ -748,6 +809,32 @@
     }
   }
 
+  function setIterWaarde(iterTekst) {
+    if (!iterTekst) return;
+    const select = el('v-iter');
+    if (!select) return;
+    const tekst = iterTekst.toLowerCase();
+    if (tekst.includes('eenmalig') || tekst === '0' || tekst === 'geen') {
+      select.value = 'Eenmalig';
+    } else if (tekst.includes('1x') || tekst.includes('1 x')) {
+      select.value = '1x iter';
+    } else if (tekst.includes('2x') || tekst.includes('2 x')) {
+      select.value = '2x iter';
+    } else if (tekst.includes('3x') || tekst.includes('3 x')) {
+      select.value = '3x iter';
+    } else if (tekst.includes('4x')) {
+      select.value = '4x iter';
+    } else if (tekst.includes('5x')) {
+      select.value = '5x iter';
+    } else if (tekst.includes('datum') || tekst.includes('tot')) {
+      select.value = 'Geldig tot datum';
+      const datumRij = el('iter-datum-rij');
+      if (datumRij) datumRij.style.display = 'grid';
+    } else if (tekst.includes('periode')) {
+      select.value = 'Geldig gedurende periode';
+    }
+  }
+
   function haalVeldenOp() {
     return {
       recept_datum: document.getElementById('v-recept_datum').value,
@@ -756,7 +843,11 @@
       hoeveelheid: document.getElementById('v-hoeveelheid').value,
       iter: document.getElementById('v-iter').value,
       gebruiksaanwijzing: document.getElementById('v-gebruiksaanwijzing').value,
-      patient_naam: document.getElementById('v-patient_naam').value,
+      voornaam: document.getElementById('v-voornaam')?.value || '',
+      achternaam: document.getElementById('v-achternaam')?.value || '',
+      patient_naam: (document.getElementById('v-voornaam')?.value + ' ' + document.getElementById('v-achternaam')?.value).trim(),
+      straat: document.getElementById('v-straat')?.value || '',
+      postcode_plaats: document.getElementById('v-postcode_plaats')?.value || '',
       geboortedatum: document.getElementById('v-geboortedatum').value,
       bsn: document.getElementById('v-bsn').value,
       telefoon: document.getElementById('v-telefoon').value,
@@ -808,6 +899,26 @@
   }
 
   function bevestigGegevens() {
+    // Valideer verplichte velden
+    const verplicht = ['v-voornaam', 'v-achternaam', 'v-geboortedatum', 'v-straat', 'v-postcode_plaats', 'v-email', 'v-telefoon', 'v-bsn'];
+    const ontbrekend = verplicht.filter(id => {
+      const el = document.getElementById(id);
+      return !el || !el.value.trim();
+    });
+
+    if (ontbrekend.length > 0) {
+      // Markeer lege verplichte velden rood
+      ontbrekend.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.borderColor = 'var(--danger)';
+      });
+      // Ga naar patiënt tab
+      toonTab('patient');
+      if (el('statusTekst')) el('statusTekst').textContent = '⚠ Vul alle verplichte velden in';
+      if (el('statusTekst')) el('statusTekst').style.color = 'var(--danger)';
+      return;
+    }
+
     slaGegevensOp();
     bevestigd = true;
     document.getElementById('btnBevestig').style.display = 'none';
