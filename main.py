@@ -164,3 +164,81 @@ Richtlijnen:
         return JSONResponse(content={"antwoord": antwoord})
     except Exception as e:
         return JSONResponse(content={"antwoord": f"Er is een fout opgetreden: {str(e)}"})
+
+
+@app.post("/api/maak-order")
+async def maak_order(request: Request):
+    """Maak een WooCommerce bestelling aan op basis van de receptgegevens."""
+    data = await request.json()
+
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not all([wc_url, wc_key, wc_secret]):
+        return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
+
+    # Zoek product op basis van medicijnnaam
+    medicijn = data.get("medicijn", "")
+    product_id = await _zoek_product_id(medicijn, wc_url, wc_key, wc_secret)
+
+    naam_delen = (data.get("patient_naam") or "").split(" ", 1)
+    voornaam = naam_delen[0] if naam_delen else ""
+    achternaam = naam_delen[1] if len(naam_delen) > 1 else ""
+
+    order_payload = {
+        "status": "processing",
+        "billing": {
+            "first_name": voornaam,
+            "last_name": achternaam,
+            "email": data.get("email") or "onbekend@farmamed.nl",
+            "phone": data.get("telefoon") or "",
+        },
+        "line_items": [
+            {"product_id": product_id, "quantity": 1}
+        ] if product_id else [],
+        "meta_data": [
+            {"key": "geboortedatum", "value": data.get("geboortedatum") or ""},
+            {"key": "bsn", "value": data.get("bsn") or ""},
+            {"key": "voorschrijver", "value": data.get("voorschrijver") or ""},
+            {"key": "agb_code", "value": data.get("agb_code") or ""},
+            {"key": "big_nummer", "value": data.get("big_nummer") or ""},
+            {"key": "recept_datum", "value": data.get("recept_datum") or ""},
+            {"key": "medicijn_ocr", "value": data.get("medicijn") or ""},
+            {"key": "gebruiksaanwijzing", "value": data.get("gebruiksaanwijzing") or ""},
+            {"key": "iter", "value": data.get("iter") or ""},
+        ],
+        "customer_note": f"Recept ingediend via webformulier. Medicijn: {medicijn}",
+    }
+
+    try:
+        response = http_requests.post(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            json=order_payload,
+            timeout=20,
+        )
+        response.raise_for_status()
+        order = response.json()
+        return JSONResponse(content={"order_id": order["id"], "status": order["status"]})
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
+
+
+async def _zoek_product_id(medicijn_naam: str, wc_url: str, wc_key: str, wc_secret: str) -> int | None:
+    """Zoek het WooCommerce product-ID op basis van de medicijnnaam."""
+    if not medicijn_naam:
+        return None
+    try:
+        response = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/products",
+            auth=(wc_key, wc_secret),
+            params={"search": medicijn_naam[:30], "per_page": 5},
+            timeout=10,
+        )
+        producten = response.json()
+        if producten and isinstance(producten, list):
+            return producten[0]["id"]
+    except Exception:
+        pass
+    return None
