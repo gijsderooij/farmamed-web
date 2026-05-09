@@ -42,13 +42,34 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/api/test-upload")
+async def test_upload(bestand: UploadFile = File(...)):
+    """Test endpoint om te controleren of uploads werken."""
+    inhoud = await bestand.read()
+    return JSONResponse(content={
+        "ok": True,
+        "bestandsnaam": bestand.filename,
+        "grootte_kb": round(len(inhoud) / 1024, 1),
+        "type": bestand.content_type,
+    })
+
+
 @app.post("/api/analyseer-recept")
 async def analyseer_recept(bestand: UploadFile = File(...)):
     if not ANTHROPIC_API_KEY:
         return JSONResponse(content={"fout": "API-sleutel niet geconfigureerd"})
 
-    inhoud = await bestand.read()
+    try:
+        inhoud = await bestand.read()
+    except Exception as e:
+        return JSONResponse(content={"fout": f"Upload mislukt: {str(e)}"})
+
+    if not inhoud:
+        return JSONResponse(content={"fout": "Leeg bestand ontvangen"})
+
     bestandsnaam = bestand.filename or "recept"
+    grootte_kb = len(inhoud) / 1024
+    print(f"Upload ontvangen: {bestandsnaam} ({grootte_kb:.0f} KB)")
 
     if bestandsnaam.lower().endswith(".pdf"):
         media_type = "application/pdf"
