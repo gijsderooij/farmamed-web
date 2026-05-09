@@ -603,41 +603,36 @@
       receptData = await res.json();
       toonWerkblad();
     } catch (e) {
-      alert('Fout details: ' + e.message + ' | ' + e.name + ' | ' + e.stack);
+      alert('Fout bij uploaden. Probeer opnieuw.');
       nieuweUpload();
     }
   }
 
-  function toonWerkblad() {
-    document.getElementById('loaderScherm').classList.remove('zichtbaar');
-    document.getElementById('werkblad').classList.add('zichtbaar');
+  function el(id) { return document.getElementById(id); }
 
-    // Recept tonen
-    document.getElementById('bestandsnaamLabel').textContent = bestandNaam;
-    const viewer = document.getElementById('receptViewer');
-    if (bestandNaam.toLowerCase().endsWith('.pdf')) {
-      viewer.innerHTML = `<embed id="pdfEmbed" src="${bestandUrl}" type="application/pdf">`;
-    } else {
-      viewer.innerHTML = `<img id="receptAfbeelding" src="${bestandUrl}" alt="Recept">`;
-    }
+  function toonWerkblad() {
+    if (el('loaderScherm')) el('loaderScherm').classList.remove('zichtbaar');
+    if (el('werkblad')) el('werkblad').classList.add('zichtbaar');
 
     // Velden vullen
     vulVelden(receptData);
 
     // Vertrouwen badge
     const v = receptData.vertrouwen || 0;
-    const badge = document.getElementById('vertrouwenBadge');
-    if (v >= 80) badge.innerHTML = `<span class="badge badge-ok">✓ ${v}% vertrouwen</span>`;
-    else if (v >= 60) badge.innerHTML = `<span class="badge badge-warn">⚠ ${v}% vertrouwen</span>`;
-    else badge.innerHTML = `<span class="badge badge-fout">⚠ Laag vertrouwen</span>`;
+    const badge = el('vertrouwenBadge');
+    if (badge) {
+      if (v >= 80) badge.innerHTML = `<span class="badge badge-ok">✓ ${v}% vertrouwen</span>`;
+      else if (v >= 60) badge.innerHTML = `<span class="badge badge-warn">⚠ ${v}% vertrouwen</span>`;
+      else badge.innerHTML = `<span class="badge badge-fout">⚠ Laag vertrouwen</span>`;
+    }
 
     // Geldigheid
     const geldig = receptData.geldig !== false;
-    const geldigheidDiv = document.getElementById('receptGeldigheid');
-    if (!geldig) {
-      geldigheidDiv.innerHTML = `<div class="badge badge-fout" style="margin-top:8px">⛔ Recept mogelijk verlopen — ouder dan 1 jaar</div>`;
-    } else {
-      geldigheidDiv.innerHTML = `<div class="badge badge-ok" style="margin-top:8px">✓ Recept geldig</div>`;
+    const geldigheidDiv = el('receptGeldigheid');
+    if (geldigheidDiv) {
+      geldigheidDiv.innerHTML = geldig
+        ? `<div class="badge badge-ok" style="margin-top:8px">✓ Recept geldig</div>`
+        : `<div class="badge badge-fout" style="margin-top:8px">⛔ Recept mogelijk verlopen</div>`;
     }
 
     // Rol instellen
@@ -647,10 +642,10 @@
     document.querySelectorAll('.veld-input').forEach(input => {
       input.addEventListener('input', () => {
         input.classList.add('gewijzigd');
-        document.getElementById('btnOpslaan').style.display = 'inline-flex';
+        if (el('btnOpslaan')) el('btnOpslaan').style.display = 'inline-flex';
         bevestigd = false;
-        document.getElementById('statusTekst').textContent = '';
-        document.getElementById('btnBevestig').style.display = 'inline-flex';
+        if (el('statusTekst')) el('statusTekst').textContent = '';
+        if (el('btnBevestig')) el('btnBevestig').style.display = 'inline-flex';
       });
     });
   }
