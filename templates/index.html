@@ -466,7 +466,37 @@
     if (el('werkblad')) el('werkblad').classList.remove('zichtbaar');
     if (bestandInput) bestandInput.value = '';
     receptData = {}; bestandUrl = null; bevestigd = false;
-    if (el('statusTekst')) el('statusTekst').textContent = '';
+
+    // Leegmaken alle invoervelden
+    const veldIds = [
+      'v-recept_datum', 'v-medicijn', 'v-hoeveelheid', 'v-gebruiksaanwijzing',
+      'v-voornaam', 'v-achternaam', 'v-geboortedatum', 'v-straat',
+      'v-postcode_plaats', 'v-email', 'v-telefoon', 'v-bsn',
+      'v-voorschrijver', 'v-agb_code', 'v-big_nummer', 'v-iter-datum'
+    ];
+    veldIds.forEach(id => { const e = el(id); if (e) { e.value = ''; e.style.borderColor = ''; } });
+
+    // Reset dropdown
+    const iterSelect = el('v-iter');
+    if (iterSelect) iterSelect.value = '';
+    const iterDatumRij = el('iter-datum-rij');
+    if (iterDatumRij) iterDatumRij.style.display = 'none';
+
+    // Reset badges en status
+    if (el('vertrouwenBadge')) el('vertrouwenBadge').innerHTML = '';
+    if (el('receptGeldigheid')) el('receptGeldigheid').innerHTML = '';
+    if (el('wcStatus')) { el('wcStatus').className = 'wc-status'; el('wcStatus').textContent = ''; }
+    if (el('wcSamenvatting')) el('wcSamenvatting').innerHTML = '';
+    if (el('wcBtn')) { el('wcBtn').disabled = false; el('wcBtn').textContent = '📦 Bestelling aanmaken in WooCommerce'; }
+
+    // Reset recept viewer
+    const viewer = el('receptViewer');
+    if (viewer) viewer.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted);font-size:14px;padding:40px;text-align:center;height:100%"><span style="font-size:48px">📋</span><span>Recept verschijnt hier na uploaden</span></div>';
+
+    // Reset tab naar recept
+    toonTab('recept');
+
+    if (el('statusTekst')) { el('statusTekst').textContent = ''; el('statusTekst').style.color = ''; }
     if (el('btnBevestig')) el('btnBevestig').style.display = 'inline-flex';
     if (el('btnOpslaan')) el('btnOpslaan').style.display = 'none';
   }
