@@ -499,6 +499,38 @@ Verwar de achternaam van de arts NIET met een woonplaats.
     return JSONResponse(content={"recept": recept_data, "vergelijking": vergelijking})
 
 
+def _normaliseer_naam(naam: str) -> str:
+    """
+    Normaliseert patiëntnamen voor betere vergelijking.
+    - Verwijdert tussenvoegsels (van, de, den, der, het, 't)
+    - Verwijdert voorletters (J. of J.M.)
+    - Verwijdert koppeltekens tussen dubbele namen
+    - Zet om naar lowercase
+    - Verwijdert mevrouw/dhr/de heer titels
+    """
+    import re
+
+    naam = naam.lower().strip()
+
+    # Verwijder titels
+    naam = re.sub(r'\b(mw\.?|dhr\.?|de heer|mevrouw|drs\.?|dr\.?|mr\.?)\s*', '', naam)
+
+    # Verwijder voorletters (bijv. "J." of "J.M.")
+    naam = re.sub(r'\b[a-z]\.(?:[a-z]\.)*\s*', '', naam)
+
+    # Vervang koppeltekens door spatie (meisjesnaam koppeling)
+    naam = naam.replace('-', ' ')
+
+    # Verwijder tussenvoegsels
+    tussenvoegsels = r'\b(van|de|den|der|het|ten|ter|\'t|d\'|von|van der|van den|van de)\b'
+    naam = re.sub(tussenvoegsels, '', naam)
+
+    # Verwijder extra spaties
+    naam = re.sub(r'\s+', ' ', naam).strip()
+
+    return naam
+
+
 def _normaliseer_medicijn(naam: str) -> str:
     """
     Verwijdert ruis uit medicijnnamen voor betere vergelijking.
@@ -589,7 +621,12 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
             score = fuzz.token_sort_ratio(wc_str, rec_str)
         return {"veld": naam, "wc_waarde": wc_waarde or "—", "recept_waarde": recept_waarde or "—", "score": score}
 
-    velden.append(vergelijk_veld("Naam", wc_naam, recept.get("patient_naam")))
+    wc_naam_norm = _normaliseer_naam(wc_naam)
+    recept_naam_norm = _normaliseer_naam(recept.get("patient_naam") or "")
+    veld_naam = vergelijk_veld("Naam", wc_naam, recept.get("patient_naam"))
+    from rapidfuzz import fuzz as _fuzz2
+    veld_naam["score"] = _fuzz2.token_sort_ratio(wc_naam_norm, recept_naam_norm)
+    velden.append(veld_naam)
     velden.append(vergelijk_veld("Geboortedatum", wc_geboortedatum, recept.get("geboortedatum")))
     wc_medicijn_norm = _normaliseer_medicijn(wc_medicijn)
     recept_medicijn_norm = _normaliseer_medicijn(recept.get("medicijn") or "")
