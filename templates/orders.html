@@ -379,7 +379,7 @@
       ['Datum', order.datum],
       ['Status', order.status],
       ['Medicijn', order.medicijn],
-      ['Hoeveelheid', order.hoeveelheid + ' gram'],
+      ['Hoeveelheid', (order.aantal > 1 ? order.aantal + 'x 30 gram = ' : '') + order.hoeveelheid + ' gram'],
       ['Totaalbedrag', '€' + order.totaal],
     ];
     let html = '<div class="sectie-titel">Bestelgegevens</div>';
