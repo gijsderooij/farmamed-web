@@ -499,6 +499,46 @@ Verwar de achternaam van de arts NIET met een woonplaats.
     return JSONResponse(content={"recept": recept_data, "vergelijking": vergelijking})
 
 
+def _normaliseer_hoeveelheid(tekst: str) -> str:
+    """
+    Normaliseert hoeveelheden voor betere vergelijking.
+    - g, G, gram, grammen → gram
+    - mg, milligram → milligram
+    - 1 stuk, 1 tube, 1x 30g → 30 gram
+    - 2 stuks, 2 tubes → 60 gram
+    - Verwijdert spaties tussen getal en eenheid
+    """
+    import re
+
+    tekst = tekst.lower().strip()
+
+    # Tubes/stuks omzetten naar gram (1 tube = 30 gram)
+    tube_match = re.search(r'(\d+)\s*(?:tube[s]?|stuk[s]?|stuks?|x)', tekst)
+    gram_match = re.search(r'(\d+)\s*(?:g|gram)', tekst)
+
+    if tube_match and gram_match:
+        # "3 tubes van 30 gram" → "90 gram"
+        aantal = int(tube_match.group(1))
+        gram = int(gram_match.group(1))
+        return f"{aantal * gram} gram"
+    elif tube_match and not gram_match:
+        # "2 tubes" → "60 gram" (1 tube = 30 gram)
+        aantal = int(tube_match.group(1))
+        return f"{aantal * 30} gram"
+    elif re.search(r'^\d+\s*(?:stuk[s]?|tube[s]?)$', tekst):
+        aantal = int(re.search(r'(\d+)', tekst).group(1))
+        return f"{aantal * 30} gram"
+
+    # Normaliseer eenheden
+    tekst = re.sub(r'(\d+)\s*(?:gram|grammen|gr|g)', r' gram', tekst)
+    tekst = re.sub(r'(\d+)\s*(?:milligram|mg)', r' milligram', tekst)
+
+    # Verwijder extra spaties
+    tekst = re.sub(r'\s+', ' ', tekst).strip()
+
+    return tekst
+
+
 def _normaliseer_naam(naam: str) -> str:
     """
     Normaliseert patiëntnamen voor betere vergelijking.
@@ -635,7 +675,12 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
     from rapidfuzz import fuzz as _fuzz
     veld["score"] = _fuzz.token_sort_ratio(wc_medicijn_norm, recept_medicijn_norm)
     velden.append(veld)
-    velden.append(vergelijk_veld("Hoeveelheid", wc_hoeveelheid, recept.get("hoeveelheid")))
+    wc_hoev_norm = _normaliseer_hoeveelheid(wc_hoeveelheid)
+    recept_hoev_norm = _normaliseer_hoeveelheid(recept.get("hoeveelheid") or "")
+    veld_hoev = vergelijk_veld("Hoeveelheid", wc_hoeveelheid, recept.get("hoeveelheid"))
+    from rapidfuzz import fuzz as _fuzz3
+    veld_hoev["score"] = _fuzz3.token_sort_ratio(wc_hoev_norm, recept_hoev_norm)
+    velden.append(veld_hoev)
 
     # Receptdatum geldigheid
     recept_datum = recept.get("recept_datum", "")
