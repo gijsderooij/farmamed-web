@@ -261,11 +261,17 @@
     const stap = el('loaderStap');
     if (stap) stap.textContent = 'Uploaden…';
     setTimeout(() => { if (stap) stap.textContent = 'Tekst uitlezen met AI…'; }, 1000);
-    setTimeout(() => { if (stap) stap.textContent = 'Velden verwerken…'; }, 2500);
+    setTimeout(() => { if (stap) stap.textContent = 'Velden verwerken…'; }, 4000);
+    setTimeout(() => { if (stap) stap.textContent = 'Bijna klaar…'; }, 8000);
+    setTimeout(() => { if (stap) stap.textContent = 'Nog even geduld…'; }, 15000);
+    setTimeout(() => { if (stap) stap.textContent = 'Dit kan tot 60 seconden duren…'; }, 25000);
     const formData = new FormData();
     formData.append('bestand', bestand);
     try {
-      const res = await fetch('/api/analyseer-recept', { method: 'POST', body: formData });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 65000);
+      const res = await fetch('/api/analyseer-recept', { method: 'POST', body: formData, signal: controller.signal });
+      clearTimeout(timeoutId);
       receptData = await res.json();
       toonWerkblad();
     } catch (e) {
