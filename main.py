@@ -140,7 +140,7 @@ BELANGRIJK voor adres en naam:
                     }
                 ],
             },
-            timeout=30,
+            timeout=60,
         )
         response.raise_for_status()
         tekst = response.json()["content"][0]["text"].strip()
