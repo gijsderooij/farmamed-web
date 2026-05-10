@@ -300,3 +300,269 @@ async def _zoek_product_id(medicijn_naam: str, wc_url: str, wc_key: str, wc_secr
     except Exception:
         pass
     return None
+
+
+# ------------------------------------------------------------------
+# Orders pagina
+# ------------------------------------------------------------------
+
+@app.get("/orders", response_class=HTMLResponse)
+async def orders_pagina():
+    html_path = BASE_DIR / "templates" / "orders.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/orders")
+async def haal_orders_op():
+    """Haalt openstaande WooCommerce orders op."""
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not all([wc_url, wc_key, wc_secret]):
+        return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
+
+    try:
+        response = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            params={"status": "processing", "per_page": 20, "orderby": "date", "order": "asc"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        orders_raw = response.json()
+
+        orders = []
+        for o in orders_raw:
+            billing = o.get("billing", {})
+            meta = {m["key"]: m["value"] for m in o.get("meta_data", [])}
+            items = o.get("line_items", [])
+            medicijn = items[0]["name"] if items else "Onbekend"
+            naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+            geboortedatum = meta.get("billing_birth") or meta.get("_billing_birth", "")
+
+            # Recept URL via plugin
+            recept_url = o.get("recept_url") or meta.get("recept_url", "")
+
+            orders.append({
+                "id": o["id"],
+                "status": o.get("status", ""),
+                "datum": o.get("date_created", "")[:10],
+                "klant_naam": naam,
+                "email": billing.get("email", ""),
+                "telefoon": billing.get("phone", ""),
+                "adres": f"{billing.get('address_1','')} {billing.get('postcode','')} {billing.get('city','')}".strip(),
+                "geboortedatum": geboortedatum,
+                "medicijn": medicijn,
+                "hoeveelheid": float(items[0].get("quantity", 1)) * 30 if items else 30,
+                "totaal": o.get("total", "0"),
+                "heeft_recept": bool(recept_url),
+                "recept_url": recept_url,
+            })
+
+        return JSONResponse(content={"orders": orders})
+
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
+
+
+@app.post("/api/recept-preview-url")
+async def recept_preview_url(request: Request):
+    """Haalt recept op via URL en converteert naar afbeelding voor weergave."""
+    body = await request.json()
+    url = body.get("url", "")
+
+    if not url:
+        return JSONResponse(content={"fout": "Geen URL opgegeven"})
+
+    try:
+        response = http_requests.get(url, timeout=20)
+        response.raise_for_status()
+        inhoud = response.content
+
+        if url.lower().endswith(".pdf") or response.headers.get("content-type", "").startswith("application/pdf"):
+            import fitz
+            doc = fitz.open(stream=inhoud, filetype="pdf")
+            pagina = doc[0]
+            mat = fitz.Matrix(1.5, 1.5)
+            pix = pagina.get_pixmap(matrix=mat, alpha=False)
+            img_bytes = pix.tobytes("jpeg")
+            b64 = base64.standard_b64encode(img_bytes).decode()
+            return JSONResponse(content={"preview": f"data:image/jpeg;base64,{b64}"})
+        else:
+            b64 = base64.standard_b64encode(inhoud).decode()
+            ct = response.headers.get("content-type", "image/jpeg").split(";")[0]
+            return JSONResponse(content={"preview": f"data:{ct};base64,{b64}"})
+
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
+
+
+@app.post("/api/analyseer-order")
+async def analyseer_order(request: Request):
+    """Analyseert recept van een WooCommerce order en vergelijkt met besteldata."""
+    body = await request.json()
+    order_id = body.get("order_id")
+    recept_url = body.get("recept_url", "")
+
+    if not recept_url:
+        return JSONResponse(content={"fout": "Geen recept-URL"})
+
+    # Download recept
+    try:
+        resp = http_requests.get(recept_url, timeout=20)
+        resp.raise_for_status()
+        recept_bytes = resp.content
+    except Exception as e:
+        return JSONResponse(content={"fout": f"Kon recept niet downloaden: {str(e)}"})
+
+    # Analyseer met Claude Vision
+    b64 = base64.standard_b64encode(recept_bytes).decode()
+    is_pdf = recept_url.lower().endswith(".pdf")
+    document_blok = {
+        "type": "document" if is_pdf else "image",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf" if is_pdf else "image/jpeg",
+            "data": b64
+        }
+    }
+
+    prompt = """Analyseer dit recept en extraheer de velden als JSON.
+Geef ALLEEN JSON terug, geen uitleg of markdown.
+
+BELANGRIJK: Lees het adresblok van de PATIËNT uit (niet van de arts).
+Volgorde adresblok: naam → straat + huisnummer → postcode + woonplaats.
+Verwar de achternaam van de arts NIET met een woonplaats.
+
+{
+  "recept_datum": "DD-MM-YYYY of null",
+  "medicijn": "volledige naam inclusief concentratie",
+  "hoeveelheid": "bijv. 30 gram",
+  "iter": "herhalingen of null",
+  "gebruiksaanwijzing": "instructie na S:",
+  "patient_naam": "voor- en achternaam patiënt",
+  "geboortedatum": "DD-MM-YYYY of null",
+  "bsn": "BSN-nummer of null",
+  "straat": "straat + huisnummer patiënt",
+  "postcode_plaats": "postcode + woonplaats patiënt",
+  "email": "email patiënt of null",
+  "telefoon": "telefoon patiënt of null",
+  "voorschrijver": "naam arts",
+  "agb_code": "AGB-code of null",
+  "big_nummer": "BIG-nummer of null",
+  "geldig": true,
+  "vertrouwen": 85
+}"""
+
+    try:
+        api_resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": [document_blok, {"type": "text", "text": prompt}]}],
+            },
+            timeout=60,
+        )
+        api_resp.raise_for_status()
+        tekst = api_resp.json()["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
+        recept_data = json.loads(tekst)
+    except Exception as e:
+        return JSONResponse(content={"fout": f"OCR mislukt: {str(e)}"})
+
+    # Haal WooCommerce order op voor vergelijking
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+    wc_order = {}
+
+    try:
+        wc_resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+            auth=(wc_key, wc_secret),
+            timeout=15,
+        )
+        wc_order = wc_resp.json()
+    except Exception:
+        pass
+
+    # Vergelijking
+    vergelijking = _vergelijk_order_recept(wc_order, recept_data)
+
+    return JSONResponse(content={"recept": recept_data, "vergelijking": vergelijking})
+
+
+def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
+    """Vergelijkt WooCommerce besteldata met OCR-receptdata."""
+    from rapidfuzz import fuzz
+
+    billing = wc_order.get("billing", {})
+    meta = {m["key"]: m["value"] for m in wc_order.get("meta_data", [])}
+    items = wc_order.get("line_items", [])
+
+    wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+    wc_medicijn = items[0]["name"] if items else ""
+    wc_geboortedatum = meta.get("billing_birth") or meta.get("_billing_birth", "")
+
+    velden = []
+    aandachtspunten = []
+
+    def vergelijk_veld(naam, wc_waarde, recept_waarde):
+        wc_str = str(wc_waarde or "").strip().lower()
+        rec_str = str(recept_waarde or "").strip().lower()
+        if not wc_str or not rec_str:
+            score = 40
+        else:
+            score = fuzz.token_sort_ratio(wc_str, rec_str)
+        return {"veld": naam, "wc_waarde": wc_waarde or "—", "recept_waarde": recept_waarde or "—", "score": score}
+
+    velden.append(vergelijk_veld("Naam", wc_naam, recept.get("patient_naam")))
+    velden.append(vergelijk_veld("Geboortedatum", wc_geboortedatum, recept.get("geboortedatum")))
+    velden.append(vergelijk_veld("Medicijn", wc_medicijn, recept.get("medicijn")))
+    velden.append(vergelijk_veld("Hoeveelheid", "30 gram", recept.get("hoeveelheid")))
+
+    # Receptdatum geldigheid
+    recept_datum = recept.get("recept_datum", "")
+    geldig = recept.get("geldig", True)
+    if not geldig:
+        aandachtspunten.append("⛔ Recept mogelijk verlopen — ouder dan 1 jaar")
+        velden.append({"veld": "Receptdatum", "wc_waarde": "Geldig", "recept_waarde": recept_datum, "score": 0})
+    else:
+        velden.append({"veld": "Receptdatum", "wc_waarde": "Geldig", "recept_waarde": recept_datum, "score": 100})
+
+    scores = [v["score"] for v in velden]
+    totaal = round(sum(scores) / len(scores)) if scores else 0
+
+    if totaal < 60:
+        aandachtspunten.append("⚠ Lage overeenkomst tussen bestelling en recept")
+
+    return {"velden": velden, "totaal_score": totaal, "aandachtspunten": aandachtspunten}
+
+
+@app.post("/api/order-status")
+async def update_order_status(request: Request):
+    """Werkt WooCommerce orderstatus bij na beslissing apotheker."""
+    body = await request.json()
+    order_id = body.get("order_id")
+    status = body.get("status", "completed")
+
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    try:
+        resp = http_requests.put(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+            auth=(wc_key, wc_secret),
+            json={"status": status},
+            timeout=15,
+        )
+        return JSONResponse(content={"ok": resp.status_code == 200})
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
