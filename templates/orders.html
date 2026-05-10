@@ -1,0 +1,528 @@
+
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Farmamed — Orders</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --teal:    #7bb8b8;
+      --teal-dk: #5a9898;
+      --teal-lt: #e8f4f4;
+      --cream:   #faf8f5;
+      --text:    #2c3e3e;
+      --muted:   #7a9090;
+      --border:  #dde8e8;
+      --white:   #ffffff;
+      --danger:  #c0392b;
+      --success: #27ae60;
+      --warn:    #e67e22;
+      --radius:  10px;
+      --shadow:  0 2px 16px rgba(90,152,152,0.10);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    header { background: var(--teal); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .nav { display: flex; gap: 8px; }
+    .nav a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 13px; padding: 6px 14px; border-radius: 6px; transition: all 0.2s; }
+    .nav a:hover, .nav a.actief { background: rgba(255,255,255,0.2); color: white; }
+
+    .hoofd { display: flex; flex: 1; overflow: hidden; }
+
+    /* Linker wachtrij */
+    .wachtrij { width: 320px; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: white; flex-shrink: 0; }
+    .wachtrij-header { padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--cream); display: flex; align-items: center; justify-content: space-between; }
+    .wachtrij-titel { font-size: 13px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .vernieuwen-btn { font-size: 12px; padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: white; cursor: pointer; color: var(--teal-dk); transition: all 0.15s; }
+    .vernieuwen-btn:hover { background: var(--teal-lt); }
+    .order-lijst { flex: 1; overflow-y: auto; }
+    .order-item { padding: 14px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.15s; }
+    .order-item:hover { background: var(--teal-lt); }
+    .order-item.actief { background: var(--teal-lt); border-left: 3px solid var(--teal); }
+    .order-nr { font-size: 13px; font-weight: 500; color: var(--text); }
+    .order-naam { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .order-medicijn { font-size: 11px; color: var(--teal-dk); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .order-badges { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+    .badge { font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 10px; }
+    .badge-ok { background: #e8f8ee; color: var(--success); }
+    .badge-warn { background: #fef3e2; color: var(--warn); }
+    .badge-fout { background: #fdecea; color: var(--danger); }
+    .badge-info { background: var(--teal-lt); color: var(--teal-dk); }
+    .laden-tekst { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+    .spinner-klein { width: 20px; height: 20px; border: 2px solid var(--teal-lt); border-top-color: var(--teal); border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Rechter detail */
+    .detail { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .detail-leeg { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--muted); }
+    .detail-leeg .groot { font-size: 48px; }
+
+    /* Split binnen detail */
+    .detail-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+    .detail-links { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: #f0f0f0; overflow: hidden; }
+    .detail-rechts { display: flex; flex-direction: column; overflow: hidden; background: white; }
+
+    .paneel-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--cream); flex-shrink: 0; }
+    .paneel-titel { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    .recept-viewer { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 12px; }
+
+    /* Tabs */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--cream); flex-shrink: 0; overflow-x: auto; }
+    .tab { padding: 9px 14px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; }
+    .tab.actief { color: var(--text); border-bottom-color: var(--teal); }
+    .tab-inhoud { display: none; flex: 1; overflow-y: auto; padding: 14px; }
+    .tab-inhoud.actief { display: block; }
+
+    /* Velden */
+    .sectie-titel { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--teal-dk); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--teal-lt); margin-top: 14px; }
+    .sectie-titel:first-child { margin-top: 0; }
+    .veld-rij { display: grid; grid-template-columns: 130px 1fr; gap: 6px; margin-bottom: 6px; align-items: center; }
+    .veld-label { font-size: 11px; color: var(--muted); }
+    .veld-waarde { font-size: 12px; font-weight: 500; color: var(--text); }
+    .match-rij { display: grid; grid-template-columns: 120px 1fr 1fr 60px; gap: 6px; margin-bottom: 5px; align-items: center; font-size: 11px; }
+    .match-label { color: var(--muted); }
+    .match-wc { color: var(--text); font-weight: 500; }
+    .match-recept { color: var(--teal-dk); }
+    .match-score { text-align: right; font-weight: 600; }
+    .match-score.hoog { color: var(--success); }
+    .match-score.midden { color: var(--warn); }
+    .match-score.laag { color: var(--danger); }
+    .match-header { display: grid; grid-template-columns: 120px 1fr 1fr 60px; gap: 6px; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+
+    /* Actiebalk */
+    .actiebalk { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; background: var(--cream); flex-shrink: 0; }
+    .btn { padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: white; color: var(--text); font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .btn:hover { background: var(--teal-lt); border-color: var(--teal); }
+    .btn-groen { background: #e8f8ee; color: var(--success); border-color: #b8e8c8; }
+    .btn-groen:hover { background: #d0f0dc; }
+    .btn-rood { background: #fdecea; color: var(--danger); border-color: #f5c6c2; }
+    .btn-rood:hover { background: #fbd5d2; }
+    .btn-blauw { background: var(--teal); color: white; border-color: var(--teal); }
+    .btn-blauw:hover { background: var(--teal-dk); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .status-tekst { font-size: 12px; margin-left: auto; }
+
+    /* EDIFACT */
+    .edifact-box { background: #1a1a2e; color: #a8d8d8; font-family: 'Courier New', monospace; font-size: 11px; padding: 14px; border-radius: var(--radius); line-height: 1.7; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
+    .download-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 16px; background: var(--teal); color: white; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .download-btn:hover { background: var(--teal-dk); }
+
+    @media (max-width: 900px) { .detail-split { grid-template-columns: 1fr; } .detail-links { display: none; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;color:white;">
+    Farmamed <span style="font-size:13px;font-family:'DM Sans',sans-serif;opacity:0.8;margin-left:8px;">Apothekersdashboard</span>
+  </div>
+  <nav class="nav">
+    <a href="/">Recept indienen</a>
+    <a href="/orders" class="actief">Orders</a>
+  </nav>
+</header>
+
+<div class="hoofd">
+
+  <!-- Wachtrij -->
+  <div class="wachtrij">
+    <div class="wachtrij-header">
+      <span class="wachtrij-titel">Wachtrij</span>
+      <button class="vernieuwen-btn" onclick="laadOrders()">↻ Vernieuwen</button>
+    </div>
+    <div class="order-lijst" id="orderLijst">
+      <div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>
+    </div>
+  </div>
+
+  <!-- Detail -->
+  <div class="detail" id="detail">
+    <div class="detail-leeg" id="detailLeeg">
+      <span class="groot">📋</span>
+      <span>Selecteer een order uit de wachtrij</span>
+    </div>
+
+    <div class="detail-split" id="detailSplit" style="display:none">
+
+      <!-- Links: recept -->
+      <div class="detail-links">
+        <div class="paneel-header">
+          <span class="paneel-titel">📄 Recept</span>
+          <button class="vernieuwen-btn" id="downloadReceptBtn" onclick="downloadRecept()" style="display:none">⬇ Opslaan</button>
+        </div>
+        <div class="recept-viewer" id="receptViewer">
+          <div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">Recept laden…</div>
+        </div>
+      </div>
+
+      <!-- Rechts: tabs -->
+      <div class="detail-rechts">
+        <div class="tabs">
+          <div class="tab actief" onclick="toonTab('vergelijking')">🔎 Vergelijking</div>
+          <div class="tab" onclick="toonTab('bestelling')">📦 Bestelling</div>
+          <div class="tab" onclick="toonTab('patient')">👤 Patiënt</div>
+          <div class="tab" onclick="toonTab('edifact')">📤 EDIFACT</div>
+        </div>
+
+        <!-- Tab: Vergelijking -->
+        <div class="tab-inhoud actief" id="tab-vergelijking">
+          <div id="vergelijkingInhoud">
+            <div class="laden-tekst"><span class="spinner-klein"></span>Recept uitlezen…</div>
+          </div>
+        </div>
+
+        <!-- Tab: Bestelling -->
+        <div class="tab-inhoud" id="tab-bestelling">
+          <div id="bestellingInhoud"></div>
+        </div>
+
+        <!-- Tab: Patiënt -->
+        <div class="tab-inhoud" id="tab-patient">
+          <div id="patientInhoud"></div>
+        </div>
+
+        <!-- Tab: EDIFACT -->
+        <div class="tab-inhoud" id="tab-edifact">
+          <div id="edifactInhoud">
+            <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">EDIFACT-preview — beschikbaar na goedkeuring</p>
+          </div>
+        </div>
+
+        <div class="actiebalk">
+          <button class="btn btn-rood" onclick="beslis('afwijzen')" id="btnAfwijzen" disabled>✕ Afwijzen</button>
+          <button class="btn btn-groen" onclick="beslis('goedkeuren')" id="btnGoedkeuren" disabled>✓ Goedkeuren & exporteren</button>
+          <span class="status-tekst" id="statusTekst"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let huidigeOrder = null;
+  let huidigeReceptData = null;
+  let edifactTekst = '';
+
+  // --- Orders laden ---
+  async function laadOrders() {
+    const lijst = document.getElementById('orderLijst');
+    lijst.innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>';
+    try {
+      const res = await fetch('/api/orders');
+      const data = await res.json();
+      if (data.fout) {
+        lijst.innerHTML = '<div class="laden-tekst" style="color:var(--danger)">Fout: ' + data.fout + '</div>';
+        return;
+      }
+      if (!data.orders || data.orders.length === 0) {
+        lijst.innerHTML = '<div class="laden-tekst">Geen openstaande orders</div>';
+        return;
+      }
+      lijst.innerHTML = '';
+      data.orders.forEach(order => {
+        const div = document.createElement('div');
+        div.className = 'order-item';
+        div.onclick = () => selecteerOrder(order);
+
+        const receptBadge = order.heeft_recept
+          ? '<span class="badge badge-ok">📄 Recept</span>'
+          : '<span class="badge badge-warn">⚠ Geen recept</span>';
+
+        div.innerHTML = `
+          <div class="order-nr">#${order.id} — ${order.datum}</div>
+          <div class="order-naam">${order.klant_naam}</div>
+          <div class="order-medicijn">${order.medicijn}</div>
+          <div class="order-badges">${receptBadge}</div>
+        `;
+        lijst.appendChild(div);
+      });
+    } catch(e) {
+      lijst.innerHTML = '<div class="laden-tekst" style="color:var(--danger)">Verbindingsfout: ' + e.message + '</div>';
+    }
+  }
+
+  // --- Order selecteren ---
+  async function selecteerOrder(order) {
+    huidigeOrder = order;
+    huidigeReceptData = null;
+
+    // Markeer actief in lijst
+    document.querySelectorAll('.order-item').forEach(i => i.classList.remove('actief'));
+    event.currentTarget.classList.add('actief');
+
+    // Toon detail
+    document.getElementById('detailLeeg').style.display = 'none';
+    document.getElementById('detailSplit').style.display = 'grid';
+
+    // Reset
+    document.getElementById('btnGoedkeuren').disabled = true;
+    document.getElementById('btnAfwijzen').disabled = true;
+    document.getElementById('statusTekst').textContent = '';
+    document.getElementById('vergelijkingInhoud').innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Recept uitlezen met AI…</div>';
+    document.getElementById('edifactInhoud').innerHTML = '<p style="font-size:13px;color:var(--muted)">Beschikbaar na goedkeuring</p>';
+
+    // Bestelling tonen
+    toonBestellingData(order);
+
+    // Recept laden en analyseren
+    if (order.recept_url) {
+      laadReceptPreview(order.recept_url);
+      analyseerRecept(order);
+    } else {
+      document.getElementById('receptViewer').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">⚠ Geen recept geüpload bij deze order</div>';
+      document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--warn);font-size:13px;padding:16px;">Geen recept beschikbaar voor vergelijking</div>';
+      document.getElementById('btnAfwijzen').disabled = false;
+    }
+
+    toonTab('vergelijking');
+  }
+
+  // --- Recept preview laden ---
+  async function laadReceptPreview(receptUrl) {
+    const viewer = document.getElementById('receptViewer');
+    viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;"><span class="spinner-klein"></span>Recept laden…</div>';
+
+    try {
+      const res = await fetch('/api/recept-preview-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: receptUrl })
+      });
+      const data = await res.json();
+      if (data.preview) {
+        viewer.innerHTML = '<img src="' + data.preview + '" alt="Recept" style="max-width:100%;border-radius:4px;box-shadow:0 2px 12px rgba(0,0,0,0.15);">';
+        document.getElementById('downloadReceptBtn').style.display = 'block';
+        document.getElementById('downloadReceptBtn').dataset.url = receptUrl;
+      } else {
+        viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">Voorvertoning niet beschikbaar</div>';
+      }
+    } catch(e) {
+      viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">Kon recept niet laden</div>';
+    }
+  }
+
+  // --- Recept analyseren en vergelijken ---
+  async function analyseerRecept(order) {
+    try {
+      const res = await fetch('/api/analyseer-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: order.id, recept_url: order.recept_url })
+      });
+      const data = await res.json();
+
+      if (data.fout) {
+        document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--danger);font-size:13px;padding:16px;">Fout: ' + data.fout + '</div>';
+        return;
+      }
+
+      huidigeReceptData = data.recept;
+      toonVergelijking(order, data.recept, data.vergelijking);
+      toonPatientData(order, data.recept);
+      genereerEdifact(order, data.recept);
+
+      document.getElementById('btnGoedkeuren').disabled = false;
+      document.getElementById('btnAfwijzen').disabled = false;
+
+    } catch(e) {
+      document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--danger);font-size:13px;padding:16px;">Analysefout: ' + e.message + '</div>';
+    }
+  }
+
+  // --- Vergelijking tonen ---
+  function toonVergelijking(order, recept, vergelijking) {
+    const totaal = vergelijking.totaal_score || 0;
+    const kleur = totaal >= 80 ? 'var(--success)' : totaal >= 60 ? 'var(--warn)' : 'var(--danger)';
+    const aanbeveling = totaal >= 80 ? 'Goedkeuren' : totaal >= 60 ? 'Controleren' : 'Afwijzen';
+
+    let html = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding:10px;background:var(--cream);border-radius:8px;">
+        <span style="font-size:22px;font-weight:700;color:${kleur}">${totaal}%</span>
+        <div>
+          <div style="font-size:13px;font-weight:500;">Totale overeenkomst</div>
+          <div style="font-size:12px;color:${kleur}">Aanbeveling: ${aanbeveling}</div>
+        </div>
+      </div>`;
+
+    if (vergelijking.aandachtspunten && vergelijking.aandachtspunten.length > 0) {
+      html += '<div style="background:#fdecea;border-radius:8px;padding:10px;margin-bottom:12px;">';
+      html += '<div style="font-size:11px;font-weight:600;color:var(--danger);margin-bottom:4px;">⚠ Aandachtspunten</div>';
+      vergelijking.aandachtspunten.forEach(p => {
+        html += '<div style="font-size:12px;color:#8b2020;margin-top:2px;">· ' + p + '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div class="match-header"><span>Veld</span><span>WooCommerce</span><span>Recept</span><span>Score</span></div>';
+
+    vergelijking.velden.forEach(v => {
+      const scoreKlasse = v.score >= 80 ? 'hoog' : v.score >= 60 ? 'midden' : 'laag';
+      html += `<div class="match-rij">
+        <span class="match-label">${v.veld}</span>
+        <span class="match-wc">${v.wc_waarde || '—'}</span>
+        <span class="match-recept">${v.recept_waarde || '—'}</span>
+        <span class="match-score ${scoreKlasse}">${v.score}%</span>
+      </div>`;
+    });
+
+    document.getElementById('vergelijkingInhoud').innerHTML = html;
+  }
+
+  // --- Bestelling data tonen ---
+  function toonBestellingData(order) {
+    const velden = [
+      ['Order ID', '#' + order.id],
+      ['Datum', order.datum],
+      ['Status', order.status],
+      ['Medicijn', order.medicijn],
+      ['Hoeveelheid', order.hoeveelheid + ' gram'],
+      ['Totaalbedrag', '€' + order.totaal],
+    ];
+    let html = '<div class="sectie-titel">Bestelgegevens</div>';
+    velden.forEach(([l, v]) => {
+      html += `<div class="veld-rij"><span class="veld-label">${l}</span><span class="veld-waarde">${v || '—'}</span></div>`;
+    });
+    document.getElementById('bestellingInhoud').innerHTML = html;
+  }
+
+  // --- Patiënt data tonen ---
+  function toonPatientData(order, recept) {
+    let html = '<div class="sectie-titel">Uit WooCommerce</div>';
+    const wcVelden = [
+      ['Naam', order.klant_naam],
+      ['Geboortedatum', order.geboortedatum],
+      ['E-mail', order.email],
+      ['Telefoon', order.telefoon],
+      ['Adres', order.adres],
+    ];
+    wcVelden.forEach(([l, v]) => {
+      html += `<div class="veld-rij"><span class="veld-label">${l}</span><span class="veld-waarde">${v || '—'}</span></div>`;
+    });
+
+    if (recept) {
+      html += '<div class="sectie-titel" style="margin-top:14px">Uit recept (OCR)</div>';
+      const receptVelden = [
+        ['Naam', recept.patient_naam],
+        ['Geboortedatum', recept.geboortedatum],
+        ['BSN', recept.bsn],
+        ['Voorschrijver', recept.voorschrijver],
+        ['AGB-code', recept.agb_code],
+        ['BIG-nummer', recept.big_nummer],
+      ];
+      receptVelden.forEach(([l, v]) => {
+        html += `<div class="veld-rij"><span class="veld-label">${l}</span><span class="veld-waarde">${v || '—'}</span></div>`;
+      });
+    }
+    document.getElementById('patientInhoud').innerHTML = html;
+  }
+
+  // --- EDIFACT genereren ---
+  function genereerEdifact(order, recept) {
+    const nu = new Date();
+    const datum = nu.toISOString().slice(0,10).replace(/-/g,'').slice(2);
+    const tijd = nu.toTimeString().slice(0,5).replace(':','');
+    const ctrl = String(order.id).padStart(5, '0');
+    const medicijnCode = (order.medicijn || 'ONBEKEND').toUpperCase().replace(/\s/g,'').slice(0,20);
+    const hoeveelheid = Math.round(order.hoeveelheid || 30);
+    const receptRef = recept?.voorschrijver
+      ? 'RECEPT-' + (recept.voorschrijver).replace(/\s/g,'-').slice(0,12).toUpperCase() + '-' + (recept.recept_datum || 'ONBEKEND')
+      : 'BESTELLING-' + order.id;
+
+    edifactTekst = [
+      `UNB+UNOA:2+FARMAMED+GROOTHANDEL+${datum}:${tijd}+${ctrl}'`,
+      `UNH+1+ORDERS:D:96A:UN'`,
+      `BGM+220+${order.id}+9'`,
+      `DTM+137:${nu.toISOString().slice(0,10).replace(/-/g,'')}:102'`,
+      `NAD+BY+FARMAMED:::Farmamed BV'`,
+      `NAD+SU+GROOTHANDEL:::Groothandel Farma NL'`,
+      `LIN+1++${medicijnCode}:BP'`,
+      `IMD+F+++${(order.medicijn || '').slice(0,35)}'`,
+      `QTY+21:${hoeveelheid}:GRM'`,
+      `RFF+PD:${receptRef}'`,
+      `UNT+10+1'`,
+      `UNZ+1+${ctrl}'`,
+    ].join('\n');
+
+    document.getElementById('edifactInhoud').innerHTML = `
+      <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Preview — definitief na goedkeuring</p>
+      <div class="edifact-box">${edifactTekst}</div>
+      <button class="download-btn" onclick="downloadEdifact()" disabled id="edifactDownloadBtn">
+        ⬇ Download EDIFACT
+      </button>`;
+  }
+
+  // --- Download functies ---
+  function downloadRecept() {
+    const url = document.getElementById('downloadReceptBtn').dataset.url;
+    if (!url || !huidigeOrder) return;
+    const achternaam = (huidigeOrder.klant_naam || 'onbekend').split(' ').pop();
+    const bestandsnaam = `${huidigeOrder.id}_farmamed_${achternaam}.pdf`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = bestandsnaam;
+    a.target = '_blank';
+    a.click();
+  }
+
+  function downloadEdifact() {
+    if (!edifactTekst || !huidigeOrder) return;
+    const blob = new Blob([edifactTekst], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const achternaam = (huidigeOrder.klant_naam || 'onbekend').split(' ').pop();
+    a.href = url;
+    a.download = `${huidigeOrder.id}_farmamed_${achternaam}.edi`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // --- Beslissing ---
+  async function beslis(beslissing) {
+    if (!huidigeOrder) return;
+    document.getElementById('btnGoedkeuren').disabled = true;
+    document.getElementById('btnAfwijzen').disabled = true;
+    const statusEl = document.getElementById('statusTekst');
+
+    if (beslissing === 'goedkeuren') {
+      statusEl.style.color = 'var(--success)';
+      statusEl.textContent = '✓ Goedgekeurd — EDIFACT klaar voor download';
+      toonTab('edifact');
+      const dlBtn = document.getElementById('edifactDownloadBtn');
+      if (dlBtn) dlBtn.disabled = false;
+
+      // Markeer order als klaar in WooCommerce
+      await fetch('/api/order-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id, status: 'completed' })
+      });
+    } else {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = '✕ Afgewezen';
+      await fetch('/api/order-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id, status: 'cancelled' })
+      });
+    }
+  }
+
+  // --- Tab wisselen ---
+  function toonTab(naam) {
+    const tabs = ['vergelijking', 'bestelling', 'patient', 'edifact'];
+    document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('actief', tabs[i] === naam));
+    tabs.forEach(n => {
+      const t = document.getElementById('tab-' + n);
+      if (t) t.classList.toggle('actief', n === naam);
+    });
+  }
+
+  // Start
+  laadOrders();
+</script>
+</body>
+</html>
