@@ -355,6 +355,7 @@ async def haal_orders_op():
                 "geboortedatum": geboortedatum,
                 "medicijn": medicijn,
                 "hoeveelheid": float(items[0].get("quantity", 1)) * 30 if items else 30,
+                "aantal": int(items[0].get("quantity", 1)) if items else 1,
                 "totaal": o.get("total", "0"),
                 "heeft_recept": bool(recept_url),
                 "recept_url": recept_url,
@@ -509,6 +510,10 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
     wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
     wc_medicijn = items[0]["name"] if items else ""
     wc_geboortedatum = meta.get("billing_birth") or meta.get("_billing_birth", "")
+    wc_aantal = int(items[0].get("quantity", 1)) if items else 1
+    wc_hoeveelheid_gram = wc_aantal * 30
+    wc_hoeveelheid = f"{wc_hoeveelheid_gram} gram ({wc_aantal}x 30g)" if wc_aantal > 1 else "30 gram"
+    wc_order["_hoeveelheid"] = wc_hoeveelheid_gram
 
     velden = []
     aandachtspunten = []
@@ -525,7 +530,7 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
     velden.append(vergelijk_veld("Naam", wc_naam, recept.get("patient_naam")))
     velden.append(vergelijk_veld("Geboortedatum", wc_geboortedatum, recept.get("geboortedatum")))
     velden.append(vergelijk_veld("Medicijn", wc_medicijn, recept.get("medicijn")))
-    velden.append(vergelijk_veld("Hoeveelheid", "30 gram", recept.get("hoeveelheid")))
+    velden.append(vergelijk_veld("Hoeveelheid", wc_hoeveelheid, recept.get("hoeveelheid")))
 
     # Receptdatum geldigheid
     recept_datum = recept.get("recept_datum", "")
