@@ -42,6 +42,34 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/api/recept-preview")
+async def recept_preview(bestand: UploadFile = File(...)):
+    """
+    Converteert eerste pagina van PDF naar JPEG voor weergave in browser.
+    Geeft base64-gecodeerde afbeelding terug.
+    """
+    inhoud = await bestand.read()
+    bestandsnaam = bestand.filename or ""
+
+    if bestandsnaam.lower().endswith(".pdf"):
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(stream=inhoud, filetype="pdf")
+            pagina = doc[0]
+            mat = fitz.Matrix(1.5, 1.5)
+            pix = pagina.get_pixmap(matrix=mat, alpha=False)
+            img_bytes = pix.tobytes("jpeg")
+            b64 = base64.standard_b64encode(img_bytes).decode()
+            return JSONResponse(content={"preview": f"data:image/jpeg;base64,{b64}", "type": "image"})
+        except Exception as e:
+            return JSONResponse(content={"fout": str(e)})
+    else:
+        # Afbeelding direct teruggeven
+        b64 = base64.standard_b64encode(inhoud).decode()
+        mt = "image/png" if bestandsnaam.lower().endswith(".png") else "image/jpeg"
+        return JSONResponse(content={"preview": f"data:{mt};base64,{b64}", "type": "image"})
+
+
 @app.post("/api/test-upload")
 async def test_upload(bestand: UploadFile = File(...)):
     """Test endpoint om te controleren of uploads werken."""
