@@ -352,7 +352,7 @@ async def haal_orders_op():
                 "email": billing.get("email", ""),
                 "telefoon": billing.get("phone", ""),
                 "adres": f"{billing.get('address_1','')} {billing.get('postcode','')} {billing.get('city','')}".strip(),
-                "geboortedatum": geboortedatum,
+                "geboortedatum": _amerikaans_naar_nederlands(geboortedatum),
                 "medicijn": medicijn,
                 "hoeveelheid": float(items[0].get("quantity", 1)) * 30 if items else 30,
                 "aantal": int(items[0].get("quantity", 1)) if items else 1,
@@ -499,6 +499,67 @@ Verwar de achternaam van de arts NIET met een woonplaats.
     return JSONResponse(content={"recept": recept_data, "vergelijking": vergelijking})
 
 
+def _normaliseer_medicijn(naam: str) -> str:
+    """
+    Verwijdert ruis uit medicijnnamen voor betere vergelijking.
+    - Verwijdert: FNA, SAW creme, tegen huidveroudering, (saw-creme), in saw creme
+    - Converteert mg/g naar % (bijv. 0.5 mg/g -> 0.05%)
+    - Verwijdert extra spaties
+    """
+    import re
+
+    naam = naam.lower().strip()
+
+    # Verwijder bekende suffixen en toevoegingen
+    te_verwijderen = [
+        r'fna',
+        r'\(saw[\s\-]?creme?\)',
+        r'in\s+saw[\s\-]?creme?',
+        r'saw[\s\-]?creme?',
+        r'tegen\s+huidveroudering',
+        r'tegen\s+acne',
+        r'\(?\d+\s*gram\)?',      # (30 gram) weglaten
+        r'crème',
+        r'creme',
+        r'zalf',
+        r'gel',
+        r'oplossing',
+    ]
+    for patroon in te_verwijderen:
+        naam = re.sub(patroon, '', naam, flags=re.IGNORECASE)
+
+    # Converteer mg/g naar % (0.5 mg/g = 0.05%)
+    def mgpg_naar_procent(match):
+        waarde = float(match.group(1).replace(',', '.'))
+        procent = waarde / 10
+        return f"{procent:g}%"
+
+    naam = re.sub(r'(\d+[.,]?\d*)\s*mg/g', mgpg_naar_procent, naam, flags=re.IGNORECASE)
+
+    # Normaliseer decimalen (0,02 en 0.02 zijn hetzelfde)
+    naam = naam.replace(',', '.')
+
+    # Verwijder extra spaties
+    naam = re.sub(r'\s+', ' ', naam).strip()
+
+    return naam
+
+
+def _amerikaans_naar_nederlands(datum: str) -> str:
+    """Converteert YYYY-MM-DD naar DD-MM-YYYY."""
+    if not datum:
+        return ""
+    try:
+        from datetime import datetime
+        # Probeer YYYY-MM-DD formaat
+        if len(datum) == 10 and datum[4] == '-':
+            dt = datetime.strptime(datum, "%Y-%m-%d")
+            return dt.strftime("%d-%m-%Y")
+    except ValueError:
+        pass
+    return datum  # Geef origineel terug als conversie mislukt
+
+
 def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
     """Vergelijkt WooCommerce besteldata met OCR-receptdata."""
     from rapidfuzz import fuzz
@@ -509,7 +570,8 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
 
     wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
     wc_medicijn = items[0]["name"] if items else ""
-    wc_geboortedatum = meta.get("billing_birth") or meta.get("_billing_birth", "")
+    wc_geboortedatum_raw = meta.get("billing_birth") or meta.get("_billing_birth", "")
+    wc_geboortedatum = _amerikaans_naar_nederlands(wc_geboortedatum_raw)
     wc_aantal = int(items[0].get("quantity", 1)) if items else 1
     wc_hoeveelheid_gram = wc_aantal * 30
     wc_hoeveelheid = f"{wc_hoeveelheid_gram} gram ({wc_aantal}x 30g)" if wc_aantal > 1 else "30 gram"
@@ -529,7 +591,13 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
 
     velden.append(vergelijk_veld("Naam", wc_naam, recept.get("patient_naam")))
     velden.append(vergelijk_veld("Geboortedatum", wc_geboortedatum, recept.get("geboortedatum")))
-    velden.append(vergelijk_veld("Medicijn", wc_medicijn, recept.get("medicijn")))
+    wc_medicijn_norm = _normaliseer_medicijn(wc_medicijn)
+    recept_medicijn_norm = _normaliseer_medicijn(recept.get("medicijn") or "")
+    veld = vergelijk_veld("Medicijn", wc_medicijn, recept.get("medicijn"))
+    # Herbereken score op genormaliseerde waarden
+    from rapidfuzz import fuzz as _fuzz
+    veld["score"] = _fuzz.token_sort_ratio(wc_medicijn_norm, recept_medicijn_norm)
+    velden.append(veld)
     velden.append(vergelijk_veld("Hoeveelheid", wc_hoeveelheid, recept.get("hoeveelheid")))
 
     # Receptdatum geldigheid
