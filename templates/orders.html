@@ -24,10 +24,11 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
 
-    header { background: var(--teal); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
-    .nav { display: flex; gap: 8px; }
-    .nav a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 13px; padding: 6px 14px; border-radius: 6px; transition: all 0.2s; }
-    .nav a:hover, .nav a.actief { background: rgba(255,255,255,0.2); color: white; }
+    header { background: var(--teal); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .nav { display: flex; gap: 4px; }
+    .nav a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 13px; font-weight: 500; padding: 7px 18px; border-radius: 6px; transition: all 0.2s; letter-spacing: 0.02em; }
+    .nav a:hover { background: rgba(255,255,255,0.15); color: white; }
+    .nav a.actief { background: rgba(255,255,255,0.22); color: white; }
 
     .hoofd { display: flex; flex: 1; overflow: hidden; }
 
