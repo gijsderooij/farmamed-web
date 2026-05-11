@@ -763,18 +763,35 @@ def _classificeer_email(onderwerp: str, body: str) -> str:
     return "overig"
 
 
+# In-memory opslag van ontvangen e-mails (wordt gevuld door lokale poller)
+_email_cache: list[dict] = []
+
+
+@app.post("/api/email-inkomend")
+async def email_inkomend(request: Request):
+    """Ontvangt een e-mail van de lokale poller en slaat hem op."""
+    global _email_cache
+    data = await request.json()
+    # Voeg toe als nog niet aanwezig (op basis van uid)
+    uids = {e["uid"] for e in _email_cache}
+    if data.get("uid") not in uids:
+        _email_cache.insert(0, data)
+        _email_cache = _email_cache[:50]  # max 50 bewaren
+    return JSONResponse(content={"ok": True, "totaal": len(_email_cache)})
+
+
 @app.get("/api/emails")
 async def haal_emails_op():
-    """Haalt ongelezen e-mails op uit de IMAP-mailbox."""
-    import imaplib
-    import email as email_lib
-    from email.header import decode_header
-    import quopri
-
-    try:
-        conn = _imap_verbinding()
-    except ValueError as e:
-        return JSONResponse(content={"fout": str(e)})
+    """Geeft opgeslagen e-mails terug (gevuld door lokale poller)."""
+    if not _email_cache:
+        return JSONResponse(content={"emails": [], "info": "Nog geen e-mails ontvangen — start de lokale email_poller.py"})
+    # Geef emails terug zonder bijlage-data (die is groot)
+    emails_zonder_data = []
+    for e in _email_cache:
+        email_slim = {k: v for k, v in e.items() if k != "bijlagen"}
+        email_slim["bijlagen"] = [{"naam": b["naam"], "type": b["type"]} for b in e.get("bijlagen", [])]
+        emails_zonder_data.append(email_slim)
+    return JSONResponse(content={"emails": emails_zonder_data})
 
     try:
         conn.select("INBOX")
@@ -859,122 +876,71 @@ async def haal_emails_op():
 
 @app.post("/api/open-email")
 async def open_email(request: Request):
-    """Haalt de volledige inhoud van een e-mail op (body + bijlagenlijst)."""
-    import imaplib
-    import email as email_lib
-    from email.header import decode_header
-
+    """Haalt volledige e-mailinhoud op uit de cache."""
     body_req = await request.json()
     email_uid = body_req.get("email_uid", "")
 
-    try:
-        conn = _imap_verbinding()
-    except ValueError as e:
-        return JSONResponse(content={"fout": str(e)})
+    email = next((e for e in _email_cache if e["uid"] == email_uid), None)
+    if not email:
+        return JSONResponse(content={"fout": "E-mail niet gevonden in cache"})
 
-    try:
-        conn.select("INBOX")
-        _, data = conn.fetch(email_uid.encode(), "(RFC822)")
-        msg = email_lib.message_from_bytes(data[0][1])
-
-        # Markeer als gelezen
-        conn.store(email_uid.encode(), "+FLAGS", r"\Seen")
-        conn.logout()
-
-        # Body en bijlagen uitlezen
-        body = ""
-        bijlagen = []
-        for part in msg.walk():
-            ct = part.get_content_type()
-            cd = str(part.get("Content-Disposition", ""))
-            if ct == "text/plain" and "attachment" not in cd:
-                try:
-                    body = part.get_payload(decode=True).decode("utf-8", errors="replace")
-                except Exception:
-                    body = ""
-            elif "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg"):
-                naam = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
-                bijlagen.append({"naam": naam, "type": ct})
-
-        return JSONResponse(content={
-            "body": body[:2000],
-            "bijlagen": bijlagen,
-            "type": _classificeer_email("", body),
-        })
-    except Exception as e:
-        try:
-            conn.logout()
-        except Exception:
-            pass
-        return JSONResponse(content={"fout": str(e)})
+    return JSONResponse(content={
+        "body": email.get("body", ""),
+        "bijlagen": [{"naam": b["naam"], "type": b["type"]} for b in email.get("bijlagen", [])],
+        "type": email.get("type", "overig"),
+    })
 
 
 @app.post("/api/lees-bijlage")
 async def lees_bijlage(request: Request):
-    """
-    Haalt een bijlage op uit een e-mail, toont preview
-    en leest het recept uit met Claude Vision.
-    """
-    import imaplib
-    import email as email_lib
-
+    """Haalt bijlage op uit e-mailcache, genereert preview en leest recept uit."""
     body = await request.json()
     email_uid = body.get("email_uid", "")
     bijlage_index = body.get("bijlage_index", 0)
 
+    email = next((e for e in _email_cache if e["uid"] == email_uid), None)
+    if not email:
+        return JSONResponse(content={"fout": "E-mail niet gevonden in cache"})
+
+    bijlagen = email.get("bijlagen", [])
+    if bijlage_index >= len(bijlagen):
+        return JSONResponse(content={"fout": "Bijlage niet gevonden"})
+
+    bijlage = bijlagen[bijlage_index]
     try:
-        conn = _imap_verbinding()
-    except ValueError as e:
-        return JSONResponse(content={"fout": str(e)})
+        inhoud = base64.b64decode(bijlage["data"])
+    except Exception:
+        return JSONResponse(content={"fout": "Bijlagedata onleesbaar"})
 
-    try:
-        conn.select("INBOX")
-        _, data = conn.fetch(email_uid.encode(), "(RFC822)")
-        msg = email_lib.message_from_bytes(data[0][1])
-        conn.logout()
+    ct = bijlage.get("type", "application/pdf")
+    naam = bijlage.get("naam", "recept")
 
-        # Bijlage ophalen
-        bijlagen = []
-        for part in msg.walk():
-            ct = part.get_content_type()
-            cd = str(part.get("Content-Disposition", ""))
-            if "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg"):
-                bijlagen.append(part)
+    # Preview genereren
+    preview = None
+    if ct == "application/pdf" or naam.lower().endswith(".pdf"):
+        try:
+            import fitz
+            doc = fitz.open(stream=inhoud, filetype="pdf")
+            pix = doc[0].get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+            preview = f"data:image/jpeg;base64,{base64.standard_b64encode(pix.tobytes('jpeg')).decode()}"
+        except Exception:
+            pass
+    else:
+        preview = f"data:{ct};base64,{base64.standard_b64encode(inhoud).decode()}"
 
-        if bijlage_index >= len(bijlagen):
-            return JSONResponse(content={"fout": "Bijlage niet gevonden"})
-
-        bijlage_part = bijlagen[bijlage_index]
-        inhoud = bijlage_part.get_payload(decode=True)
-        ct = bijlage_part.get_content_type()
-        naam = bijlage_part.get_filename() or "recept"
-
-        # Preview genereren
-        preview = None
-        if ct == "application/pdf" or naam.lower().endswith(".pdf"):
-            try:
-                import fitz
-                doc = fitz.open(stream=inhoud, filetype="pdf")
-                pix = doc[0].get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
-                preview = f"data:image/jpeg;base64,{base64.standard_b64encode(pix.tobytes('jpeg')).decode()}"
-            except Exception:
-                pass
-        else:
-            preview = f"data:{ct};base64,{base64.standard_b64encode(inhoud).decode()}"
-
-        # OCR via Claude
-        is_pdf = ct == "application/pdf" or naam.lower().endswith(".pdf")
-        b64 = base64.standard_b64encode(inhoud).decode()
-        document_blok = {
-            "type": "document" if is_pdf else "image",
-            "source": {
-                "type": "base64",
-                "media_type": "application/pdf" if is_pdf else ct,
-                "data": b64
-            }
+    # OCR via Claude
+    is_pdf = ct == "application/pdf" or naam.lower().endswith(".pdf")
+    b64 = base64.standard_b64encode(inhoud).decode()
+    document_blok = {
+        "type": "document" if is_pdf else "image",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf" if is_pdf else ct,
+            "data": b64
         }
+    }
 
-        prompt = """Analyseer dit recept en extraheer de velden als JSON.
+    prompt = """Analyseer dit recept en extraheer de velden als JSON.
 Geef ALLEEN JSON terug, geen uitleg of markdown.
 
 BELANGRIJK: Lees het adresblok van de PATIËNT (niet van de arts).
@@ -1000,6 +966,7 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
   "vertrouwen": 85
 }"""
 
+    try:
         api_resp = http_requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -1017,12 +984,6 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
         api_resp.raise_for_status()
         tekst = api_resp.json()["content"][0]["text"].strip().replace("```json", "").replace("```", "").strip()
         recept_data = json.loads(tekst)
-
         return JSONResponse(content={"preview": preview, "recept": recept_data})
-
     except Exception as e:
-        try:
-            conn.logout()
-        except Exception:
-            pass
-        return JSONResponse(content={"fout": str(e)})
+        return JSONResponse(content={"preview": preview, "fout": str(e)})
