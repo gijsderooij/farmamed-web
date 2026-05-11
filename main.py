@@ -327,6 +327,7 @@ async def haal_orders_op():
             f"{wc_url}/wp-json/wc/v3/orders",
             auth=(wc_key, wc_secret),
             params={"status": "processing", "per_page": 20, "orderby": "date", "order": "asc"},
+            headers={"Accept": "application/json"},
             timeout=15,
         )
         response.raise_for_status()
