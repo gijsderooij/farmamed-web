@@ -857,6 +857,58 @@ async def haal_emails_op():
         return JSONResponse(content={"fout": str(e)})
 
 
+@app.post("/api/open-email")
+async def open_email(request: Request):
+    """Haalt de volledige inhoud van een e-mail op (body + bijlagenlijst)."""
+    import imaplib
+    import email as email_lib
+    from email.header import decode_header
+
+    body_req = await request.json()
+    email_uid = body_req.get("email_uid", "")
+
+    try:
+        conn = _imap_verbinding()
+    except ValueError as e:
+        return JSONResponse(content={"fout": str(e)})
+
+    try:
+        conn.select("INBOX")
+        _, data = conn.fetch(email_uid.encode(), "(RFC822)")
+        msg = email_lib.message_from_bytes(data[0][1])
+
+        # Markeer als gelezen
+        conn.store(email_uid.encode(), "+FLAGS", r"\Seen")
+        conn.logout()
+
+        # Body en bijlagen uitlezen
+        body = ""
+        bijlagen = []
+        for part in msg.walk():
+            ct = part.get_content_type()
+            cd = str(part.get("Content-Disposition", ""))
+            if ct == "text/plain" and "attachment" not in cd:
+                try:
+                    body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                except Exception:
+                    body = ""
+            elif "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg"):
+                naam = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
+                bijlagen.append({"naam": naam, "type": ct})
+
+        return JSONResponse(content={
+            "body": body[:2000],
+            "bijlagen": bijlagen,
+            "type": _classificeer_email("", body),
+        })
+    except Exception as e:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+        return JSONResponse(content={"fout": str(e)})
+
+
 @app.post("/api/lees-bijlage")
 async def lees_bijlage(request: Request):
     """
