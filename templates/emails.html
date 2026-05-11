@@ -157,8 +157,21 @@
     <div class="detail-inhoud" id="detailInhoud">
       <div class="detail-split">
 
-        <!-- Links: e-mail inhoud + recept -->
+        <!-- Links: recept preview (boven) + e-mail inhoud (onder) -->
         <div class="detail-links">
+
+          <!-- Recept preview bovenaan -->
+          <div class="paneel-header" id="receptHeader" style="display:none">
+            <span class="paneel-titel">📄 Recept</span>
+          </div>
+          <div class="recept-viewer" id="receptViewer" style="display:none;max-height:45%;flex-shrink:0;">
+            <div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Klik op bijlage om recept te bekijken</div>
+          </div>
+
+          <!-- Scheidingslijn als recept zichtbaar -->
+          <div id="receptScheiding" style="display:none;border-top:2px solid var(--teal);flex-shrink:0;"></div>
+
+          <!-- E-mail inhoud onderaan -->
           <div class="paneel-header">
             <span class="paneel-titel" id="emailOnderwerp">E-mail</span>
           </div>
@@ -171,14 +184,6 @@
           <div class="bijlage-sectie" id="bijlageSectie" style="display:none">
             <div class="bijlage-titel">Bijlagen</div>
             <div id="bijlageLijst"></div>
-          </div>
-
-          <!-- Recept preview -->
-          <div class="paneel-header" id="receptHeader" style="display:none">
-            <span class="paneel-titel">📄 Recept</span>
-          </div>
-          <div class="recept-viewer" id="receptViewer" style="display:none">
-            <div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Klik op bijlage om recept te bekijken</div>
           </div>
         </div>
 
