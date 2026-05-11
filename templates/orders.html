@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -258,24 +257,28 @@
     document.getElementById('detailLeeg').style.display = 'none';
     document.getElementById('detailSplit').style.display = 'grid';
 
-    // Reset
+    // Reset — leegmaken alle tabs voor nieuwe order
     document.getElementById('btnGoedkeuren').disabled = true;
     document.getElementById('btnAfwijzen').disabled = true;
     document.getElementById('statusTekst').textContent = '';
     document.getElementById('vergelijkingInhoud').innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Recept uitlezen met AI…</div>';
     document.getElementById('edifactInhoud').innerHTML = '<p style="font-size:13px;color:var(--muted)">Beschikbaar na goedkeuring</p>';
+    document.getElementById('patientInhoud').innerHTML = '';
+    document.getElementById('bestellingInhoud').innerHTML = '';
 
-    // Bestelling tonen
+    // Bestelling en patiënt direct tonen vanuit WooCommerce
     toonBestellingData(order);
+    toonPatientData(order, null);  // eerst zonder recept
 
     // Recept laden en analyseren
     if (order.recept_url) {
       laadReceptPreview(order.recept_url);
       analyseerRecept(order);
     } else {
-      document.getElementById('receptViewer').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">⚠ Geen recept geüpload bij deze order</div>';
-      document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--warn);font-size:13px;padding:16px;">Geen recept beschikbaar voor vergelijking</div>';
+      document.getElementById('receptViewer').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">✓ Herhaalrecept — geen document aangeleverd</div>';
+      document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--warn);font-size:13px;padding:16px;">Geen recept beschikbaar voor vergelijking.<br>Patiënt heeft herhaalrecept aangegeven.</div>';
       document.getElementById('btnAfwijzen').disabled = false;
+      document.getElementById('btnGoedkeuren').disabled = false;
     }
 
     toonTab('vergelijking');
@@ -322,7 +325,7 @@
 
       huidigeReceptData = data.recept;
       toonVergelijking(order, data.recept, data.vergelijking);
-      toonPatientData(order, data.recept);
+      toonPatientData(order, data.recept);  // bijwerken met OCR-data
       genereerEdifact(order, data.recept);
 
       document.getElementById('btnGoedkeuren').disabled = false;
@@ -391,6 +394,7 @@
 
   // --- Patiënt data tonen ---
   function toonPatientData(order, recept) {
+    // Altijd WooCommerce data tonen (ook bij nieuw order zonder recept)
     let html = '<div class="sectie-titel">Uit WooCommerce</div>';
     const wcVelden = [
       ['Naam', order.klant_naam],
@@ -403,8 +407,10 @@
       html += `<div class="veld-rij"><span class="veld-label">${l}</span><span class="veld-waarde">${v || '—'}</span></div>`;
     });
 
-    if (recept) {
-      html += '<div class="sectie-titel" style="margin-top:14px">Uit recept (OCR)</div>';
+    html += '<div class="sectie-titel" style="margin-top:14px">Uit recept (OCR)</div>';
+
+    if (recept && recept.patient_naam) {
+      // Recept beschikbaar — toon OCR-gegevens
       const receptVelden = [
         ['Naam', recept.patient_naam],
         ['Geboortedatum', recept.geboortedatum],
@@ -416,7 +422,15 @@
       receptVelden.forEach(([l, v]) => {
         html += `<div class="veld-rij"><span class="veld-label">${l}</span><span class="veld-waarde">${v || '—'}</span></div>`;
       });
+    } else {
+      // Geen recept — toon herhaalrecept melding
+      html += `<div style="background:#fef3e2;border-radius:8px;padding:12px;margin-top:4px;font-size:13px;color:var(--warn);">
+        <div style="font-weight:600;margin-bottom:4px;">✓ Herhaalrecept</div>
+        <div>Patiënt heeft aangegeven: <em>"Apotheek Farmamed heeft mijn herhaalrecept"</em></div>
+        <div style="font-size:11px;margin-top:6px;color:var(--muted)">Geen recept geüpload — verificatie vereist bij apotheek</div>
+      </div>`;
     }
+
     document.getElementById('patientInhoud').innerHTML = html;
   }
 
