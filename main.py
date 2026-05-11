@@ -721,3 +721,255 @@ async def update_order_status(request: Request):
         return JSONResponse(content={"ok": resp.status_code == 200})
     except Exception as e:
         return JSONResponse(content={"fout": str(e)})
+
+
+# ------------------------------------------------------------------
+# E-mail pagina en IMAP endpoints
+# ------------------------------------------------------------------
+
+@app.get("/emails", response_class=HTMLResponse)
+async def emails_pagina():
+    html_path = BASE_DIR / "templates" / "emails.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+def _imap_verbinding():
+    """Maakt IMAP-verbinding met de geconfigureerde mailbox."""
+    import imaplib
+    imap_server = os.getenv("IMAP_SERVER", "")
+    imap_port = int(os.getenv("IMAP_PORT", "993"))
+    imap_user = os.getenv("IMAP_USER", "")
+    imap_pass = os.getenv("IMAP_PASS", "")
+
+    if not all([imap_server, imap_user, imap_pass]):
+        raise ValueError("IMAP niet geconfigureerd — voeg IMAP_SERVER, IMAP_USER en IMAP_PASS toe")
+
+    conn = imaplib.IMAP4_SSL(imap_server, imap_port)
+    conn.login(imap_user, imap_pass)
+    return conn
+
+
+def _classificeer_email(onderwerp: str, body: str) -> str:
+    """Classificeert het type e-mail op basis van onderwerp en inhoud."""
+    tekst = (onderwerp + " " + body).lower()
+    herhaal_termen = ["herhaalrecept", "herhaling", "iter", "verlenging", "opnieuw", "nogmaals", "herhaal"]
+    recept_termen = ["recept", "voorschrift", "medicijn", "medicatie", "bijlage", "zie bijlage"]
+
+    if any(t in tekst for t in herhaal_termen):
+        return "herhaalrecept"
+    elif any(t in tekst for t in recept_termen):
+        return "nieuw_recept"
+    return "overig"
+
+
+@app.get("/api/emails")
+async def haal_emails_op():
+    """Haalt ongelezen e-mails op uit de IMAP-mailbox."""
+    import imaplib
+    import email as email_lib
+    from email.header import decode_header
+    import quopri
+
+    try:
+        conn = _imap_verbinding()
+    except ValueError as e:
+        return JSONResponse(content={"fout": str(e)})
+
+    try:
+        conn.select("INBOX")
+        # Haal alle e-mails op (ongelezen + gelezen, max 30 nieuwste)
+        _, berichten = conn.search(None, "ALL")
+        uids = berichten[0].split()
+        uids = uids[-30:]  # laatste 30
+
+        emails = []
+        for uid in reversed(uids):
+            try:
+                _, data = conn.fetch(uid, "(RFC822)")
+                msg = email_lib.message_from_bytes(data[0][1])
+
+                # Onderwerp decoderen
+                onderwerp_raw = msg.get("Subject", "")
+                onderwerp_parts = decode_header(onderwerp_raw)
+                onderwerp = ""
+                for part, enc in onderwerp_parts:
+                    if isinstance(part, bytes):
+                        onderwerp += part.decode(enc or "utf-8", errors="replace")
+                    else:
+                        onderwerp += str(part)
+
+                # Afzender
+                afzender = msg.get("From", "")
+                afzender_naam = ""
+                if "<" in afzender:
+                    afzender_naam = afzender.split("<")[0].strip().strip('"')
+                    afzender_email = afzender.split("<")[1].rstrip(">")
+                else:
+                    afzender_email = afzender
+
+                # Datum
+                datum = msg.get("Date", "")[:25]
+
+                # Body uitlezen
+                body = ""
+                bijlagen = []
+                for part in msg.walk():
+                    ct = part.get_content_type()
+                    cd = str(part.get("Content-Disposition", ""))
+
+                    if ct == "text/plain" and "attachment" not in cd:
+                        try:
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                        except Exception:
+                            body = ""
+                    elif "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png"):
+                        naam = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
+                        bijlagen.append({"naam": naam, "type": ct})
+
+                # Ongelezen check
+                _, flags_data = conn.fetch(uid, "(FLAGS)")
+                ongelezen = b"\\Seen" not in flags_data[0]
+
+                emails.append({
+                    "uid": uid.decode(),
+                    "onderwerp": onderwerp,
+                    "afzender": afzender_email,
+                    "afzender_naam": afzender_naam,
+                    "datum": datum,
+                    "body": body[:500],  # eerste 500 tekens
+                    "bijlagen": bijlagen,
+                    "heeft_bijlage": len(bijlagen) > 0,
+                    "ongelezen": ongelezen,
+                    "type": _classificeer_email(onderwerp, body),
+                })
+            except Exception:
+                continue
+
+        conn.logout()
+        return JSONResponse(content={"emails": emails})
+
+    except Exception as e:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+        return JSONResponse(content={"fout": str(e)})
+
+
+@app.post("/api/lees-bijlage")
+async def lees_bijlage(request: Request):
+    """
+    Haalt een bijlage op uit een e-mail, toont preview
+    en leest het recept uit met Claude Vision.
+    """
+    import imaplib
+    import email as email_lib
+
+    body = await request.json()
+    email_uid = body.get("email_uid", "")
+    bijlage_index = body.get("bijlage_index", 0)
+
+    try:
+        conn = _imap_verbinding()
+    except ValueError as e:
+        return JSONResponse(content={"fout": str(e)})
+
+    try:
+        conn.select("INBOX")
+        _, data = conn.fetch(email_uid.encode(), "(RFC822)")
+        msg = email_lib.message_from_bytes(data[0][1])
+        conn.logout()
+
+        # Bijlage ophalen
+        bijlagen = []
+        for part in msg.walk():
+            ct = part.get_content_type()
+            cd = str(part.get("Content-Disposition", ""))
+            if "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg"):
+                bijlagen.append(part)
+
+        if bijlage_index >= len(bijlagen):
+            return JSONResponse(content={"fout": "Bijlage niet gevonden"})
+
+        bijlage_part = bijlagen[bijlage_index]
+        inhoud = bijlage_part.get_payload(decode=True)
+        ct = bijlage_part.get_content_type()
+        naam = bijlage_part.get_filename() or "recept"
+
+        # Preview genereren
+        preview = None
+        if ct == "application/pdf" or naam.lower().endswith(".pdf"):
+            try:
+                import fitz
+                doc = fitz.open(stream=inhoud, filetype="pdf")
+                pix = doc[0].get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+                preview = f"data:image/jpeg;base64,{base64.standard_b64encode(pix.tobytes('jpeg')).decode()}"
+            except Exception:
+                pass
+        else:
+            preview = f"data:{ct};base64,{base64.standard_b64encode(inhoud).decode()}"
+
+        # OCR via Claude
+        is_pdf = ct == "application/pdf" or naam.lower().endswith(".pdf")
+        b64 = base64.standard_b64encode(inhoud).decode()
+        document_blok = {
+            "type": "document" if is_pdf else "image",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf" if is_pdf else ct,
+                "data": b64
+            }
+        }
+
+        prompt = """Analyseer dit recept en extraheer de velden als JSON.
+Geef ALLEEN JSON terug, geen uitleg of markdown.
+
+BELANGRIJK: Lees het adresblok van de PATIËNT (niet van de arts).
+Volgorde: naam → straat + huisnummer → postcode + woonplaats.
+
+{
+  "recept_datum": "DD-MM-YYYY of null",
+  "medicijn": "volledige naam inclusief concentratie",
+  "hoeveelheid": "bijv. 30 gram",
+  "iter": "herhalingen of null",
+  "gebruiksaanwijzing": "instructie na S:",
+  "patient_naam": "voor- en achternaam patiënt",
+  "geboortedatum": "DD-MM-YYYY of null",
+  "bsn": "BSN-nummer of null",
+  "straat": "straat + huisnummer patiënt",
+  "postcode_plaats": "postcode + woonplaats patiënt",
+  "email": "email patiënt of null",
+  "telefoon": "telefoon patiënt of null",
+  "voorschrijver": "naam arts",
+  "agb_code": "AGB-code of null",
+  "big_nummer": "BIG-nummer of null",
+  "geldig": true,
+  "vertrouwen": 85
+}"""
+
+        api_resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": [document_blok, {"type": "text", "text": prompt}]}],
+            },
+            timeout=60,
+        )
+        api_resp.raise_for_status()
+        tekst = api_resp.json()["content"][0]["text"].strip().replace("```json", "").replace("```", "").strip()
+        recept_data = json.loads(tekst)
+
+        return JSONResponse(content={"preview": preview, "recept": recept_data})
+
+    except Exception as e:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+        return JSONResponse(content={"fout": str(e)})
