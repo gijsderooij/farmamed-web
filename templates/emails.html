@@ -320,39 +320,61 @@
       <div class="email-meta-rij"><span class="email-meta-label">Datum:</span><span class="email-meta-waarde">${email.datum}</span></div>
       <div class="email-meta-rij"><span class="email-meta-label">Onderwerp:</span><span class="email-meta-waarde">${email.onderwerp}</span></div>
     `;
-    document.getElementById('emailBody').textContent = email.body || '';
+    document.getElementById('emailBody').textContent = 'Laden…';
 
-    // Bijlagen
-    const bijlageSectie = document.getElementById('bijlageSectie');
-    const bijlageLijst = document.getElementById('bijlageLijst');
-    if (email.bijlagen && email.bijlagen.length > 0) {
-      bijlageSectie.style.display = 'block';
-      bijlageLijst.innerHTML = '';
-      email.bijlagen.forEach((bijlage, idx) => {
-        const div = document.createElement('div');
-        div.className = 'bijlage-item';
-        div.innerHTML = `
-          <span class="bijlage-naam">📎 ${bijlage.naam}</span>
-          <button class="bijlage-btn" onclick="openBijlage(${idx})">Openen & uitlezen</button>
-        `;
-        bijlageLijst.appendChild(div);
-      });
-    } else {
-      bijlageSectie.style.display = 'none';
-
-      // Geen bijlage — probeer e-mailtekst te interpreteren
-      if (email.type === 'herhaalrecept') {
-        document.getElementById('uitgelezenInhoud').innerHTML = `
-          <div class="melding melding-warn">🔁 Herhaalrecept verzoek — geen bijlage aanwezig</div>
-          <div style="font-size:13px;color:var(--muted)">De arts of patiënt vraagt om een herhaling. Vul de ordergegevens handmatig in.</div>
-        `;
-        // Prefill met e-mailgegevens
-        prefillVanEmail(email);
-        document.getElementById('btnMaakOrder').disabled = false;
-      }
-    }
+    // Laad volledige e-mailinhoud op de achtergrond
+    laadEmailInhoud(email);
 
     toonTab('uitgelezen');
+  }
+
+  // --- Volledige e-mail laden ---
+  async function laadEmailInhoud(email) {
+    try {
+      const res = await fetch('/api/open-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_uid: email.uid })
+      });
+      const data = await res.json();
+      if (data.fout) {
+        document.getElementById('emailBody').textContent = 'Fout: ' + data.fout;
+        return;
+      }
+
+      document.getElementById('emailBody').textContent = data.body || '(geen inhoud)';
+
+      // Type bijwerken op basis van body
+      if (data.type) huidigeEmail.type = data.type;
+
+      // Bijlagen tonen
+      const bijlageSectie = document.getElementById('bijlageSectie');
+      const bijlageLijst = document.getElementById('bijlageLijst');
+      huidigeEmail.bijlagen = data.bijlagen || [];
+
+      if (data.bijlagen && data.bijlagen.length > 0) {
+        bijlageSectie.style.display = 'block';
+        bijlageLijst.innerHTML = '';
+        data.bijlagen.forEach((bijlage, idx) => {
+          const div = document.createElement('div');
+          div.className = 'bijlage-item';
+          div.innerHTML = `<span class="bijlage-naam">📎 ${bijlage.naam}</span>
+            <button class="bijlage-btn" onclick="openBijlage(${idx})">Openen & uitlezen</button>`;
+          bijlageLijst.appendChild(div);
+        });
+      } else {
+        bijlageSectie.style.display = 'none';
+        if (data.type === 'herhaalrecept' || huidigeEmail.type === 'herhaalrecept') {
+          document.getElementById('uitgelezenInhoud').innerHTML = `
+            <div class="melding melding-warn">🔁 Herhaalrecept verzoek — geen bijlage aanwezig</div>
+            <div style="font-size:13px;color:var(--muted)">De arts of patiënt vraagt om een herhaling. Vul de ordergegevens handmatig in.</div>`;
+          prefillVanEmail(huidigeEmail);
+          document.getElementById('btnMaakOrder').disabled = false;
+        }
+      }
+    } catch(e) {
+      document.getElementById('emailBody').textContent = 'Fout bij laden: ' + e.message;
+    }
   }
 
   // --- Bijlage openen en uitlezen ---
