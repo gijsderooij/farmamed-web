@@ -316,7 +316,8 @@
     document.getElementById('orderMelding').innerHTML = '';
     document.getElementById('receptViewer').style.display = 'none';
     document.getElementById('receptHeader').style.display = 'none';
-    document.getElementById('uitgelezenInhoud').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px;">Open een bijlage om het recept uit te lezen.</div>';
+    document.getElementById('receptScheiding').style.display = 'none';
+    document.getElementById('uitgelezenInhoud').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px;">Bijlagen worden geladen…</div>';
 
     // Meta
     document.getElementById('emailOnderwerp').textContent = email.onderwerp;
@@ -364,9 +365,12 @@
           const div = document.createElement('div');
           div.className = 'bijlage-item';
           div.innerHTML = `<span class="bijlage-naam">📎 ${bijlage.naam}</span>
-            <button class="bijlage-btn" onclick="openBijlage(${idx})">Openen & uitlezen</button>`;
+            <button class="bijlage-btn" id="bijlageBtn${idx}" onclick="openBijlage(${idx})">Openen & uitlezen</button>`;
           bijlageLijst.appendChild(div);
         });
+
+        // Eerste bijlage automatisch laden
+        openBijlage(0);
       } else {
         bijlageSectie.style.display = 'none';
         if (data.type === 'herhaalrecept' || huidigeEmail.type === 'herhaalrecept') {
@@ -387,10 +391,17 @@
     if (!huidigeEmail) return;
     huidigeBijlageIndex = idx;
 
+    // Markeer actieve bijlage knop
+    document.querySelectorAll('[id^="bijlageBtn"]').forEach((btn, i) => {
+      btn.style.background = i === idx ? 'var(--teal)' : '';
+      btn.style.color = i === idx ? 'white' : '';
+    });
+
     const bijlage = huidigeEmail.bijlagen[idx];
     document.getElementById('uitgelezenInhoud').innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Recept uitlezen met AI…</div>';
     document.getElementById('receptHeader').style.display = 'flex';
     document.getElementById('receptViewer').style.display = 'flex';
+    document.getElementById('receptScheiding').style.display = 'block';
     document.getElementById('receptViewer').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center;"><span class="spinner-klein"></span>Laden…</div>';
 
     try {
