@@ -244,29 +244,53 @@ async def maak_order(request: Request):
     voornaam = naam_delen[0] if naam_delen else ""
     achternaam = naam_delen[1] if len(naam_delen) > 1 else ""
 
+    # Adres splitsen
+    straat = data.get("straat") or ""
+    postcode_plaats = data.get("postcode_plaats") or ""
+    # Splits "1234AB Amsterdam" in postcode en stad
+    import re as _re
+    pc_match = _re.match(r"(\d{4}\s*[A-Za-z]{2})\s*(.*)", postcode_plaats.strip())
+    postcode = pc_match.group(1).strip() if pc_match else ""
+    stad = pc_match.group(2).strip() if pc_match else postcode_plaats
+
+    # Bron bepalen
+    bron = data.get("bron", "balie")
+    oorsprong = "E-Mail" if bron == "email" else "Balie"
+
+    billing = {
+        "first_name": voornaam,
+        "last_name": achternaam,
+        "address_1": straat,
+        "city": stad,
+        "postcode": postcode,
+        "country": "NL",
+        "email": data.get("email") or "onbekend@farmamed.nl",
+        "phone": data.get("telefoon") or "",
+    }
+
     order_payload = {
-        "status": "processing",
-        "billing": {
-            "first_name": voornaam,
-            "last_name": achternaam,
-            "email": data.get("email") or "onbekend@farmamed.nl",
-            "phone": data.get("telefoon") or "",
-        },
+        "status": "pending",
+        "billing": billing,
+        "shipping": billing,
         "line_items": [
             {"product_id": product_id, "quantity": 1}
         ] if product_id else [],
         "meta_data": [
-            {"key": "geboortedatum", "value": data.get("geboortedatum") or ""},
-            {"key": "bsn", "value": data.get("bsn") or ""},
-            {"key": "voorschrijver", "value": data.get("voorschrijver") or ""},
-            {"key": "agb_code", "value": data.get("agb_code") or ""},
-            {"key": "big_nummer", "value": data.get("big_nummer") or ""},
-            {"key": "recept_datum", "value": data.get("recept_datum") or ""},
-            {"key": "medicijn_ocr", "value": data.get("medicijn") or ""},
-            {"key": "gebruiksaanwijzing", "value": data.get("gebruiksaanwijzing") or ""},
-            {"key": "iter", "value": data.get("iter") or ""},
+            {"key": "geboortedatum",    "value": data.get("geboortedatum") or ""},
+            {"key": "_geboortedatum",   "value": data.get("geboortedatum") or ""},
+            {"key": "billing_birth",    "value": _nl_naar_amerikaans(data.get("geboortedatum") or "")},
+            {"key": "_billing_birth",   "value": _nl_naar_amerikaans(data.get("geboortedatum") or "")},
+            {"key": "bsn",              "value": data.get("bsn") or ""},
+            {"key": "voorschrijver",    "value": data.get("voorschrijver") or ""},
+            {"key": "agb_code",         "value": data.get("agb_code") or ""},
+            {"key": "big_nummer",       "value": data.get("big_nummer") or ""},
+            {"key": "recept_datum",     "value": data.get("recept_datum") or ""},
+            {"key": "medicijn_ocr",     "value": data.get("medicijn") or ""},
+            {"key": "gebruiksaanwijzing","value": data.get("gebruiksaanwijzing") or ""},
+            {"key": "iter",             "value": data.get("iter") or ""},
+            {"key": "oorsprong",        "value": oorsprong},
         ],
-        "customer_note": f"Recept ingediend via webformulier. Medicijn: {medicijn}",
+        "customer_note": f"Recept ingediend via {oorsprong}. Medicijn: {medicijn}",
     }
 
     try:
@@ -802,6 +826,20 @@ def _normaliseer_medicijn(naam: str) -> str:
     naam = re.sub(r'\s+', ' ', naam).strip()
 
     return naam
+
+
+def _nl_naar_amerikaans(datum: str) -> str:
+    """Converteert DD-MM-YYYY naar YYYY-MM-DD voor WooCommerce billing_birth."""
+    if not datum:
+        return ""
+    try:
+        from datetime import datetime
+        if len(datum) == 10 and datum[2] == '-':
+            dt = datetime.strptime(datum, "%d-%m-%Y")
+            return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+    return datum
 
 
 def _amerikaans_naar_nederlands(datum: str) -> str:
