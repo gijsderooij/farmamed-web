@@ -363,16 +363,27 @@
       if (data.bijlagen && data.bijlagen.length > 0) {
         bijlageSectie.style.display = 'block';
         bijlageLijst.innerHTML = '';
+        let eersteNormaal = -1;
         data.bijlagen.forEach((bijlage, idx) => {
           const div = document.createElement('div');
           div.className = 'bijlage-item';
-          div.innerHTML = `<span class="bijlage-naam">📎 ${bijlage.naam}</span>
-            <button class="bijlage-btn" id="bijlageBtn${idx}" onclick="openBijlage(${idx})">Openen & uitlezen</button>`;
+          const isEdi = isEdifactBijlage(bijlage);
+          if (isEdi) {
+            div.innerHTML = `<span class="bijlage-naam">📋 ${bijlage.naam} <span style="color:var(--teal-dk);font-size:10px;font-weight:600">EDIFACT</span></span>
+              <button class="bijlage-btn" id="bijlageBtn${idx}" onclick="verwerkEdifactBijlage(${idx})" style="background:var(--teal);color:white;">▶ Order aanmaken</button>`;
+          } else {
+            if (eersteNormaal === -1) eersteNormaal = idx;
+            div.innerHTML = `<span class="bijlage-naam">📎 ${bijlage.naam}</span>
+              <button class="bijlage-btn" id="bijlageBtn${idx}" onclick="openBijlage(${idx})">Openen & uitlezen</button>`;
+          }
           bijlageLijst.appendChild(div);
         });
 
-        // Eerste bijlage automatisch laden
-        openBijlage(0);
+        // Eerste normale bijlage automatisch laden (geen EDIFACT)
+        if (eersteNormaal >= 0) openBijlage(eersteNormaal);
+        else if (data.bijlagen.length > 0 && isEdifactBijlage(data.bijlagen[0])) {
+          document.getElementById('uitgelezenInhoud').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px;">EDIFACT bijlage gevonden — klik op 'Order aanmaken' om te verwerken.</div>';
+        }
       } else {
         bijlageSectie.style.display = 'none';
         if (data.type === 'herhaalrecept' || huidigeEmail.type === 'herhaalrecept') {
@@ -530,7 +541,13 @@
       const data = await res.json();
 
       if (data.order_id) {
-        document.getElementById('orderMelding').innerHTML = `<div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt in WooCommerce</div>`;
+        let edifactKnop = '';
+        if (data.edifact) {
+          window._edifact = data.edifact;
+          window._edifactOrderId = data.order_id;
+          edifactKnop = `<button onclick="downloadEdifactEmail()" style="margin-top:8px;padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Download EDIFACT verstrekkingsverzoek</button>`;
+        }
+        document.getElementById('orderMelding').innerHTML = `<div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt in WooCommerce</div>${edifactKnop}`;
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
         btn.textContent = '✓ Aangemaakt';
@@ -541,6 +558,56 @@
       document.getElementById('orderMelding').innerHTML = `<div class="melding melding-fout">✕ Fout: ${e.message}</div>`;
       btn.disabled = false;
       btn.textContent = '📦 Order aanmaken in WooCommerce';
+    }
+  }
+
+  // --- EDIFACT download na order aanmaken ---
+  function downloadEdifactEmail() {
+    if (!window._edifact) return;
+    const blob = new Blob([window._edifact], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${window._edifactOrderId}_farmamed_verstrekkingsverzoek.edi`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // --- Stroom 4: EDIFACT bijlage herkennen ---
+  function isEdifactBijlage(bijlage) {
+    const naam = (bijlage.naam || '').toLowerCase();
+    return naam.endsWith('.edi') || naam.endsWith('.edifact') || naam.includes('edifact') || naam.includes('verstrekkings');
+  }
+
+  async function verwerkEdifactBijlage(idx) {
+    if (!huidigeEmail) return;
+    document.getElementById('uitgelezenInhoud').innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>EDIFACT verwerken en order aanmaken…</div>';
+
+    try {
+      const res = await fetch('/api/verwerk-edifact-bijlage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_uid: huidigeEmail.uid, bijlage_index: idx })
+      });
+      const data = await res.json();
+
+      if (data.order_id) {
+        const g = data.gegevens || {};
+        document.getElementById('uitgelezenInhoud').innerHTML = `
+          <div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt vanuit EDIFACT</div>
+          <div style="margin-top:10px;font-size:12px;">
+            <div style="font-weight:600;margin-bottom:6px;color:var(--teal-dk)">Uitgelezen uit EDIFACT:</div>
+            ${g.patient_naam ? `<div><span style="color:var(--muted)">Patiënt:</span> ${g.patient_naam}</div>` : ''}
+            ${g.geboortedatum ? `<div><span style="color:var(--muted)">Geboortedatum:</span> ${g.geboortedatum}</div>` : ''}
+            ${g.medicijn ? `<div><span style="color:var(--muted)">Medicijn:</span> ${g.medicijn}</div>` : ''}
+            ${g.hoeveelheid ? `<div><span style="color:var(--muted)">Hoeveelheid:</span> ${g.hoeveelheid}</div>` : ''}
+            ${g.voorschrijver ? `<div><span style="color:var(--muted)">Voorschrijver:</span> ${g.voorschrijver}</div>` : ''}
+          </div>`;
+      } else {
+        document.getElementById('uitgelezenInhoud').innerHTML = `<div class="melding melding-fout">✕ ${data.fout || 'Onbekende fout'}</div>`;
+      }
+    } catch(e) {
+      document.getElementById('uitgelezenInhoud').innerHTML = `<div class="melding melding-fout">Fout: ${e.message}</div>`;
     }
   }
 
