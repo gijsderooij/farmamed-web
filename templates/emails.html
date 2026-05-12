@@ -215,6 +215,8 @@
             <div class="veld-rij"><span class="veld-label">Straat & huisnr.</span><input class="veld-input" id="o-straat" type="text" placeholder="—"></div>
             <div class="veld-rij"><span class="veld-label">Postcode & plaats</span><input class="veld-input" id="o-postcode_plaats" type="text" placeholder="—"></div>
 
+            <div class="veld-rij"><span class="veld-label">BSN-nummer</span><input class="veld-input" id="o-bsn" type="text" placeholder="—"></div>
+
             <div class="sectie-titel">Medicatie</div>
             <div class="veld-rij"><span class="veld-label">Medicijn</span><input class="veld-input" id="o-medicijn" type="text" placeholder="—"></div>
             <div class="veld-rij"><span class="veld-label">Hoeveelheid</span><input class="veld-input" id="o-hoeveelheid" type="text" placeholder="bijv. 30 gram"></div>
@@ -490,6 +492,7 @@
     if (veld('o-gebruiksaanwijzing')) veld('o-gebruiksaanwijzing').value = recept.gebruiksaanwijzing || '';
     if (veld('o-voorschrijver')) veld('o-voorschrijver').value = recept.voorschrijver || '';
     if (veld('o-agb_code')) veld('o-agb_code').value = recept.agb_code || '';
+    if (veld('o-bsn')) veld('o-bsn').value = recept.bsn || '';
   }
 
   // --- Prefill vanuit e-mailafzender (bij herhaalrecept zonder bijlage) ---
@@ -623,6 +626,7 @@
     if (veld('o-gebruiksaanwijzing')) veld('o-gebruiksaanwijzing').value = kloon.gebruiksaanwijzing || '';
     if (veld('o-voorschrijver')) veld('o-voorschrijver').value = kloon.voorschrijver || '';
     if (veld('o-agb_code')) veld('o-agb_code').value = kloon.agb_code || '';
+    if (veld('o-bsn')) veld('o-bsn').value = kloon.bsn || '';
 
     // Sla kloon product_id op voor order aanmaken
     window._kloonProductId = kloon.product_id;
