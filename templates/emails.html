@@ -493,9 +493,9 @@
   }
 
   // --- Prefill vanuit e-mailafzender (bij herhaalrecept zonder bijlage) ---
-  function prefillVanEmail(email) {
+  function prefillVanEmail(email, zoekEmail) {
     const veld = id => document.getElementById(id);
-    if (veld('o-email')) veld('o-email').value = email.afzender || '';
+    if (veld('o-email')) veld('o-email').value = zoekEmail || email.afzender || '';
     if (veld('o-iter')) veld('o-iter').value = '1x iter';
   }
 
@@ -574,7 +574,11 @@
 
       if (data.gevonden && data.kloon) {
         const k = data.kloon;
+        const doorgestuurdInfo = data.email_data?.is_doorgestuurd
+          ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">📨 Doorgestuurde mail — originele afzender: <strong>${data.zoek_email || data.email_data?.patient_email || ''}</strong></div>`
+          : '';
         document.getElementById('uitgelezenInhoud').innerHTML = `
+          ${doorgestuurdInfo}
           <div class="melding melding-ok">✓ ${data.bericht}</div>
           <div style="margin-top:10px;font-size:12px;">
             <div style="font-weight:600;color:var(--teal-dk);margin-bottom:6px;">Voorstel gebaseerd op eerdere order #${k.order_id}:</div>
@@ -588,8 +592,10 @@
             </div>
           </div>`;
       } else {
+        const zoekInfo = data.zoek_email ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;">Gezocht op: ${data.zoek_email}</div>` : '';
         document.getElementById('uitgelezenInhoud').innerHTML = `
           <div class="melding melding-warn">⚠ ${data.bericht || 'Geen eerdere order gevonden'}</div>
+          ${zoekInfo}
           <div style="font-size:13px;color:var(--muted);margin-top:6px;">Vul de ordergegevens handmatig in.</div>`;
         prefillVanEmail(email);
         document.getElementById('btnMaakOrder').disabled = false;
