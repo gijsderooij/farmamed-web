@@ -215,11 +215,36 @@
             <div class="veld-rij"><span class="veld-label">Straat & huisnr.</span><input class="veld-input" id="o-straat" type="text" placeholder="—"></div>
             <div class="veld-rij"><span class="veld-label">Postcode & plaats</span><input class="veld-input" id="o-postcode_plaats" type="text" placeholder="—"></div>
 
-            <div class="veld-rij"><span class="veld-label">BSN-nummer</span><input class="veld-input" id="o-bsn" type="text" placeholder="9 cijfers" oninput="valideerBSNEmail(this)"></div>
-            <div id="bsn-email-fout" style="display:none;font-size:11px;color:var(--danger);padding-left:130px;margin-top:-4px;margin-bottom:4px;">⚠ BSN moet exact 9 cijfers zijn</div>
+            <div class="veld-rij"><span class="veld-label">BSN-nummer</span><input class="veld-input" id="o-bsn" type="text" placeholder="bijv. 123456789" maxlength="9" oninput="valideerBSNEmail(this)"></div>
+            <div id="bsn-email-fout" style="display:none;font-size:11px;color:var(--danger);padding-left:130px;margin-top:-4px;margin-bottom:4px;">⚠ BSN moet exact 9 cijfers zijn (geen spaties of letters)</div>
 
             <div class="sectie-titel">Medicatie</div>
-            <div class="veld-rij"><span class="veld-label">Medicijn</span><input class="veld-input" id="o-medicijn" type="text" placeholder="—"></div>
+            <div class="veld-rij">
+              <span class="veld-label">Medicijn</span>
+              <select class="veld-input" id="o-medicijn">
+                <option value="">— Kies medicijn</option>
+                <option value="Tretinoïne crème 0.02% FNA - tegen huidveroudering (30 gram)">Tretinoïne crème 0.02% FNA (30g)</option>
+                <option value="Tretinoïne crème 0.02% FNA - tegen huidveroudering (90 gram)">Tretinoïne crème 0.02% FNA (90g)</option>
+                <option value="Tretinoïne crème 0.05% FNA - tegen huidveroudering (30 gram)">Tretinoïne crème 0.05% FNA (30g)</option>
+                <option value="Tretinoïne crème 0.05% FNA - tegen huidveroudering (90 gram)">Tretinoïne crème 0.05% FNA (90g)</option>
+                <option value="Tretinoïne crème 0.1% FNA - tegen huidveroudering (30 gram)">Tretinoïne crème 0.1% FNA (30g)</option>
+                <option value="Amitriptyline crème 5% (SAW-crème)">Amitriptyline crème 5%</option>
+                <option value="Amitriptyline crème 10% (SAW-crème)">Amitriptyline crème 10%</option>
+                <option value="Baclofen crème 5% (SAW-crème)">Baclofen crème 5%</option>
+                <option value="Clonidine crème 0,1% (SAW-crème)">Clonidine crème 0,1%</option>
+                <option value="Clonidine crème 0,2% (SAW-crème)">Clonidine crème 0,2%</option>
+                <option value="Fenytoïne crème 5% (SAW-crème)">Fenytoïne crème 5%</option>
+                <option value="Fenytoïne crème 10% (SAW-crème)">Fenytoïne crème 10%</option>
+                <option value="Fenytoïne crème 20% (SAW-crème)">Fenytoïne crème 20%</option>
+                <option value="Gabapentine crème 10% (SAW-crème)">Gabapentine crème 10%</option>
+                <option value="Ketamine crème 10% (SAW-crème)">Ketamine crème 10%</option>
+                <option value="Isoso in Lidocaine">Isoso in Lidocaine</option>
+                <option value="Naltrexon (Low Dose) - LDN 1.0 - 4.5 mg">Naltrexon LDN</option>
+                <option value="Tadalafil 5mg tabletten op recept (Sandoz)">Tadalafil 5mg</option>
+                <option value="Oxybutynine">Oxybutynine</option>
+                <option value="Proefbehandeling pijnstillende crèmes">Proefbehandeling</option>
+              </select>
+            </div>
             <div class="veld-rij"><span class="veld-label">Hoeveelheid</span><input class="veld-input" id="o-hoeveelheid" type="text" placeholder="bijv. 30 gram"></div>
             <div class="veld-rij">
               <span class="veld-label">Herhaalrecept</span>
@@ -488,7 +513,18 @@
     if (veld('o-telefoon')) veld('o-telefoon').value = recept.telefoon || '';
     if (veld('o-straat')) veld('o-straat').value = recept.straat || '';
     if (veld('o-postcode_plaats')) veld('o-postcode_plaats').value = recept.postcode_plaats || '';
-    if (veld('o-medicijn')) veld('o-medicijn').value = recept.medicijn || '';
+    // Medicijn: probeer te matchen in dropdown
+    if (veld('o-medicijn')) {
+      const sel = veld('o-medicijn');
+      const ocr = (recept.medicijn || '').toLowerCase();
+      let gevonden = false;
+      for (const opt of sel.options) {
+        if (opt.value && opt.value.toLowerCase().includes(ocr.split(' ')[0]) ) {
+          sel.value = opt.value; gevonden = true; break;
+        }
+      }
+      if (!gevonden) sel.value = recept.medicijn || '';
+    }
     if (veld('o-hoeveelheid')) veld('o-hoeveelheid').value = recept.hoeveelheid || '';
     if (veld('o-gebruiksaanwijzing')) veld('o-gebruiksaanwijzing').value = recept.gebruiksaanwijzing || '';
     if (veld('o-voorschrijver')) veld('o-voorschrijver').value = recept.voorschrijver || '';
