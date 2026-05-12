@@ -488,19 +488,27 @@ async def zoek_herhaalorder(request: Request):
     if not all([wc_url, wc_key, wc_secret]):
         return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
 
-    # Laat Claude de naam en medicijn uit de e-mailbody extraheren
-    prompt = f"""Analyseer deze e-mail van een apotheekpatiënt en extraheer de gegevens als JSON.
+    # Laat Claude de echte afzender en inhoud uit de (doorgestuurde) mail extraheren
+    prompt = f"""Analyseer deze e-mail. Het kan een doorgestuurde (forwarded) mail zijn.
 Geef ALLEEN JSON terug, geen uitleg.
 
-E-mail van: {afzender_email}
-Naam afzender: {afzender_naam}
-Inhoud:
-{email_body[:1000]}
+Directe afzender: {afzender_email}
+Naam directe afzender: {afzender_naam}
+Volledige e-mailinhoud:
+{email_body[:2000]}
+
+Instructies:
+- Als dit een doorgestuurde mail is, gebruik dan het e-mailadres en naam van de ORIGINELE afzender (niet de doorsturende partij zoals info@farmamed.nl)
+- De originele afzender staat meestal na "Van:", "From:", "Afzender:" of "-------- Oorspronkelijk bericht --------"
+- Extraheer het medicijn en eventuele hoeveelheid uit de gehele inhoud inclusief het doorgestuurde deel
 
 {{
-  "patient_naam": "naam van de patient of null",
+  "patient_naam": "naam van de originele patient/arts",
+  "patient_email": "e-mailadres van de originele afzender",
   "medicijn": "gevraagd medicijn of null",
+  "hoeveelheid": "hoeveelheid of null",
   "is_herhaalverzoek": true of false,
+  "is_doorgestuurd": true of false,
   "notitie": "korte samenvatting van het verzoek"
 }}"""
 
@@ -525,31 +533,35 @@ Inhoud:
     except Exception as e:
         email_data = {"patient_naam": afzender_naam, "is_herhaalverzoek": True}
 
+    # Gebruik het echte e-mailadres (uit doorgestuurde mail indien van toepassing)
+    zoek_email = email_data.get("patient_email") or afzender_email
+    zoek_naam = email_data.get("patient_naam") or afzender_naam
+
     # Zoek eerdere orders op e-mailadres
     beste_order = None
     beste_score = 0
 
     try:
-        # Zoek op e-mailadres (meest betrouwbaar)
-        if afzender_email:
+        # Zoek op e-mailadres van de originele afzender
+        if zoek_email and "@" in zoek_email:
             resp = http_requests.get(
                 f"{wc_url}/wp-json/wc/v3/orders",
                 auth=(wc_key, wc_secret),
                 headers={"Accept": "application/json"},
-                params={"search": afzender_email, "per_page": 5, "orderby": "date", "order": "desc"},
+                params={"search": zoek_email, "per_page": 5, "orderby": "date", "order": "desc"},
                 timeout=10,
             )
             orders = resp.json() if resp.status_code == 200 else []
             for order in (orders if isinstance(orders, list) else []):
                 billing = order.get("billing", {})
-                if billing.get("email", "").lower() == afzender_email.lower():
+                if billing.get("email", "").lower() == zoek_email.lower():
                     beste_order = order
                     beste_score = 100
                     break
 
         # Fallback: zoek op naam
         if not beste_order:
-            naam = email_data.get("patient_naam") or afzender_naam
+            naam = zoek_naam
             achternaam = naam.split()[-1] if naam.split() else ""
             if achternaam and len(achternaam) >= 3:
                 from rapidfuzz import fuzz
