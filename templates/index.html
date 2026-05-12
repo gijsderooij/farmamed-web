@@ -376,6 +376,26 @@
       const elem = el(id);
       if (elem && waarde && waarde !== 'null') elem.value = waarde;
     }
+
+    // Toon verrijking melding als velden zijn aangevuld uit WooCommerce
+    if (data._verrijking && Object.keys(data._verrijking).length > 0) {
+      const verrijkingItems = Object.entries(data._verrijking)
+        .map(([k, v]) => `<li>${k}: ${v}</li>`).join('');
+      const bestaand = el('verrijkingMelding');
+      const melding = `<div style="background:#e8f4f4;border-left:3px solid var(--teal);border-radius:6px;padding:10px 14px;margin-top:8px;font-size:12px;">
+        <div style="font-weight:600;color:var(--teal-dk);margin-bottom:4px;">✓ Aangevuld uit WooCommerce order #${data._match_order}</div>
+        <ul style="margin:0;padding-left:16px;color:var(--text);">${verrijkingItems}</ul>
+      </div>`;
+      if (bestaand) {
+        bestaand.innerHTML = melding;
+      } else {
+        const div = document.createElement('div');
+        div.id = 'verrijkingMelding';
+        div.innerHTML = melding;
+        const patientTab = el('tab-patient');
+        if (patientTab) patientTab.insertBefore(div, patientTab.firstChild);
+      }
+    }
   }
 
   function setIterWaarde(iterTekst) {
