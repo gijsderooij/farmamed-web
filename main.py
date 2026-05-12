@@ -383,7 +383,7 @@ async def verwerk_edifact_bijlage(request: Request):
     email_uid = body.get("email_uid", "")
     bijlage_index = body.get("bijlage_index", 0)
 
-    email = next((e for e in _email_cache if e["uid"] == email_uid), None)
+    email = _zoek_email_op_uid(email_uid)
     if not email:
         return JSONResponse(content={"fout": "E-mail niet gevonden"})
 
@@ -646,7 +646,15 @@ def _genereer_edifact(order_data: dict, recept_data: dict = None) -> str:
 
     medicijn = order_data.get("medicijn", "ONBEKEND")
     medicijn_code = medicijn.upper().replace(" ", "")[:20]
-    hoeveelheid = int(float(str(order_data.get("hoeveelheid", 30)).replace(" gram", "").replace("gram", "").strip() or 30))
+    try:
+        hoev_raw = str(order_data.get("hoeveelheid", 30))
+        hoev_raw = hoev_raw.replace(",", ".").replace(" gram", "").replace("gram", "").replace(" g", "").replace("G", "").replace("g", "").strip()
+        # Neem alleen het eerste getal
+        import re as _re
+        hoev_match = _re.search(r"[\d.]+", hoev_raw)
+        hoeveelheid = int(float(hoev_match.group(0))) if hoev_match else 30
+    except Exception:
+        hoeveelheid = 30
 
     naam = order_data.get("patient_naam") or order_data.get("klant_naam") or ""
     voorschrijver = ""
@@ -941,31 +949,86 @@ def _classificeer_email(onderwerp: str, body: str) -> str:
     return "overig"
 
 
-# In-memory opslag van ontvangen e-mails (wordt gevuld door lokale poller)
-_email_cache: list[dict] = []
+# SQLite persistente e-mailopslag
+import sqlite3 as _sqlite3
+
+_DB_PAD = "/app/data/emails.db"
+
+def _init_email_db():
+    """Maak database aan als die nog niet bestaat."""
+    import os
+    os.makedirs("/app/data", exist_ok=True)
+    conn = _sqlite3.connect(_DB_PAD)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS emails (
+            uid TEXT PRIMARY KEY,
+            data TEXT NOT NULL,
+            ontvangen TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def _sla_email_op(email_data: dict):
+    """Sla e-mail op in SQLite."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO emails (uid, data) VALUES (?, ?)",
+            (email_data["uid"], json.dumps(email_data))
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+def _haal_emails_op_db(limit: int = 50) -> list:
+    """Haal e-mails op uit SQLite, nieuwste eerst."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        rows = conn.execute(
+            "SELECT data FROM emails ORDER BY ontvangen DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [json.loads(r[0]) for r in rows]
+    finally:
+        conn.close()
+
+def _zoek_email_op_uid(uid: str) -> dict:
+    """Zoek één e-mail op uid."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        row = conn.execute("SELECT data FROM emails WHERE uid = ?", (uid,)).fetchone()
+        return json.loads(row[0]) if row else None
+    finally:
+        conn.close()
+
+# Backwards compat helper
+def _email_cache_get(uid: str):
+    return _zoek_email_op_uid(uid)
 
 
 @app.post("/api/email-inkomend")
 async def email_inkomend(request: Request):
-    """Ontvangt een e-mail van de lokale poller en slaat hem op."""
-    global _email_cache
+    """Ontvangt een e-mail van de lokale poller en slaat hem op in SQLite."""
     data = await request.json()
-    # Voeg toe als nog niet aanwezig (op basis van uid)
-    uids = {e["uid"] for e in _email_cache}
-    if data.get("uid") not in uids:
-        _email_cache.insert(0, data)
-        _email_cache = _email_cache[:50]  # max 50 bewaren
-    return JSONResponse(content={"ok": True, "totaal": len(_email_cache)})
+    if not data.get("uid"):
+        return JSONResponse(content={"fout": "Geen UID"})
+    _sla_email_op(data)
+    alle = _haal_emails_op_db()
+    return JSONResponse(content={"ok": True, "totaal": len(alle)})
 
 
 @app.get("/api/emails")
 async def haal_emails_op():
-    """Geeft opgeslagen e-mails terug (gevuld door lokale poller)."""
-    if not _email_cache:
+    """Geeft opgeslagen e-mails terug vanuit SQLite."""
+    emails = _haal_emails_op_db()
+    if not emails:
         return JSONResponse(content={"emails": [], "info": "Nog geen e-mails ontvangen — start de lokale email_poller.py"})
     # Geef emails terug zonder bijlage-data (die is groot)
     emails_zonder_data = []
-    for e in _email_cache:
+    for e in emails:
         email_slim = {k: v for k, v in e.items() if k != "bijlagen"}
         email_slim["bijlagen"] = [{"naam": b["naam"], "type": b["type"]} for b in e.get("bijlagen", [])]
         emails_zonder_data.append(email_slim)
@@ -1058,7 +1121,7 @@ async def open_email(request: Request):
     body_req = await request.json()
     email_uid = body_req.get("email_uid", "")
 
-    email = next((e for e in _email_cache if e["uid"] == email_uid), None)
+    email = _zoek_email_op_uid(email_uid)
     if not email:
         return JSONResponse(content={"fout": "E-mail niet gevonden in cache"})
 
@@ -1076,7 +1139,7 @@ async def lees_bijlage(request: Request):
     email_uid = body.get("email_uid", "")
     bijlage_index = body.get("bijlage_index", 0)
 
-    email = next((e for e in _email_cache if e["uid"] == email_uid), None)
+    email = _zoek_email_op_uid(email_uid)
     if not email:
         return JSONResponse(content={"fout": "E-mail niet gevonden in cache"})
 
