@@ -382,7 +382,7 @@
         // Eerste normale bijlage automatisch laden (geen EDIFACT)
         if (eersteNormaal >= 0) openBijlage(eersteNormaal);
         else if (data.bijlagen.length > 0 && isEdifactBijlage(data.bijlagen[0])) {
-          document.getElementById('uitgelezenInhoud').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px;">EDIFACT bijlage gevonden — klik op 'Order aanmaken' om te verwerken.</div>';
+          document.getElementById('uitgelezenInhoud').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px;">EDIFACT bijlage gevonden &#8212; klik op Order aanmaken om te verwerken.</div>';
         }
       } else {
         bijlageSectie.style.display = 'none';
