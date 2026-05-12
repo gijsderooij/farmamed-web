@@ -226,6 +226,9 @@
         <div class="wc-samenvatting" id="wcSamenvatting"></div>
         <button class="wc-actie-btn" onclick="maakWooCommerceOrder()" id="wcBtn">📦 Bestelling aanmaken in WooCommerce</button>
         <div class="wc-status" id="wcStatus"></div>
+        <div id="edifactSectie" style="display:none;margin-top:12px;">
+          <button onclick="downloadEdifactBalie()" style="width:100%;padding:10px;background:#e8f4f4;color:var(--teal-dk);border:1px solid var(--teal);border-radius:8px;cursor:pointer;font-size:13px;font-family:'DM Sans',sans-serif;font-weight:500;">⬇ Download EDIFACT verstrekkingsverzoek</button>
+        </div>
       </div>
 
       <div class="actiebalk">
@@ -434,6 +437,9 @@
     receptData = { ...receptData, ...haalVeldenOp() };
     document.querySelectorAll('.veld-input').forEach(i => i.classList.remove('gewijzigd'));
     if (el('btnOpslaan')) el('btnOpslaan').style.display = 'none';
+    const ediSect = el('edifactSectie');
+    if (ediSect) ediSect.style.display = 'none';
+    window._edifactBalie = null;
     if (el('statusTekst')) el('statusTekst').textContent = '✓ Opgeslagen';
     setTimeout(() => { if (el('statusTekst')) el('statusTekst').textContent = ''; }, 2000);
   }
@@ -452,6 +458,8 @@
     if (el('btnBevestig')) el('btnBevestig').style.display = 'none';
     if (el('statusTekst')) { el('statusTekst').textContent = '✓ Gegevens bevestigd'; el('statusTekst').style.color = 'var(--success)'; }
     if (huidigeRol === 'apotheker') toonTab('woocommerce');
+    // Genereer EDIFACT preview alvast
+    if (huidigeRol === 'apotheker') vulWooCommerceSamenvatting();
   }
 
   function vulWooCommerceSamenvatting() {
@@ -481,6 +489,12 @@
       if (result.order_id) {
         if (status) { status.className = 'wc-status ok'; status.textContent = '✓ Bestelling #' + result.order_id + ' aangemaakt in WooCommerce'; }
         if (btn) btn.textContent = '✓ Aangemaakt';
+        if (result.edifact) {
+          window._edifactBalie = result.edifact;
+          window._edifactBalieId = result.order_id;
+          const sect = document.getElementById('edifactSectie');
+          if (sect) sect.style.display = 'block';
+        }
       } else {
         throw new Error(result.fout || 'Onbekende fout');
       }
@@ -488,6 +502,18 @@
       if (status) { status.className = 'wc-status fout'; status.textContent = '✕ Fout: ' + e.message; }
       if (btn) { btn.disabled = false; btn.textContent = '📦 Opnieuw proberen'; }
     }
+  }
+
+  function downloadEdifactBalie() {
+    if (!window._edifactBalie) return;
+    const blob = new Blob([window._edifactBalie], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const naam = (el('v-achternaam')?.value || 'patient').replace(/\s/g, '_');
+    a.href = url;
+    a.download = `${window._edifactBalieId}_farmamed_${naam}.edi`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function nieuweUpload() {
@@ -529,6 +555,9 @@
     if (el('statusTekst')) { el('statusTekst').textContent = ''; el('statusTekst').style.color = ''; }
     if (el('btnBevestig')) el('btnBevestig').style.display = 'inline-flex';
     if (el('btnOpslaan')) el('btnOpslaan').style.display = 'none';
+    const ediSect = el('edifactSectie');
+    if (ediSect) ediSect.style.display = 'none';
+    window._edifactBalie = null;
   }
 </script>
 </body>
