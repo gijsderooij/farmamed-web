@@ -28,9 +28,7 @@
     .nav a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 13px; font-weight: 500; padding: 7px 18px; border-radius: 6px; transition: all 0.2s; letter-spacing: 0.02em; }
     .nav a:hover { background: rgba(255,255,255,0.15); color: white; }
     .nav a.actief { background: rgba(255,255,255,0.22); color: white; }
-    .rol-schakelaar { display: flex; background: rgba(255,255,255,0.15); border-radius: 8px; overflow: hidden; }
-    .rol-btn { padding: 7px 16px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.7); background: none; border: none; cursor: pointer; transition: all 0.2s; font-family: 'DM Sans', sans-serif; }
-    .rol-btn.actief { background: white; color: var(--teal-dk); }
+
     #uploadScherm { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 16px; }
     .upload-kaart { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 0 0 32px; text-align: center; max-width: 480px; width: 100%; overflow: hidden; }
     .upload-kaart h2 { font-family: 'Cormorant Garamond', serif; font-size: 26px; font-weight: 400; margin-bottom: 10px; padding: 0 32px; margin-top: 24px; }
@@ -101,10 +99,7 @@
     <a href="/orders">Orders</a>
     <a href="/emails">E-mails</a>
   </nav>
-  <div class="rol-schakelaar">
-    <button class="rol-btn actief" onclick="stelRolIn('patient')">Patiënt</button>
-    <button class="rol-btn" onclick="stelRolIn('apotheker')">Apotheker</button>
-  </div>
+  <div style="min-width:160px"></div>
 </header>
 
 <!-- Upload scherm -->
@@ -206,7 +201,8 @@
           <div class="veld-rij"><span class="veld-label">Postcode & plaats <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-postcode_plaats" type="text" placeholder="1234AB Plaatsnaam" required></div>
           <div class="veld-rij"><span class="veld-label">E-mailadres <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-email" type="email" placeholder="Verplicht" required></div>
           <div class="veld-rij"><span class="veld-label">Telefoonnummer <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-telefoon" type="tel" placeholder="Verplicht" required></div>
-          <div class="veld-rij"><span class="veld-label">BSN-nummer <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-bsn" type="text" placeholder="Verplicht" required></div>
+          <div class="veld-rij"><span class="veld-label">BSN-nummer <span style="color:var(--danger)">*</span></span><input class="veld-input" id="v-bsn" type="text" placeholder="9 cijfers" required oninput="valideerBSN(this)"></div>
+          <div id="bsn-fout" style="display:none;font-size:11px;color:var(--danger);padding-left:140px;margin-top:-4px;margin-bottom:4px;">⚠ BSN moet exact 9 cijfers zijn</div>
         </div>
         <p style="font-size:11px;color:var(--muted);margin-top:4px"><span style="color:var(--danger)">*</span> Alle velden zijn verplicht</p>
       </div>
@@ -245,7 +241,7 @@
   let receptData = {};
   let bestandUrl = null;
   let bestandNaam = '';
-  let huidigeRol = 'patient';
+  let huidigeRol = 'apotheker';
   let bevestigd = false;
 
   function el(id) { return document.getElementById(id); }
@@ -523,6 +519,17 @@
       if (status) { status.className = 'wc-status fout'; status.textContent = '✕ Fout: ' + e.message; }
       if (btn) { btn.disabled = false; btn.textContent = '📦 Opnieuw proberen'; }
     }
+  }
+
+  function valideerBSN(input) {
+    const waarde = input.value.replace(/\s/g, '');
+    const geldig = /^\d{9}$/.test(waarde);
+    input.style.borderColor = waarde.length === 0 ? '' : (geldig ? 'var(--success)' : 'var(--danger)');
+    input.style.background = waarde.length === 0 ? '' : (geldig ? '#f0fff4' : '#fff5f5');
+    const fout = document.getElementById('bsn-fout');
+    if (fout) fout.style.display = (!geldig && waarde.length > 0) ? 'block' : 'none';
+    // Verwijder spaties automatisch
+    if (input.value !== waarde) input.value = waarde;
   }
 
   function downloadEdifactBalie() {
