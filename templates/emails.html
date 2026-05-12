@@ -386,13 +386,8 @@
         }
       } else {
         bijlageSectie.style.display = 'none';
-        if (data.type === 'herhaalrecept' || huidigeEmail.type === 'herhaalrecept') {
-          document.getElementById('uitgelezenInhoud').innerHTML = `
-            <div class="melding melding-warn">🔁 Herhaalrecept verzoek — geen bijlage aanwezig</div>
-            <div style="font-size:13px;color:var(--muted)">De arts of patiënt vraagt om een herhaling. Vul de ordergegevens handmatig in.</div>`;
-          prefillVanEmail(huidigeEmail);
-          document.getElementById('btnMaakOrder').disabled = false;
-        }
+        // Geen bijlage — zoek naar eerdere order van deze afzender
+        zoekHerhaalorder(huidigeEmail);
       }
     } catch(e) {
       document.getElementById('emailBody').textContent = 'Fout bij laden: ' + e.message;
@@ -559,6 +554,78 @@
       btn.disabled = false;
       btn.textContent = '📦 Order aanmaken in WooCommerce';
     }
+  }
+
+  // --- Herhaalorder zoeken (geen bijlage) ---
+  async function zoekHerhaalorder(email) {
+    document.getElementById('uitgelezenInhoud').innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Zoeken naar eerdere bestelling van deze patiënt…</div>';
+
+    try {
+      const res = await fetch('/api/zoek-herhaalorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          afzender_email: email.afzender,
+          afzender_naam: email.afzender_naam,
+          email_body: email.body || '',
+        })
+      });
+      const data = await res.json();
+
+      if (data.gevonden && data.kloon) {
+        const k = data.kloon;
+        document.getElementById('uitgelezenInhoud').innerHTML = `
+          <div class="melding melding-ok">✓ ${data.bericht}</div>
+          <div style="margin-top:10px;font-size:12px;">
+            <div style="font-weight:600;color:var(--teal-dk);margin-bottom:6px;">Voorstel gebaseerd op eerdere order #${k.order_id}:</div>
+            <div><span style="color:var(--muted)">Patiënt:</span> ${k.patient_naam}</div>
+            <div><span style="color:var(--muted)">Medicijn:</span> ${k.medicijn}</div>
+            <div><span style="color:var(--muted)">Adres:</span> ${k.straat}, ${k.postcode_plaats}</div>
+            <div style="margin-top:10px;">
+              <button onclick="prefillKloon(${JSON.stringify(k).replace(/"/g, '&quot;')})" style="padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">
+                ✓ Gebruik dit als basis voor nieuwe order
+              </button>
+            </div>
+          </div>`;
+      } else {
+        document.getElementById('uitgelezenInhoud').innerHTML = `
+          <div class="melding melding-warn">⚠ ${data.bericht || 'Geen eerdere order gevonden'}</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:6px;">Vul de ordergegevens handmatig in.</div>`;
+        prefillVanEmail(email);
+        document.getElementById('btnMaakOrder').disabled = false;
+      }
+    } catch(e) {
+      document.getElementById('uitgelezenInhoud').innerHTML = `<div class="melding melding-fout">Fout: ${e.message}</div>`;
+      prefillVanEmail(email);
+      document.getElementById('btnMaakOrder').disabled = false;
+    }
+  }
+
+  function prefillKloon(kloon) {
+    const veld = id => document.getElementById(id);
+    const naam = (kloon.patient_naam || '').split(' ');
+    if (veld('o-voornaam')) veld('o-voornaam').value = naam[0] || '';
+    if (veld('o-achternaam')) veld('o-achternaam').value = naam.slice(1).join(' ') || '';
+    if (veld('o-geboortedatum')) veld('o-geboortedatum').value = kloon.geboortedatum || '';
+    if (veld('o-email')) veld('o-email').value = kloon.email || '';
+    if (veld('o-telefoon')) veld('o-telefoon').value = kloon.telefoon || '';
+    if (veld('o-straat')) veld('o-straat').value = kloon.straat || '';
+    if (veld('o-postcode_plaats')) veld('o-postcode_plaats').value = kloon.postcode_plaats || '';
+    if (veld('o-medicijn')) veld('o-medicijn').value = kloon.medicijn || '';
+    if (veld('o-hoeveelheid')) veld('o-hoeveelheid').value = kloon.hoeveelheid || '30 gram';
+    if (veld('o-iter')) veld('o-iter').value = kloon.iter || '1x iter';
+    if (veld('o-gebruiksaanwijzing')) veld('o-gebruiksaanwijzing').value = kloon.gebruiksaanwijzing || '';
+    if (veld('o-voorschrijver')) veld('o-voorschrijver').value = kloon.voorschrijver || '';
+    if (veld('o-agb_code')) veld('o-agb_code').value = kloon.agb_code || '';
+
+    // Sla kloon product_id op voor order aanmaken
+    window._kloonProductId = kloon.product_id;
+
+    document.getElementById('btnMaakOrder').disabled = false;
+    toonTab('order');
+
+    document.getElementById('uitgelezenInhoud').innerHTML += `
+      <div style="margin-top:8px;font-size:11px;color:var(--teal-dk);">✓ Velden ingevuld — controleer en klik op Order aanmaken</div>`;
   }
 
   // --- EDIFACT download na order aanmaken ---
