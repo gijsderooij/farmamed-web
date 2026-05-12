@@ -255,7 +255,12 @@ async def maak_order(request: Request):
 
     # Bron bepalen
     bron = data.get("bron", "balie")
-    oorsprong = "E-Mail" if bron == "email" else "Balie"
+    if bron == "email":
+        oorsprong = "E-Mail"
+    elif bron == "balie":
+        oorsprong = "Balie"
+    else:
+        oorsprong = "Balie"
 
     billing = {
         "first_name": voornaam,
@@ -320,23 +325,91 @@ async def maak_order(request: Request):
         return JSONResponse(content={"fout": str(e)})
 
 
+# Volledige productcatalogus Farmamed
+FARMAMED_PRODUCTEN = [
+    (3430, "Tretinoïne crème 0.1% FNA - tegen huidveroudering (30 gram)"),
+    (2760, "Tadalafil 5mg tabletten op recept (Sandoz)"),
+    (2734, "Oxybutynine"),
+    (2418, "Tretinoïne crème 0.05% FNA - tegen huidveroudering (90 gram)"),
+    (2416, "Tretinoïne crème 0.02% FNA - tegen huidveroudering (90 gram)"),
+    (1994, "Isoso in Lidocaine"),
+    (1947, "Gabapentine crème 10% (SAW-crème)"),
+    (1666, "Tretinoïne crème 0.05% FNA - tegen huidveroudering (30 gram)"),
+    (1658, "Clonidine crème 0,1% (SAW-crème)"),
+    (1185, "Proefbehandeling pijnstillende crèmes"),
+    (1167, "Tretinoïne crème 0.02% FNA - tegen huidveroudering (30 gram)"),
+    (1157, "Naltrexon (Low Dose) - LDN 1.0 - 4.5 mg"),
+    (946,  "Clonidine crème 0,2% (SAW-crème)"),
+    (945,  "Ketamine crème 10% (SAW-crème)"),
+    (944,  "Baclofen crème 5% (SAW-crème)"),
+    (943,  "Fenytoïne crème 5% (SAW-crème)"),
+    (942,  "Fenytoïne crème 10% (SAW-crème)"),
+    (940,  "Fenytoïne crème 20% (SAW-crème)"),
+    (939,  "Amitriptyline crème 5% (SAW-crème)"),
+    (937,  "Amitriptyline crème 10% (SAW-crème)"),
+]
+
+
 async def _zoek_product_id(medicijn_naam: str, wc_url: str, wc_key: str, wc_secret: str) -> int | None:
-    """Zoek het WooCommerce product-ID op basis van de medicijnnaam."""
+    """
+    Zoek het beste WooCommerce product-ID op basis van medicijnnaam.
+    Gebruikt Claude om slim te matchen op werkzame stof, concentratie en hoeveelheid.
+    """
     if not medicijn_naam:
         return None
+
+    # Bouw productlijst op als tekst voor Claude
+    producten_tekst = "\n".join([f"ID {pid}: {naam}" for pid, naam in FARMAMED_PRODUCTEN])
+
+    prompt = f"""Je bent een farmaceutisch assistent. Zoek het best passende product-ID uit de lijst.
+
+Uitgelezen medicijn van recept: "{medicijn_naam}"
+
+Beschikbare producten:
+{producten_tekst}
+
+Regels:
+- Match op werkzame stof (bijv. tretinoïne = tretinoine = retinoïnezuur)
+- Match op concentratie (0.02% = 0,02% = 0.2 mg/g)
+- Bij meerdere hoeveelheden (30g vs 90g): kies 30 gram tenzij recept anders aangeeft
+- Geef ALLEEN het getal van het product-ID terug, niets anders
+- Als er geen match is geef je: 0"""
+
     try:
-        response = http_requests.get(
-            f"{wc_url}/wp-json/wc/v3/products",
-            auth=(wc_key, wc_secret),
-            params={"search": medicijn_naam[:30], "per_page": 5},
-            timeout=10,
+        resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 10,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=15,
         )
-        producten = response.json()
-        if producten and isinstance(producten, list):
-            return producten[0]["id"]
+        resp.raise_for_status()
+        product_id_str = resp.json()["content"][0]["text"].strip()
+        product_id = int(product_id_str)
+        if product_id > 0:
+            return product_id
     except Exception:
         pass
-    return None
+
+    # Fallback: fuzzy matching
+    from rapidfuzz import fuzz
+    beste_score = 0
+    beste_id = None
+    medicijn_norm = _normaliseer_medicijn(medicijn_naam)
+    for pid, naam in FARMAMED_PRODUCTEN:
+        naam_norm = _normaliseer_medicijn(naam)
+        score = fuzz.token_sort_ratio(medicijn_norm, naam_norm)
+        if score > beste_score:
+            beste_score = score
+            beste_id = pid
+    return beste_id if beste_score > 50 else None
 
 
 # ------------------------------------------------------------------
