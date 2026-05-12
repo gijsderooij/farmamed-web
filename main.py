@@ -729,6 +729,106 @@ Verwar de achternaam van de arts NIET met een woonplaats.
     return JSONResponse(content={"recept": recept_data, "vergelijking": vergelijking})
 
 
+async def _verrijk_met_woocommerce(recept: dict, wc_url: str, wc_key: str, wc_secret: str) -> dict:
+    """
+    Zoekt eerdere WooCommerce orders van dezelfde patiënt en vult
+    ontbrekende velden aan vanuit die orders.
+    Geeft verrijkt recept-dict terug met bronvermelding per veld.
+    """
+    if not all([wc_url, wc_key, wc_secret]):
+        return recept
+
+    verrijkt = dict(recept)
+    verrijkt["_verrijking"] = {}  # bijhoudt welke velden verrijkt zijn
+
+    # Zoekterm: achternaam van patiënt
+    naam = recept.get("patient_naam") or ""
+    achternaam = naam.split()[-1] if naam.split() else ""
+    if not achternaam or len(achternaam) < 3:
+        return verrijkt
+
+    try:
+        # Zoek orders op naam
+        resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            headers={"Accept": "application/json"},
+            params={"search": achternaam, "per_page": 10, "orderby": "date", "order": "desc"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        orders = resp.json()
+
+        if not orders or not isinstance(orders, list):
+            return verrijkt
+
+        # Zoek beste match op geboortedatum of naam
+        from rapidfuzz import fuzz
+        beste_order = None
+        beste_score = 0
+
+        for order in orders:
+            billing = order.get("billing", {})
+            meta = {m["key"]: m["value"] for m in order.get("meta_data", [])}
+
+            # Naam vergelijken
+            wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+            naam_score = fuzz.token_sort_ratio(
+                _normaliseer_naam(naam),
+                _normaliseer_naam(wc_naam)
+            )
+
+            # Geboortedatum vergelijken (extra zekerheid)
+            geb_score = 0
+            recept_geb = recept.get("geboortedatum") or ""
+            wc_geb = _amerikaans_naar_nederlands(meta.get("billing_birth") or meta.get("_billing_birth") or "")
+            if recept_geb and wc_geb and recept_geb == wc_geb:
+                geb_score = 50  # bonus bij exacte match
+
+            totaal = naam_score + geb_score
+            if totaal > beste_score and naam_score >= 70:
+                beste_score = totaal
+                beste_order = order
+
+        if not beste_order:
+            return verrijkt
+
+        # Verrijk ontbrekende velden
+        billing = beste_order.get("billing", {})
+        meta = {m["key"]: m["value"] for m in beste_order.get("meta_data", [])}
+        order_id = beste_order.get("id")
+        bron = f"WooCommerce order #{order_id}"
+
+        def vul_aan(veld_recept, waarde, label):
+            if not recept.get(veld_recept) and waarde:
+                verrijkt[veld_recept] = waarde
+                verrijkt["_verrijking"][label] = f"{waarde} (uit {bron})"
+
+        vul_aan("email",    billing.get("email"), "E-mail")
+        vul_aan("telefoon", billing.get("phone"), "Telefoon")
+        vul_aan("bsn",      meta.get("bsn"), "BSN")
+        vul_aan("geboortedatum",
+                _amerikaans_naar_nederlands(meta.get("billing_birth") or meta.get("_billing_birth") or ""),
+                "Geboortedatum")
+
+        # Adres
+        adres1 = billing.get("address_1", "")
+        postcode = billing.get("postcode", "")
+        stad = billing.get("city", "")
+        if adres1:
+            vul_aan("straat", adres1, "Straat")
+        if postcode and stad:
+            vul_aan("postcode_plaats", f"{postcode} {stad}", "Postcode & plaats")
+
+        verrijkt["_match_score"] = beste_score
+        verrijkt["_match_order"] = order_id
+
+    except Exception as e:
+        verrijkt["_verrijking_fout"] = str(e)
+
+    return verrijkt
+
+
 def _genereer_edifact(order_data: dict, recept_data: dict = None) -> str:
     """
     Genereert een EDIFACT ORDERS D96A verstrekkingsverzoek.
@@ -1336,6 +1436,14 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
         api_resp.raise_for_status()
         tekst = api_resp.json()["content"][0]["text"].strip().replace("```json", "").replace("```", "").strip()
         recept_data = json.loads(tekst)
+
+        # Verrijk met WooCommerce-data
+        wc_url = os.getenv("WC_URL", "")
+        wc_key = os.getenv("WC_KEY", "")
+        wc_secret = os.getenv("WC_SECRET", "")
+        if all([wc_url, wc_key, wc_secret]):
+            recept_data = await _verrijk_met_woocommerce(recept_data, wc_url, wc_key, wc_secret)
+
         return JSONResponse(content={"preview": preview, "recept": recept_data})
     except Exception as e:
         return JSONResponse(content={"preview": preview, "fout": str(e)})
