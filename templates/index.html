@@ -436,11 +436,8 @@
 
   function stelRolIn(rol) {
     huidigeRol = rol;
-    document.querySelectorAll('.rol-btn').forEach(b => b.classList.remove('actief'));
-    document.querySelectorAll('.rol-btn')[rol === 'patient' ? 0 : 1].classList.add('actief');
-    const isApotheker = rol === 'apotheker';
-    if (el('wcTab')) el('wcTab').style.display = isApotheker ? 'block' : 'none';
-    // BSN altijd tonen - verplicht voor beide rollen
+    // Altijd apotheker modus
+    if (el('wcTab')) el('wcTab').style.display = 'block';
   }
 
   function toonTab(naam) {
