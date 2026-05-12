@@ -215,7 +215,8 @@
             <div class="veld-rij"><span class="veld-label">Straat & huisnr.</span><input class="veld-input" id="o-straat" type="text" placeholder="—"></div>
             <div class="veld-rij"><span class="veld-label">Postcode & plaats</span><input class="veld-input" id="o-postcode_plaats" type="text" placeholder="—"></div>
 
-            <div class="veld-rij"><span class="veld-label">BSN-nummer</span><input class="veld-input" id="o-bsn" type="text" placeholder="—"></div>
+            <div class="veld-rij"><span class="veld-label">BSN-nummer</span><input class="veld-input" id="o-bsn" type="text" placeholder="9 cijfers" oninput="valideerBSNEmail(this)"></div>
+            <div id="bsn-email-fout" style="display:none;font-size:11px;color:var(--danger);padding-left:130px;margin-top:-4px;margin-bottom:4px;">⚠ BSN moet exact 9 cijfers zijn</div>
 
             <div class="sectie-titel">Medicatie</div>
             <div class="veld-rij"><span class="veld-label">Medicijn</span><input class="veld-input" id="o-medicijn" type="text" placeholder="—"></div>
@@ -557,6 +558,16 @@
       btn.disabled = false;
       btn.textContent = '📦 Order aanmaken in WooCommerce';
     }
+  }
+
+  function valideerBSNEmail(input) {
+    const waarde = input.value.replace(/\s/g, '');
+    const geldig = /^\d{9}$/.test(waarde);
+    input.style.borderColor = waarde.length === 0 ? '' : (geldig ? 'var(--success)' : 'var(--danger)');
+    input.style.background = waarde.length === 0 ? '' : (geldig ? '#f0fff4' : '#fff5f5');
+    const fout = document.getElementById('bsn-email-fout');
+    if (fout) fout.style.display = (!geldig && waarde.length > 0) ? 'block' : 'none';
+    if (input.value !== waarde) input.value = waarde;
   }
 
   // --- Herhaalorder zoeken (geen bijlage) ---
