@@ -598,6 +598,13 @@ Instructies:
     medicijn = items[0]["name"] if items else ""
     product_id = items[0]["product_id"] if items else None
 
+    # Gebruik productnaam uit catalogus
+    productnaam = medicijn
+    for pid, naam in FARMAMED_PRODUCTEN:
+        if pid == product_id:
+            productnaam = naam
+            break
+
     kloon = {
         "order_id": beste_order["id"],
         "match_score": beste_score,
@@ -608,7 +615,7 @@ Instructies:
         "postcode_plaats": f"{billing.get('postcode','')} {billing.get('city','')}".strip(),
         "geboortedatum": _amerikaans_naar_nederlands(meta.get("billing_birth") or meta.get("_billing_birth") or ""),
         "bsn": meta.get("bsn", ""),
-        "medicijn": medicijn,
+        "medicijn": productnaam,
         "hoeveelheid": "30 gram",
         "product_id": product_id,
         "iter": "1x iter",
