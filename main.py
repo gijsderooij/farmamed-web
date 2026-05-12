@@ -470,6 +470,158 @@ def _parseer_edifact(tekst: str) -> dict:
     return data
 
 
+@app.post("/api/zoek-herhaalorder")
+async def zoek_herhaalorder(request: Request):
+    """
+    Zoekt een eerdere WooCommerce order op basis van e-mailadres en/of naam
+    uit de e-mailbody. Geeft de beste match terug als kloonvoorstel.
+    """
+    body = await request.json()
+    afzender_email = body.get("afzender_email", "")
+    afzender_naam = body.get("afzender_naam", "")
+    email_body = body.get("email_body", "")
+
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not all([wc_url, wc_key, wc_secret]):
+        return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
+
+    # Laat Claude de naam en medicijn uit de e-mailbody extraheren
+    prompt = f"""Analyseer deze e-mail van een apotheekpatiënt en extraheer de gegevens als JSON.
+Geef ALLEEN JSON terug, geen uitleg.
+
+E-mail van: {afzender_email}
+Naam afzender: {afzender_naam}
+Inhoud:
+{email_body[:1000]}
+
+{{
+  "patient_naam": "naam van de patient of null",
+  "medicijn": "gevraagd medicijn of null",
+  "is_herhaalverzoek": true of false,
+  "notitie": "korte samenvatting van het verzoek"
+}}"""
+
+    try:
+        resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        tekst = resp.json()["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
+        email_data = json.loads(tekst)
+    except Exception as e:
+        email_data = {"patient_naam": afzender_naam, "is_herhaalverzoek": True}
+
+    # Zoek eerdere orders op e-mailadres
+    beste_order = None
+    beste_score = 0
+
+    try:
+        # Zoek op e-mailadres (meest betrouwbaar)
+        if afzender_email:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                params={"search": afzender_email, "per_page": 5, "orderby": "date", "order": "desc"},
+                timeout=10,
+            )
+            orders = resp.json() if resp.status_code == 200 else []
+            for order in (orders if isinstance(orders, list) else []):
+                billing = order.get("billing", {})
+                if billing.get("email", "").lower() == afzender_email.lower():
+                    beste_order = order
+                    beste_score = 100
+                    break
+
+        # Fallback: zoek op naam
+        if not beste_order:
+            naam = email_data.get("patient_naam") or afzender_naam
+            achternaam = naam.split()[-1] if naam.split() else ""
+            if achternaam and len(achternaam) >= 3:
+                from rapidfuzz import fuzz
+                resp = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders",
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
+                    params={"search": achternaam, "per_page": 10, "orderby": "date", "order": "desc"},
+                    timeout=10,
+                )
+                orders = resp.json() if resp.status_code == 200 else []
+                for order in (orders if isinstance(orders, list) else []):
+                    billing = order.get("billing", {})
+                    wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+                    score = fuzz.token_sort_ratio(_normaliseer_naam(naam), _normaliseer_naam(wc_naam))
+                    if score > beste_score:
+                        beste_score = score
+                        beste_order = order
+
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e), "email_data": email_data})
+
+    if not beste_order or beste_score < 60:
+        return JSONResponse(content={
+            "gevonden": False,
+            "email_data": email_data,
+            "bericht": "Geen eerdere order gevonden — vul handmatig in",
+        })
+
+    # Bouw kloonvoorstel op
+    billing = beste_order.get("billing", {})
+    meta = {m["key"]: m["value"] for m in beste_order.get("meta_data", [])}
+    items = beste_order.get("line_items", [])
+    medicijn = items[0]["name"] if items else ""
+    product_id = items[0]["product_id"] if items else None
+
+    kloon = {
+        "order_id": beste_order["id"],
+        "match_score": beste_score,
+        "patient_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
+        "email": billing.get("email", ""),
+        "telefoon": billing.get("phone", ""),
+        "straat": billing.get("address_1", ""),
+        "postcode_plaats": f"{billing.get('postcode','')} {billing.get('city','')}".strip(),
+        "geboortedatum": _amerikaans_naar_nederlands(meta.get("billing_birth") or meta.get("_billing_birth") or ""),
+        "bsn": meta.get("bsn", ""),
+        "medicijn": medicijn,
+        "hoeveelheid": "30 gram",
+        "product_id": product_id,
+        "iter": "1x iter",
+        "gebruiksaanwijzing": meta.get("gebruiksaanwijzing", ""),
+        "voorschrijver": meta.get("voorschrijver", ""),
+        "agb_code": meta.get("agb_code", ""),
+    }
+
+    return JSONResponse(content={
+        "gevonden": True,
+        "kloon": kloon,
+        "email_data": email_data,
+        "bericht": f"Eerdere order #{beste_order['id']} gevonden (match: {beste_score}%)",
+    })
+
+
+@app.post("/api/kloon-order")
+async def kloon_order(request: Request):
+    """Maakt een nieuwe WooCommerce order aan op basis van een gekloonde order."""
+    data = await request.json()
+    data["bron"] = "email"
+    # Hergebruik maak-order logica
+    return await maak_order(request.__class__(request._scope, request._receive))
+
+
 @app.post("/api/verwerk-edifact-bijlage")
 async def verwerk_edifact_bijlage(request: Request):
     """
