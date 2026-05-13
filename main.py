@@ -1608,6 +1608,13 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
         tekst = api_resp.json()["content"][0]["text"].strip().replace("```json", "").replace("```", "").strip()
         recept_data = json.loads(tekst)
 
+        # BSN opschonen
+        if recept_data.get("bsn"):
+            import re as _re
+            bsn_clean = _re.sub(r"[^0-9]", "", str(recept_data["bsn"]))
+            recept_data["bsn"] = bsn_clean if len(bsn_clean) == 9 else ""
+            recept_data["bsn_fout"] = len(bsn_clean) != 9 and len(bsn_clean) > 0
+
         # Verrijk met WooCommerce-data
         wc_url = os.getenv("WC_URL", "")
         wc_key = os.getenv("WC_KEY", "")
