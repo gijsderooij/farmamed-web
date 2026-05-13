@@ -519,14 +519,14 @@
   }
 
   function valideerBSN(input) {
-    const waarde = input.value.replace(/\s/g, '');
-    const geldig = /^\d{9}$/.test(waarde);
+    // Verwijder alles behalve cijfers
+    const waarde = input.value.replace(/[^0-9]/g, '');
+    if (input.value !== waarde) input.value = waarde;
+    const geldig = waarde.length === 9;
     input.style.borderColor = waarde.length === 0 ? '' : (geldig ? 'var(--success)' : 'var(--danger)');
     input.style.background = waarde.length === 0 ? '' : (geldig ? '#f0fff4' : '#fff5f5');
     const fout = document.getElementById('bsn-fout');
     if (fout) fout.style.display = (!geldig && waarde.length > 0) ? 'block' : 'none';
-    // Verwijder spaties automatisch
-    if (input.value !== waarde) input.value = waarde;
   }
 
   function downloadEdifactBalie() {
