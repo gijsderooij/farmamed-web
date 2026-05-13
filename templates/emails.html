@@ -531,11 +531,19 @@
     if (veld('o-agb_code')) veld('o-agb_code').value = recept.agb_code || '';
     if (veld('o-bsn')) {
       veld('o-bsn').value = recept.bsn || '';
-      if (recept.bsn_fout || (recept.bsn && recept.bsn.length !== 9)) {
+      const bsnWaarde = recept.bsn || '';
+      if (bsnWaarde.length === 9 && /^\d{9}$/.test(bsnWaarde)) {
+        // Geldig BSN - groen
+        veld('o-bsn').style.borderColor = 'var(--success)';
+        veld('o-bsn').style.background = '#f0fff4';
+        const fout = document.getElementById('bsn-email-fout');
+        if (fout) fout.style.display = 'none';
+      } else if (recept.bsn_fout && bsnWaarde === '') {
+        // BSN uitgelezen maar niet geldig - rood leeg veld
         veld('o-bsn').style.borderColor = 'var(--danger)';
         veld('o-bsn').style.background = '#fff5f5';
         const fout = document.getElementById('bsn-email-fout');
-        if (fout) fout.style.display = 'block';
+        if (fout) { fout.style.display = 'block'; fout.textContent = '⚠ BSN niet goed uitgelezen — voer handmatig in'; }
       }
     }
   }
