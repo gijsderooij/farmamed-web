@@ -529,7 +529,15 @@
     if (veld('o-gebruiksaanwijzing')) veld('o-gebruiksaanwijzing').value = recept.gebruiksaanwijzing || '';
     if (veld('o-voorschrijver')) veld('o-voorschrijver').value = recept.voorschrijver || '';
     if (veld('o-agb_code')) veld('o-agb_code').value = recept.agb_code || '';
-    if (veld('o-bsn')) veld('o-bsn').value = recept.bsn || '';
+    if (veld('o-bsn')) {
+      veld('o-bsn').value = recept.bsn || '';
+      if (recept.bsn_fout || (recept.bsn && recept.bsn.length !== 9)) {
+        veld('o-bsn').style.borderColor = 'var(--danger)';
+        veld('o-bsn').style.background = '#fff5f5';
+        const fout = document.getElementById('bsn-email-fout');
+        if (fout) fout.style.display = 'block';
+      }
+    }
   }
 
   // --- Prefill vanuit e-mailafzender (bij herhaalrecept zonder bijlage) ---
