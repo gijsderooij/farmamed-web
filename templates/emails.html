@@ -530,26 +530,52 @@
     if (veld('o-voorschrijver')) veld('o-voorschrijver').value = recept.voorschrijver || '';
     if (veld('o-agb_code')) veld('o-agb_code').value = recept.agb_code || '';
 
-    // E-mailadres: gebruik afzender-email als recept-email anders of leeg is
+    // E-mailadres logica:
+    // - Farmamed/apotheekwoerden domeinen zijn nooit van de patient
+    // - Alleen afzender-email gebruiken als die veel lijkt op recept-email
+    // - Anders: recept-email gebruiken als suggestie
     if (veld('o-email') && huidigeEmail) {
       const receptEmail = (recept.email || '').toLowerCase().trim();
       const afzenderEmail = (huidigeEmail.afzender || '').toLowerCase().trim();
-      const zoekEmail = window._zoekEmail || afzenderEmail;
 
-      if (!receptEmail || receptEmail !== zoekEmail) {
-        // Recept-email ontbreekt of verschilt - gebruik afzender/zoekEmail
-        veld('o-email').value = zoekEmail || afzenderEmail;
-        if (receptEmail && receptEmail !== zoekEmail) {
-          // Toon hint dat we afzenderadres gebruiken
-          const hint = document.createElement('div');
-          hint.style.cssText = 'font-size:11px;color:var(--teal-dk);padding-left:130px;margin-top:-4px;margin-bottom:4px;';
-          hint.textContent = '📧 E-mail uit mail gebruikt (recept: ' + receptEmail + ')';
-          hint.id = 'email-hint';
-          const emailRij = veld('o-email').closest('.veld-rij');
-          if (emailRij && !document.getElementById('email-hint')) {
-            emailRij.insertAdjacentElement('afterend', hint);
-          }
+      // Interne domeinen die nooit van een patient zijn
+      const interneDomeinen = ['farmamed.nl', 'apotheekwoerden.nl'];
+      const afzenderIsIntern = interneDomeinen.some(d => afzenderEmail.endsWith('@' + d));
+
+      // Verwijder oude hint
+      const oudeHint = document.getElementById('email-hint');
+      if (oudeHint) oudeHint.remove();
+
+      let gebruiktEmail = receptEmail; // standaard: recept-email
+      let hint = null;
+
+      if (!afzenderIsIntern && receptEmail) {
+        // Bereken gelijkenis tussen afzender en recept-email
+        // Eenvoudige gelijkenis: deel voor @ vergelijken
+        const afzenderUser = afzenderEmail.split('@')[0];
+        const receptUser = receptEmail.split('@')[0];
+        const gemeenschappelijk = [...afzenderUser].filter(c => receptUser.includes(c)).length;
+        const gelijkenis = gemeenschappelijk / Math.max(afzenderUser.length, receptUser.length);
+
+        if (gelijkenis >= 0.6) {
+          // Grote gelijkenis - afzender is waarschijnlijk de patient
+          gebruiktEmail = afzenderEmail;
+          hint = '📧 E-mail uit mail gebruikt (lijkt op recept-email)';
         }
+      } else if (!afzenderIsIntern && !receptEmail) {
+        // Geen recept-email, afzender is niet intern - gebruik afzender
+        gebruiktEmail = afzenderEmail;
+      }
+
+      veld('o-email').value = gebruiktEmail;
+
+      if (hint) {
+        const hintEl = document.createElement('div');
+        hintEl.style.cssText = 'font-size:11px;color:var(--teal-dk);padding-left:130px;margin-top:-4px;margin-bottom:4px;';
+        hintEl.textContent = hint;
+        hintEl.id = 'email-hint';
+        const emailRij = veld('o-email').closest('.veld-rij');
+        if (emailRij) emailRij.insertAdjacentElement('afterend', hintEl);
       }
     }
     if (veld('o-bsn')) {
