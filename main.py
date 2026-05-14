@@ -1402,6 +1402,19 @@ async def email_inkomend(request: Request):
     return JSONResponse(content={"ok": True, "totaal": len(alle)})
 
 
+@app.delete("/api/emails-wissen")
+async def wis_emails():
+    """Leegmaken van de e-mailcache (SQLite)."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        conn.execute("DELETE FROM emails")
+        conn.commit()
+        return JSONResponse(content={"ok": True, "bericht": "Alle e-mails gewist"})
+    finally:
+        conn.close()
+
+
 @app.get("/api/emails")
 async def haal_emails_op():
     """Geeft opgeslagen e-mails terug vanuit SQLite."""
