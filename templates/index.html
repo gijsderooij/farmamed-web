@@ -546,23 +546,20 @@
     const achternaam = (el('v-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
     const bestandsnaam = window._balieOrderId + '_farmamed_' + achternaam + '.pdf';
     try {
-      const res = await fetch('/api/download-recept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: bestandUrl, bestandsnaam: bestandsnaam })
-      });
+      const res = await fetch(bestandUrl, { mode: 'cors' });
+      if (!res.ok) throw new Error('Ophalen mislukt');
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
       a.download = bestandsnaam;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(blobUrl);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch(e) {
-      const a = document.createElement('a');
-      a.href = bestandUrl;
-      a.download = bestandsnaam;
-      a.click();
+      window.open(bestandUrl, '_blank');
+      alert('Sla het bestand op als: ' + bestandsnaam);
     }
   }
 
