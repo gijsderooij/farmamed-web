@@ -1721,6 +1721,15 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
         if all([wc_url, wc_key, wc_secret]):
             recept_data = await _verrijk_met_woocommerce(recept_data, wc_url, wc_key, wc_secret)
 
+        # Sla bijlagedata op in cache voor latere download
+        email_cached = _zoek_email_op_uid(email_uid)
+        if email_cached:
+            bijlagen_cache = email_cached.get("bijlagen", [])
+            if bijlage_index < len(bijlagen_cache):
+                bijlagen_cache[bijlage_index]["data"] = b64
+                email_cached["bijlagen"] = bijlagen_cache
+                _sla_email_op(email_cached)
+
         return JSONResponse(content={"preview": preview, "recept": recept_data})
     except Exception as e:
         return JSONResponse(content={"preview": preview, "fout": str(e)})
