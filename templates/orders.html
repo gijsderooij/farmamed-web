@@ -480,25 +480,22 @@
     const bestandsnaam = `${huidigeOrder.id}_farmamed_${achternaam}.pdf`;
 
     try {
-      // Download via server proxy zodat bestandsnaam correct is
-      const res = await fetch('/api/download-recept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url, bestandsnaam: bestandsnaam })
-      });
+      // Haal PDF direct op in browser (niet via proxy)
+      const res = await fetch(url, { mode: 'cors' });
+      if (!res.ok) throw new Error('Kon bestand niet ophalen');
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
       a.download = bestandsnaam;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(blobUrl);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch(e) {
-      // Fallback
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = bestandsnaam;
-      a.click();
+      // Fallback: open in nieuw tabblad
+      window.open(url, '_blank');
+      alert('Sla het bestand op als: ' + bestandsnaam);
     }
   }
 
