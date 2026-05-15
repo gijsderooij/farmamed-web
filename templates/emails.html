@@ -759,14 +759,23 @@
 
   // --- Recept download (e-mail stroom) ---
   async function downloadReceptEmail() {
-    if (!window._emailOrderId) return;
+    if (!huidigeEmail || huidigeBijlageIndex === null || !window._emailOrderId) return;
+    const bijlage = huidigeEmail.bijlagen[huidigeBijlageIndex];
+    if (!bijlage || !bijlage.data) { alert('Geen bijlagedata beschikbaar'); return; }
+
     const achternaam = (document.getElementById('o-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
     const bestandsnaam = window._emailOrderId + '_farmamed_' + achternaam + '.pdf';
+
     try {
-      const res = await fetch('/api/download-recept', {
+      // Bijlage is beschikbaar als base64 in de cache
+      const res = await fetch('/api/download-bijlage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: window._emailOrderId, bestandsnaam: bestandsnaam })
+        body: JSON.stringify({
+          email_uid: huidigeEmail.uid,
+          bijlage_index: huidigeBijlageIndex,
+          bestandsnaam: bestandsnaam
+        })
       });
       if (!res.ok) throw new Error('Download mislukt');
       const blob = await res.blob();
