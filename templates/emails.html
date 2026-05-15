@@ -759,33 +759,27 @@
 
   // --- Recept download (e-mail stroom) ---
   async function downloadReceptEmail() {
-    if (!huidigeEmail || huidigeBijlageIndex === null || !window._emailOrderId) return;
-    const bijlage = huidigeEmail.bijlagen[huidigeBijlageIndex];
-    if (!bijlage) return;
-
+    if (!window._emailOrderId) return;
     const achternaam = (document.getElementById('o-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
     const bestandsnaam = window._emailOrderId + '_farmamed_' + achternaam + '.pdf';
-
     try {
-      // Haal bijlage op via server
-      const res = await fetch('/api/download-bijlage', {
+      const res = await fetch('/api/download-recept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email_uid: huidigeEmail.uid,
-          bijlage_index: huidigeBijlageIndex,
-          bestandsnaam: bestandsnaam
-        })
+        body: JSON.stringify({ order_id: window._emailOrderId, bestandsnaam: bestandsnaam })
       });
+      if (!res.ok) throw new Error('Download mislukt');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = bestandsnaam;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch(e) {
-      alert('Download mislukt: ' + e.message);
+      alert('Fout bij downloaden: ' + e.message);
     }
   }
 
