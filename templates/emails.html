@@ -761,22 +761,32 @@
   async function downloadReceptEmail() {
     if (!huidigeEmail || huidigeBijlageIndex === null || !window._emailOrderId) return;
     const bijlage = huidigeEmail.bijlagen[huidigeBijlageIndex];
-    if (!bijlage || !bijlage.data) return;
+    if (!bijlage) return;
 
-    const achternaam = (document.getElementById('o-achternaam')?.value || 'onbekend').replace(/\s/g, '_');
-    const bestandsnaam = `${window._emailOrderId}_farmamed_${achternaam}.pdf`;
+    const achternaam = (document.getElementById('o-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
+    const bestandsnaam = window._emailOrderId + '_farmamed_' + achternaam + '.pdf';
 
-    // Zet base64 data om naar downloadbaar bestand
-    const bytes = atob(bijlage.data);
-    const arr = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-    const blob = new Blob([arr], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = bestandsnaam;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      // Haal bijlage op via server
+      const res = await fetch('/api/download-bijlage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_uid: huidigeEmail.uid,
+          bijlage_index: huidigeBijlageIndex,
+          bestandsnaam: bestandsnaam
+        })
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = bestandsnaam;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) {
+      alert('Download mislukt: ' + e.message);
+    }
   }
 
   // --- EDIFACT download na order aanmaken ---
