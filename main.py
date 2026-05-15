@@ -1409,37 +1409,40 @@ import io
 
 @app.post("/api/download-recept")
 async def download_recept(request: Request):
-    """Haalt een recept-PDF op via URL en stuurt het terug als download."""
+    """
+    Haalt recept op via WordPress plugin endpoint en stuurt als download.
+    Gebruikt het beveiligde farmamed/v1/download-recept endpoint.
+    """
     body = await request.json()
-    url = body.get("url", "")
+    order_id = body.get("order_id")
     bestandsnaam = body.get("bestandsnaam", "recept.pdf")
 
-    if not url:
-        return JSONResponse(content={"fout": "Geen URL"}, status_code=400)
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not order_id or not wc_url:
+        return JSONResponse(content={"fout": "Onvoldoende gegevens"}, status_code=400)
 
     try:
+        # Gebruik het WordPress plugin endpoint
+        download_url = f"{wc_url}/wp-json/farmamed/v1/download-recept"
         resp = http_requests.get(
-            url,
+            download_url,
+            params={"order_id": order_id, "bestandsnaam": bestandsnaam},
+            auth=(wc_key, wc_secret),
             timeout=30,
-            headers={"User-Agent": "Mozilla/5.0", "Accept": "*/*"},
-            allow_redirects=True,
+            stream=True,
         )
         resp.raise_for_status()
         inhoud = resp.content
 
-        # Bepaal content-type op basis van URL als header niet klopt
-        if url.lower().endswith(".pdf") or "pdf" in resp.headers.get("content-type", ""):
-            media_type = "application/pdf"
-        elif url.lower().endswith((".jpg", ".jpeg")):
-            media_type = "image/jpeg"
-        elif url.lower().endswith(".png"):
-            media_type = "image/png"
-        else:
-            media_type = "application/octet-stream"
+        # Bepaal media type
+        ct = resp.headers.get("content-type", "application/pdf").split(";")[0]
 
         return StreamingResponse(
             io.BytesIO(inhoud),
-            media_type=media_type,
+            media_type=ct,
             headers={
                 "Content-Disposition": f'attachment; filename="{bestandsnaam}"',
                 "Content-Length": str(len(inhoud)),
