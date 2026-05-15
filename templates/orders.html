@@ -473,16 +473,33 @@
   }
 
   // --- Download functies ---
-  function downloadRecept() {
+  async function downloadRecept() {
     const url = document.getElementById('downloadReceptBtn').dataset.url;
     if (!url || !huidigeOrder) return;
     const achternaam = (huidigeOrder.klant_naam || 'onbekend').split(' ').pop();
     const bestandsnaam = `${huidigeOrder.id}_farmamed_${achternaam}.pdf`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = bestandsnaam;
-    a.target = '_blank';
-    a.click();
+
+    try {
+      // Download via server proxy zodat bestandsnaam correct is
+      const res = await fetch('/api/download-recept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url, bestandsnaam: bestandsnaam })
+      });
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = bestandsnaam;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch(e) {
+      // Fallback
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = bestandsnaam;
+      a.click();
+    }
   }
 
   function downloadEdifact() {
