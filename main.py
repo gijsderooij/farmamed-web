@@ -294,6 +294,8 @@ async def maak_order(request: Request):
             {"key": "gebruiksaanwijzing","value": data.get("gebruiksaanwijzing") or ""},
             {"key": "iter",             "value": data.get("iter") or ""},
             {"key": "oorsprong",        "value": oorsprong},
+            {"key": "_created_via_farmamed", "value": oorsprong},
+            {"key": "Oorsprong bestelling", "value": oorsprong},
         ],
         "customer_note": f"Recept ingediend via {oorsprong}. Medicijn: {medicijn}",
     }
@@ -1400,6 +1402,59 @@ async def email_inkomend(request: Request):
     _sla_email_op(data)
     alle = _haal_emails_op_db()
     return JSONResponse(content={"ok": True, "totaal": len(alle)})
+
+
+from fastapi.responses import StreamingResponse
+import io
+
+@app.post("/api/download-recept")
+async def download_recept(request: Request):
+    """Haalt een recept-PDF op via URL en stuurt het terug als download."""
+    body = await request.json()
+    url = body.get("url", "")
+    bestandsnaam = body.get("bestandsnaam", "recept.pdf")
+
+    try:
+        resp = http_requests.get(url, timeout=20)
+        resp.raise_for_status()
+        inhoud = resp.content
+        ct = resp.headers.get("content-type", "application/pdf")
+        return StreamingResponse(
+            io.BytesIO(inhoud),
+            media_type=ct,
+            headers={"Content-Disposition": f'attachment; filename="{bestandsnaam}"'}
+        )
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)}, status_code=500)
+
+
+@app.post("/api/download-bijlage")
+async def download_bijlage(request: Request):
+    """Haalt een e-mailbijlage op uit de cache en stuurt het terug als download."""
+    body = await request.json()
+    email_uid = body.get("email_uid", "")
+    bijlage_index = body.get("bijlage_index", 0)
+    bestandsnaam = body.get("bestandsnaam", "recept.pdf")
+
+    email = _zoek_email_op_uid(email_uid)
+    if not email:
+        return JSONResponse(content={"fout": "E-mail niet gevonden"}, status_code=404)
+
+    bijlagen = email.get("bijlagen", [])
+    if bijlage_index >= len(bijlagen):
+        return JSONResponse(content={"fout": "Bijlage niet gevonden"}, status_code=404)
+
+    bijlage = bijlagen[bijlage_index]
+    try:
+        inhoud = base64.b64decode(bijlage["data"])
+        ct = bijlage.get("type", "application/pdf")
+        return StreamingResponse(
+            io.BytesIO(inhoud),
+            media_type=ct,
+            headers={"Content-Disposition": f'attachment; filename="{bestandsnaam}"'}
+        )
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)}, status_code=500)
 
 
 @app.delete("/api/emails-wissen")
