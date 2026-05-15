@@ -641,13 +641,19 @@
       const data = await res.json();
 
       if (data.order_id) {
+        window._emailOrderId = data.order_id;
+        let receptKnop = '';
+        // Recept download als er een bijlage was
+        if (huidigeEmail && huidigeEmail.bijlagen && huidigeEmail.bijlagen.length > 0 && huidigeBijlageIndex !== null) {
+          receptKnop = `<button onclick="downloadReceptEmail()" style="margin-top:8px;margin-right:6px;padding:7px 14px;background:#e8f4f4;color:var(--teal-dk);border:1px solid var(--teal);border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Recept opslaan</button>`;
+        }
         let edifactKnop = '';
         if (data.edifact) {
           window._edifact = data.edifact;
           window._edifactOrderId = data.order_id;
           edifactKnop = `<button onclick="downloadEdifactEmail()" style="margin-top:8px;padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Download EDIFACT verstrekkingsverzoek</button>`;
         }
-        document.getElementById('orderMelding').innerHTML = `<div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt in WooCommerce</div>${edifactKnop}`;
+        document.getElementById('orderMelding').innerHTML = `<div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt in WooCommerce</div><div style="margin-top:6px;">${receptKnop}${edifactKnop}</div>`;
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
         btn.textContent = '✓ Aangemaakt';
@@ -749,6 +755,28 @@
 
     document.getElementById('uitgelezenInhoud').innerHTML += `
       <div style="margin-top:8px;font-size:11px;color:var(--teal-dk);">✓ Velden ingevuld — controleer en klik op Order aanmaken</div>`;
+  }
+
+  // --- Recept download (e-mail stroom) ---
+  async function downloadReceptEmail() {
+    if (!huidigeEmail || huidigeBijlageIndex === null || !window._emailOrderId) return;
+    const bijlage = huidigeEmail.bijlagen[huidigeBijlageIndex];
+    if (!bijlage || !bijlage.data) return;
+
+    const achternaam = (document.getElementById('o-achternaam')?.value || 'onbekend').replace(/\s/g, '_');
+    const bestandsnaam = `${window._emailOrderId}_farmamed_${achternaam}.pdf`;
+
+    // Zet base64 data om naar downloadbaar bestand
+    const bytes = atob(bijlage.data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    const blob = new Blob([arr], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = bestandsnaam;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   // --- EDIFACT download na order aanmaken ---
