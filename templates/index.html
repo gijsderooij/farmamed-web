@@ -542,16 +542,12 @@
   }
 
   async function downloadReceptBalie() {
-    if (!window._balieOrderId) return;
+    if (!bestandUrl || !window._balieOrderId) return;
     const achternaam = (el('v-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
     const bestandsnaam = window._balieOrderId + '_farmamed_' + achternaam + '.pdf';
     try {
-      const res = await fetch('/api/download-recept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: window._balieOrderId, bestandsnaam: bestandsnaam })
-      });
-      if (!res.ok) throw new Error('Download mislukt');
+      // Bestand is al lokaal beschikbaar als blob URL
+      const res = await fetch(bestandUrl);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
