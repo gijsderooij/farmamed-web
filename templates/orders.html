@@ -474,15 +474,17 @@
 
   // --- Download functies ---
   async function downloadRecept() {
-    const url = document.getElementById('downloadReceptBtn').dataset.url;
-    if (!url || !huidigeOrder) return;
+    if (!huidigeOrder) return;
     const achternaam = (huidigeOrder.klant_naam || 'onbekend').split(' ').pop();
     const bestandsnaam = `${huidigeOrder.id}_farmamed_${achternaam}.pdf`;
 
     try {
-      // Haal PDF direct op in browser (niet via proxy)
-      const res = await fetch(url, { mode: 'cors' });
-      if (!res.ok) throw new Error('Kon bestand niet ophalen');
+      const res = await fetch('/api/download-recept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id, bestandsnaam: bestandsnaam })
+      });
+      if (!res.ok) throw new Error('Download mislukt');
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -493,9 +495,7 @@
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch(e) {
-      // Fallback: open in nieuw tabblad
-      window.open(url, '_blank');
-      alert('Sla het bestand op als: ' + bestandsnaam);
+      alert('Fout bij downloaden: ' + e.message);
     }
   }
 
