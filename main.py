@@ -1414,15 +1414,36 @@ async def download_recept(request: Request):
     url = body.get("url", "")
     bestandsnaam = body.get("bestandsnaam", "recept.pdf")
 
+    if not url:
+        return JSONResponse(content={"fout": "Geen URL"}, status_code=400)
+
     try:
-        resp = http_requests.get(url, timeout=20)
+        resp = http_requests.get(
+            url,
+            timeout=30,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "*/*"},
+            allow_redirects=True,
+        )
         resp.raise_for_status()
         inhoud = resp.content
-        ct = resp.headers.get("content-type", "application/pdf")
+
+        # Bepaal content-type op basis van URL als header niet klopt
+        if url.lower().endswith(".pdf") or "pdf" in resp.headers.get("content-type", ""):
+            media_type = "application/pdf"
+        elif url.lower().endswith((".jpg", ".jpeg")):
+            media_type = "image/jpeg"
+        elif url.lower().endswith(".png"):
+            media_type = "image/png"
+        else:
+            media_type = "application/octet-stream"
+
         return StreamingResponse(
             io.BytesIO(inhoud),
-            media_type=ct,
-            headers={"Content-Disposition": f'attachment; filename="{bestandsnaam}"'}
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{bestandsnaam}"',
+                "Content-Length": str(len(inhoud)),
+            }
         )
     except Exception as e:
         return JSONResponse(content={"fout": str(e)}, status_code=500)
@@ -1446,11 +1467,18 @@ async def download_bijlage(request: Request):
 
     bijlage = bijlagen[bijlage_index]
     try:
-        inhoud = base64.b64decode(bijlage["data"])
+        data = bijlage.get("data", "")
+        if not data:
+            return JSONResponse(content={"fout": "Geen bijlagedata"}, status_code=404)
+        # Voeg padding toe als nodig
+        padding = 4 - len(data) % 4
+        if padding != 4:
+            data += "=" * padding
+        inhoud = base64.b64decode(data, validate=False)
         ct = bijlage.get("type", "application/pdf")
         return StreamingResponse(
             io.BytesIO(inhoud),
-            media_type=ct,
+            media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{bestandsnaam}"'}
         )
     except Exception as e:
