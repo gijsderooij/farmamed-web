@@ -30,6 +30,21 @@
     .nav a.actief { background: rgba(255,255,255,0.22); color: white; }
 
     #uploadScherm { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 16px; }
+    /* Stappenbalk */
+    .stappenbalk { display:none; border-bottom: 1px solid var(--border); background: var(--cream); flex-shrink: 0; }
+    .stappenbalk.zichtbaar { display: block; }
+    .stappen { display: flex; align-items: stretch; }
+    .stap-item { flex: 1; padding: 10px 14px; border-right: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .stap-item:last-child { border-right: none; }
+    .stap-item.inactief { opacity: 0.4; }
+    .stap-info { display: flex; align-items: center; gap: 8px; }
+    .stap-nr { width: 20px; height: 20px; border-radius: 50%; background: var(--border); color: var(--muted); font-size: 11px; font-weight: 500; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .stap-nr.actief { background: var(--teal); color: white; }
+    .stap-nr.klaar { background: var(--success); color: white; }
+    .stap-pijl { padding: 0 4px; color: var(--muted); font-size: 14px; display: flex; align-items: center; }
+    .stap-acties { display: none; padding: 8px 14px; border-top: 0.5px solid var(--border); background: var(--teal-lt); gap: 8px; align-items: center; flex-wrap: wrap; }
+    .stap-acties.zichtbaar { display: flex; }
+
     .upload-kaart { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 0 0 32px; text-align: center; max-width: 480px; width: 100%; overflow: hidden; }
     .upload-kaart h2 { font-family: 'Cormorant Garamond', serif; font-size: 26px; font-weight: 400; margin-bottom: 10px; padding: 0 32px; margin-top: 24px; }
     .upload-kaart > p { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; padding: 0 32px; }
@@ -268,6 +283,7 @@
     const us = el('uploadScherm');
     if (us) us.style.display = 'none';
     if (el('loaderScherm')) el('loaderScherm').classList.add('zichtbaar');
+    balieStelStap(2);  // upload bezig = stap 2
     const stap = el('loaderStap');
     if (stap) stap.textContent = 'Uploaden…';
     setTimeout(() => { if (stap) stap.textContent = 'Tekst uitlezen met AI…'; }, 1000);
@@ -299,6 +315,9 @@
     // Preview wordt geladen via server (voorkomt Chrome PDF-blokkade)
     laadReceptPreview();
 
+    balieStelStap(3);  // uitlezen klaar = stap 3 actief
+    const btn3b = document.getElementById('balie-btn3');
+    if (btn3b) btn3b.style.display = 'inline-flex';
     vulVelden(receptData);
     setIterWaarde(receptData.iter);
 
@@ -458,6 +477,11 @@
     if (ediSect) ediSect.style.display = 'none';
     const receptSect = el('receptDownloadSectie');
     if (receptSect) receptSect.style.display = 'none';
+    // Reset stappenbalk
+    const stappenEl = document.getElementById('balie-stappen');
+    if (stappenEl) stappenEl.classList.remove('zichtbaar');
+    const actiesEl = document.getElementById('balie-acties');
+    if (actiesEl) actiesEl.classList.remove('zichtbaar');
     window._edifactBalie = null;
     window._balieOrderId = null;
     if (el('statusTekst')) el('statusTekst').textContent = '✓ Opgeslagen';
@@ -475,9 +499,10 @@
     }
     slaGegevensOp();
     bevestigd = true;
+    balieStelStap(4);  // controleren klaar = stap 4 actief
     if (el('btnBevestig')) el('btnBevestig').style.display = 'none';
     if (el('statusTekst')) { el('statusTekst').textContent = '✓ Gegevens bevestigd'; el('statusTekst').style.color = 'var(--success)'; }
-    if (huidigeRol === 'apotheker') toonTab('woocommerce');
+    toonTab('woocommerce');
     // Genereer EDIFACT preview alvast
     if (huidigeRol === 'apotheker') vulWooCommerceSamenvatting();
   }
@@ -508,6 +533,9 @@
       const result = await res.json();
       if (result.order_id) {
         window._balieOrderId = result.order_id;
+        balieAllesKlaar();
+        const balMelding = document.getElementById('balie-order-melding');
+        if (balMelding) balMelding.textContent = '✓ Order #' + result.order_id + ' aangemaakt';
         if (status) { status.className = 'wc-status ok'; status.textContent = '✓ Bestelling #' + result.order_id + ' aangemaakt in WooCommerce'; }
         if (btn) btn.textContent = '✓ Aangemaakt';
 
@@ -528,6 +556,45 @@
       if (status) { status.className = 'wc-status fout'; status.textContent = '✕ Fout: ' + e.message; }
       if (btn) { btn.disabled = false; btn.textContent = '📦 Opnieuw proberen'; }
     }
+  }
+
+  function balieStelStap(nr) {
+    document.getElementById('balie-stappen').classList.add('zichtbaar');
+    [1,2,3,4].forEach(n => {
+      const item = document.getElementById('balie-stap' + n);
+      const nr_el = document.getElementById('balie-nr' + n);
+      const btn = document.getElementById('balie-btn' + n);
+      if (!item || !nr_el) return;
+      if (n < nr) {
+        item.classList.remove('inactief');
+        nr_el.className = 'stap-nr klaar';
+        nr_el.textContent = '✓';
+        if (btn) btn.style.display = 'none';
+      } else if (n === nr) {
+        item.classList.remove('inactief');
+        nr_el.className = 'stap-nr actief';
+        nr_el.textContent = n;
+        if (btn) btn.style.display = 'inline-flex';
+      } else {
+        item.classList.add('inactief');
+        nr_el.className = 'stap-nr';
+        nr_el.textContent = n;
+        if (btn) btn.style.display = 'none';
+      }
+    });
+  }
+
+  function balieAllesKlaar() {
+    [1,2,3,4].forEach(n => {
+      const item = document.getElementById('balie-stap' + n);
+      const nr_el = document.getElementById('balie-nr' + n);
+      const btn = document.getElementById('balie-btn' + n);
+      if (item) item.classList.remove('inactief');
+      if (nr_el) { nr_el.className = 'stap-nr klaar'; nr_el.textContent = '✓'; }
+      if (btn) btn.style.display = 'none';
+    });
+    const acties = document.getElementById('balie-acties');
+    if (acties) acties.classList.add('zichtbaar');
   }
 
   function valideerBSN(input) {
@@ -617,6 +684,11 @@
     if (ediSect) ediSect.style.display = 'none';
     const receptSect = el('receptDownloadSectie');
     if (receptSect) receptSect.style.display = 'none';
+    // Reset stappenbalk
+    const stappenEl = document.getElementById('balie-stappen');
+    if (stappenEl) stappenEl.classList.remove('zichtbaar');
+    const actiesEl = document.getElementById('balie-acties');
+    if (actiesEl) actiesEl.classList.remove('zichtbaar');
     window._edifactBalie = null;
     window._balieOrderId = null;
   }
