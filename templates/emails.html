@@ -502,10 +502,14 @@
 
       if (data.recept) {
         receptData = data.recept;
+        // Stap 2 groen, stap 3 actief
+        zetStap(3);
+        const btn3 = document.getElementById('stapBtn3');
+        if (btn3) btn3.style.display = 'inline-flex';
         toonUitgelezenData(data.recept);
         prefillOrderVelden(data.recept);
         document.getElementById('btnMaakOrder').disabled = false;
-        toonTab('order');
+        toonTab('uitgelezen');
       }
 
     } catch(e) {
