@@ -761,8 +761,6 @@
   async function downloadReceptEmail() {
     if (!huidigeEmail || huidigeBijlageIndex === null || !window._emailOrderId) return;
     const bijlage = huidigeEmail.bijlagen[huidigeBijlageIndex];
-    if (!bijlage || !bijlage.data) { alert('Geen bijlagedata beschikbaar'); return; }
-
     const achternaam = (document.getElementById('o-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
     const bestandsnaam = window._emailOrderId + '_farmamed_' + achternaam + '.pdf';
 
