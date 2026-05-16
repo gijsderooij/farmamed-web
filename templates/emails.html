@@ -67,7 +67,7 @@
     .detail-inhoud.zichtbaar { display: flex; }
 
     /* Split: e-mail links, verwerking rechts */
-    .detail-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+    .detail-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; overflow: hidden; }
     .detail-links { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; background: white; }
     .detail-rechts { display: flex; flex-direction: column; overflow: hidden; background: white; }
 
@@ -339,6 +339,10 @@
 
     document.getElementById('detailLeeg').style.display = 'none';
     document.getElementById('detailInhoud').classList.add('zichtbaar');
+    zetStap(1);
+    // Reset stapActies
+    const stapActies = document.getElementById('stapActies');
+    if (stapActies) stapActies.style.display = 'none';
 
     // Reset
     document.getElementById('btnMaakOrder').disabled = true;
@@ -653,7 +657,16 @@
           window._edifactOrderId = data.order_id;
           edifactKnop = `<button onclick="downloadEdifactEmail()" style="margin-top:8px;padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Download EDIFACT verstrekkingsverzoek</button>`;
         }
-        document.getElementById('orderMelding').innerHTML = `<div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt in WooCommerce</div><div style="margin-top:6px;">${receptKnop}${edifactKnop}</div>`;
+        // Update stappenbalk naar stap 4 voltooid
+        zetStap(4);
+        const stapActies = document.getElementById('stapActies');
+        if (stapActies) { stapActies.style.display = 'flex'; }
+        const stapMelding = document.getElementById('stapOrderMelding');
+        if (stapMelding) stapMelding.textContent = '✓ Order #' + data.order_id + ' aangemaakt';
+        // Verberg order aanmaken knop in actiebalk onderaan
+        const wcBtn = document.getElementById('btnMaakOrder');
+        if (wcBtn) wcBtn.style.display = 'none';
+        document.getElementById('orderMelding').innerHTML = '';
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
         btn.textContent = '✓ Aangemaakt';
@@ -665,6 +678,25 @@
       btn.disabled = false;
       btn.textContent = '📦 Order aanmaken in WooCommerce';
     }
+  }
+
+  function zetStap(nr) {
+    document.getElementById('stappenbalk').style.display = 'block';
+    [1,2,3,4].forEach(n => {
+      const stap = document.getElementById('stap' + n);
+      if (!stap) return;
+      const nr_el = stap.querySelector('.stap-nr');
+      if (n < nr) {
+        stap.style.opacity = '1';
+        if (nr_el) { nr_el.style.background = 'var(--success)'; nr_el.style.color = 'white'; nr_el.textContent = '✓'; }
+      } else if (n === nr) {
+        stap.style.opacity = '1';
+        if (nr_el) { nr_el.style.background = 'var(--teal)'; nr_el.style.color = 'white'; nr_el.textContent = n; }
+      } else {
+        stap.style.opacity = '0.4';
+        if (nr_el) { nr_el.style.background = 'var(--border)'; nr_el.style.color = 'var(--muted)'; nr_el.textContent = n; }
+      }
+    });
   }
 
   function valideerBSNEmail(input) {
