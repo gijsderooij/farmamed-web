@@ -701,12 +701,25 @@
           window._edifactOrderId = data.order_id;
           edifactKnop = `<button onclick="downloadEdifactEmail()" style="margin-top:8px;padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Download EDIFACT verstrekkingsverzoek</button>`;
         }
-        // Alle stappen groen, actiebalk tonen
+        // Stap 4 voltooid: alle stappen groen
         zetStapVoltooid();
+
+        // Actiebalk tonen met alle drie sub-routines
         const stapActies = document.getElementById('stapActies');
         if (stapActies) stapActies.style.display = 'flex';
+
+        // Sub-routine a: bevestiging ordernummer
         const stapMelding = document.getElementById('stapOrderMelding');
         if (stapMelding) stapMelding.textContent = '✓ Order #' + data.order_id + ' aangemaakt';
+
+        // Sub-routine b: recept opslaan knop (al aanwezig, nu zichtbaar)
+        // Sub-routine c: EDIFACT knop (al aanwezig, nu zichtbaar)
+        // EDIFACT data alvast klaarzetten
+        if (data.edifact) {
+          window._edifact = data.edifact;
+          window._edifactOrderId = data.order_id;
+        }
+
         document.getElementById('orderMelding').innerHTML = '';
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
@@ -758,7 +771,7 @@
 
   function bewerkStap3() {
     toonTab('order');
-    zetStap(4);  // stap 3 groen, stap 4 actief
+    zetStap(4);
     const btn4 = document.getElementById('stapBtn4');
     if (btn4) btn4.style.display = 'inline-flex';
   }
