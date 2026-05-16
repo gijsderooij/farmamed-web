@@ -418,6 +418,12 @@ Regels:
 # Orders pagina
 # ------------------------------------------------------------------
 
+@app.get("/status", response_class=HTMLResponse)
+async def status_pagina():
+    html_path = BASE_DIR / "templates" / "status.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
 @app.get("/orders", response_class=HTMLResponse)
 async def orders_pagina():
     html_path = BASE_DIR / "templates" / "orders.html"
