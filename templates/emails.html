@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Farmamed — E-mails</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -906,22 +907,10 @@
           ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           const imgData = canvas.toDataURL('image/jpeg', 0.92);
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-          script.onload = function() {
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-            pdf.addImage(imgData, 'JPEG', x, y, w, h);
-            pdf.save(bestandsnaam);
-          };
-          if (window.jspdf) {
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-            pdf.addImage(imgData, 'JPEG', x, y, w, h);
-            pdf.save(bestandsnaam);
-          } else {
-            document.head.appendChild(script);
-          }
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+          pdf.addImage(imgData, 'JPEG', x, y, w, h);
+          pdf.save(bestandsnaam);
         };
         img.src = bijlage._preview;
         return;
