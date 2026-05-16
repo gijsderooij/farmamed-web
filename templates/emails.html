@@ -179,7 +179,7 @@
               <span class="stap-nr" id="nr3" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">3</span>
               <div><div style="font-size:12px;font-weight:500;">Controleren</div><div style="font-size:10px;color:var(--muted);">Aanpassen indien nodig</div></div>
             </div>
-            <button id="stapBtn3" onclick="toonTab('order')" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:white;color:var(--text);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✏ Bewerken</button>
+            <button id="stapBtn3" onclick="bewerkStap3()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:white;color:var(--text);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✏ Bewerken</button>
           </div>
           <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
           <div id="stap4" style="flex:1;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
@@ -384,18 +384,9 @@
     zetStap(1);
     const stapActies = document.getElementById('stapActies');
     if (stapActies) stapActies.style.display = 'none';
-    // Stap 2 of 4 knop tonen afhankelijk van bijlagen
-    setTimeout(() => {
-      const btn2 = document.getElementById('stapBtn2');
-      const btn4 = document.getElementById('stapBtn4');
-      if (huidigeEmail && huidigeEmail.heeft_bijlage) {
-        if (btn2) btn2.style.display = 'inline-flex';
-      } else {
-        // Geen bijlage: direct naar stap 3 (herhaalorder)
-        zetStap(3);
-        if (btn4) btn4.style.display = 'inline-flex';
-      }
-    }, 500);
+    // Stap 2 knop direct tonen - bijlage check na laden
+    const btn2 = document.getElementById('stapBtn2');
+    if (btn2) btn2.style.display = 'inline-flex';
 
     // Reset
     document.getElementById('btnMaakOrder').disabled = true;
@@ -710,15 +701,12 @@
           window._edifactOrderId = data.order_id;
           edifactKnop = `<button onclick="downloadEdifactEmail()" style="margin-top:8px;padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Download EDIFACT verstrekkingsverzoek</button>`;
         }
-        // Update stappenbalk naar stap 4 voltooid
-        zetStap(4);
+        // Alle stappen groen, actiebalk tonen
+        zetStapVoltooid();
         const stapActies = document.getElementById('stapActies');
-        if (stapActies) { stapActies.style.display = 'flex'; }
+        if (stapActies) stapActies.style.display = 'flex';
         const stapMelding = document.getElementById('stapOrderMelding');
         if (stapMelding) stapMelding.textContent = '✓ Order #' + data.order_id + ' aangemaakt';
-        // Verberg stap 4 knop na aanmaken
-        const stapBtn4 = document.getElementById('stapBtn4');
-        if (stapBtn4) stapBtn4.style.display = 'none';
         document.getElementById('orderMelding').innerHTML = '';
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
@@ -731,6 +719,18 @@
       btn.disabled = false;
       btn.textContent = '📦 Order aanmaken in WooCommerce';
     }
+  }
+
+  function zetStapVoltooid() {
+    // Alle stappen groen
+    [1,2,3,4].forEach(n => {
+      const stap = document.getElementById('stap' + n);
+      const nr_el = document.getElementById('nr' + n);
+      const btn = document.getElementById('stapBtn' + n);
+      if (stap) stap.style.opacity = '1';
+      if (nr_el) { nr_el.style.background = 'var(--success)'; nr_el.style.color = 'white'; nr_el.textContent = '✓'; }
+      if (btn) btn.style.display = 'none';
+    });
   }
 
   function zetStap(nr) {
@@ -754,6 +754,13 @@
         if (btn) btn.style.display = 'none';
       }
     });
+  }
+
+  function bewerkStap3() {
+    toonTab('order');
+    zetStap(4);  // stap 3 groen, stap 4 actief
+    const btn4 = document.getElementById('stapBtn4');
+    if (btn4) btn4.style.display = 'inline-flex';
   }
 
   function eersteNormaleBijlageOpenen() {
@@ -791,6 +798,9 @@
       const data = await res.json();
 
       if (data.gevonden && data.kloon) {
+        zetStap(3);
+        const btn3 = document.getElementById('stapBtn3');
+        if (btn3) btn3.style.display = 'inline-flex';
         const k = data.kloon;
         const doorgestuurdInfo = data.email_data?.is_doorgestuurd
           ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">📨 Doorgestuurde mail — originele afzender: <strong>${data.zoek_email || data.email_data?.patient_email || ''}</strong></div>`
