@@ -280,9 +280,7 @@
         <div class="wc-samenvatting" id="wcSamenvatting"></div>
         <button class="wc-actie-btn" onclick="maakWooCommerceOrder()" id="wcBtn">📦 Bestelling aanmaken in WooCommerce</button>
         <div class="wc-status" id="wcStatus"></div>
-        <div id="receptDownloadSectie" style="display:none;margin-top:8px;">
-          <button onclick="downloadReceptBalie()" style="width:100%;padding:10px;background:#e8f4f4;color:var(--teal-dk);border:1px solid var(--teal);border-radius:8px;cursor:pointer;font-size:13px;font-family:'DM Sans',sans-serif;font-weight:500;">⬇ Recept opslaan als PDF</button>
-        </div>
+
         <div id="edifactSectie" style="display:none;margin-top:12px;">
           <button onclick="downloadEdifactBalie()" style="width:100%;padding:10px;background:#e8f4f4;color:var(--teal-dk);border:1px solid var(--teal);border-radius:8px;cursor:pointer;font-size:13px;font-family:'DM Sans',sans-serif;font-weight:500;">⬇ Download EDIFACT verstrekkingsverzoek</button>
         </div>
@@ -521,8 +519,7 @@
     if (el('btnOpslaan')) el('btnOpslaan').style.display = 'none';
     const ediSect = el('edifactSectie');
     if (ediSect) ediSect.style.display = 'none';
-    const receptSect = el('receptDownloadSectie');
-    if (receptSect) receptSect.style.display = 'none';
+
     // Reset stappenbalk
     const stappenEl = document.getElementById('balie-stappen');
     if (stappenEl) stappenEl.classList.remove('zichtbaar');
@@ -586,9 +583,7 @@
         if (status) { status.className = 'wc-status ok'; status.textContent = '✓ Bestelling #' + result.order_id + ' aangemaakt in WooCommerce'; }
         if (btn) btn.textContent = '✓ Aangemaakt';
 
-        // Recept download knop tonen
-        const receptSect = document.getElementById('receptDownloadSectie');
-        if (receptSect) receptSect.style.display = 'block';
+
 
         if (result.edifact) {
           window._edifactBalie = result.edifact;
@@ -731,8 +726,7 @@
     if (el('btnOpslaan')) el('btnOpslaan').style.display = 'none';
     const ediSect = el('edifactSectie');
     if (ediSect) ediSect.style.display = 'none';
-    const receptSect = el('receptDownloadSectie');
-    if (receptSect) receptSect.style.display = 'none';
+
     // Reset stappenbalk
     const stappenEl = document.getElementById('balie-stappen');
     if (stappenEl) stappenEl.classList.remove('zichtbaar');
