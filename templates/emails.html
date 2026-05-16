@@ -67,7 +67,7 @@
     .detail-inhoud.zichtbaar { display: flex; }
 
     /* Split: e-mail links, verwerking rechts */
-    .detail-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; overflow: hidden; }
+    .detail-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; min-height: 0; }
     .detail-links { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; background: white; }
     .detail-rechts { display: flex; flex-direction: column; overflow: hidden; background: white; }
 
@@ -157,6 +157,10 @@
     </div>
 
     <div class="detail-inhoud" id="detailInhoud">
+      <div class="detail-split">
+
+      </div><!-- einde stappenbalk -->
+
       <div class="detail-split">
 
         <!-- Links: recept preview (boven) + e-mail inhoud (onder) -->
