@@ -318,6 +318,14 @@ async def maak_order(request: Request):
             "patient_naam": data.get("patient_naam", ""),
         }, data)
 
+        # Markeer e-mail als verwerkt als bron e-mail is
+        if data.get("bron") == "email" and data.get("email_uid"):
+            email_cached = _zoek_email_op_uid(data["email_uid"])
+            if email_cached:
+                email_cached["verwerkt"] = True
+                email_cached["order_id"] = order["id"]
+                _sla_email_op(email_cached)
+
         return JSONResponse(content={
             "order_id": order["id"],
             "status": order["status"],
@@ -1508,18 +1516,34 @@ async def wis_emails():
 
 
 @app.get("/api/emails")
-async def haal_emails_op():
-    """Geeft opgeslagen e-mails terug vanuit SQLite."""
+async def haal_emails_op(verwerkt: str = "nee"):
+    """Geeft opgeslagen e-mails terug vanuit SQLite. verwerkt=nee toont alleen onverwerkte."""
     emails = _haal_emails_op_db()
     if not emails:
         return JSONResponse(content={"emails": [], "info": "Nog geen e-mails ontvangen — start de lokale email_poller.py"})
-    # Geef emails terug zonder bijlage-data (die is groot)
+    # Filter verwerkte e-mails tenzij expliciet gevraagd
+    if verwerkt == "nee":
+        emails = [e for e in emails if not e.get("verwerkt")]
     emails_zonder_data = []
     for e in emails:
         email_slim = {k: v for k, v in e.items() if k != "bijlagen"}
         email_slim["bijlagen"] = [{"naam": b["naam"], "type": b["type"]} for b in e.get("bijlagen", [])]
         emails_zonder_data.append(email_slim)
     return JSONResponse(content={"emails": emails_zonder_data})
+
+
+@app.post("/api/email-verwerkt")
+async def markeer_email_verwerkt(request: Request):
+    """Markeert een e-mail als verwerkt (order aangemaakt) in de database."""
+    body = await request.json()
+    email_uid = body.get("email_uid", "")
+    order_id = body.get("order_id")
+    email = _zoek_email_op_uid(email_uid)
+    if email:
+        email["verwerkt"] = True
+        email["order_id"] = order_id
+        _sla_email_op(email)
+    return JSONResponse(content={"ok": True})
 
     try:
         conn.select("INBOX")
