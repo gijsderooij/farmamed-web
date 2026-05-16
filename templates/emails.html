@@ -166,19 +166,28 @@
             <div><div style="font-size:12px;font-weight:500;">E-mail</div><div style="font-size:10px;color:var(--muted);">Geselecteerd</div></div>
           </div>
           <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
-          <div id="stap2" style="flex:1;padding:10px 14px;border-right:0.5px solid var(--border);display:flex;align-items:center;gap:8px;opacity:0.4;">
-            <span class="stap-nr" id="nr2" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">2</span>
-            <div><div style="font-size:12px;font-weight:500;">Uitlezen</div><div style="font-size:10px;color:var(--muted);">OCR + AI</div></div>
+          <div id="stap2" style="flex:1;padding:10px 14px;border-right:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="stap-nr" id="nr2" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">2</span>
+              <div><div style="font-size:12px;font-weight:500;">Uitlezen</div><div style="font-size:10px;color:var(--muted);">OCR + AI</div></div>
+            </div>
+            <button id="stapBtn2" onclick="eersteNormaleBijlageOpenen()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--teal);background:var(--teal-lt);color:var(--teal-dk);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">🔍 Uitlezen</button>
           </div>
           <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
-          <div id="stap3" style="flex:1;padding:10px 14px;border-right:0.5px solid var(--border);display:flex;align-items:center;gap:8px;opacity:0.4;">
-            <span class="stap-nr" id="nr3" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">3</span>
-            <div><div style="font-size:12px;font-weight:500;">Controleren</div><div style="font-size:10px;color:var(--muted);">Aanpassen indien nodig</div></div>
+          <div id="stap3" style="flex:1;padding:10px 14px;border-right:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="stap-nr" id="nr3" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">3</span>
+              <div><div style="font-size:12px;font-weight:500;">Controleren</div><div style="font-size:10px;color:var(--muted);">Aanpassen indien nodig</div></div>
+            </div>
+            <button id="stapBtn3" onclick="toonTab('order')" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:white;color:var(--text);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✏ Bewerken</button>
           </div>
           <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
-          <div id="stap4" style="flex:1;padding:10px 14px;display:flex;align-items:center;gap:8px;opacity:0.4;">
-            <span class="stap-nr" id="nr4" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">4</span>
-            <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + EDIFACT</div></div>
+          <div id="stap4" style="flex:1;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="stap-nr" id="nr4" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">4</span>
+              <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + EDIFACT</div></div>
+            </div>
+            <button id="stapBtn4" onclick="maakOrder()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--teal);background:var(--teal);color:white;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">📦 Aanmaken</button>
           </div>
         </div>
         <!-- Acties verschijnen na order aanmaken -->
@@ -298,9 +307,8 @@
             <div class="veld-rij"><span class="veld-label">AGB-code</span><input class="veld-input" id="o-agb_code" type="text" placeholder="—"></div>
           </div>
 
-          <div class="actiebalk">
-            <button class="btn" onclick="toonTab('order')">✏ Bewerken</button>
-            <button class="btn btn-groen" onclick="maakOrder()" id="btnMaakOrder" disabled>📦 Order aanmaken in WooCommerce</button>
+          <button id="btnMaakOrder" onclick="maakOrder()" style="display:none"></button>
+          <div class="actiebalk" style="justify-content:flex-end;">
             <span class="status-tekst" id="statusTekst"></span>
           </div>
         </div>
@@ -374,9 +382,20 @@
     document.getElementById('detailLeeg').style.display = 'none';
     document.getElementById('detailInhoud').classList.add('zichtbaar');
     zetStap(1);
-    // Reset stapActies
     const stapActies = document.getElementById('stapActies');
     if (stapActies) stapActies.style.display = 'none';
+    // Stap 2 of 4 knop tonen afhankelijk van bijlagen
+    setTimeout(() => {
+      const btn2 = document.getElementById('stapBtn2');
+      const btn4 = document.getElementById('stapBtn4');
+      if (huidigeEmail && huidigeEmail.heeft_bijlage) {
+        if (btn2) btn2.style.display = 'inline-flex';
+      } else {
+        // Geen bijlage: direct naar stap 3 (herhaalorder)
+        zetStap(3);
+        if (btn4) btn4.style.display = 'inline-flex';
+      }
+    }, 500);
 
     // Reset
     document.getElementById('btnMaakOrder').disabled = true;
@@ -697,9 +716,9 @@
         if (stapActies) { stapActies.style.display = 'flex'; }
         const stapMelding = document.getElementById('stapOrderMelding');
         if (stapMelding) stapMelding.textContent = '✓ Order #' + data.order_id + ' aangemaakt';
-        // Verberg order aanmaken knop in actiebalk onderaan
-        const wcBtn = document.getElementById('btnMaakOrder');
-        if (wcBtn) wcBtn.style.display = 'none';
+        // Verberg stap 4 knop na aanmaken
+        const stapBtn4 = document.getElementById('stapBtn4');
+        if (stapBtn4) stapBtn4.style.display = 'none';
         document.getElementById('orderMelding').innerHTML = '';
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
@@ -718,19 +737,30 @@
     document.getElementById('stappenbalk').style.display = 'block';
     [1,2,3,4].forEach(n => {
       const stap = document.getElementById('stap' + n);
+      const btn = document.getElementById('stapBtn' + n);
       if (!stap) return;
-      const nr_el = stap.querySelector('.stap-nr');
+      const nr_el = document.getElementById('nr' + n);
       if (n < nr) {
         stap.style.opacity = '1';
         if (nr_el) { nr_el.style.background = 'var(--success)'; nr_el.style.color = 'white'; nr_el.textContent = '✓'; }
+        if (btn) btn.style.display = 'none';
       } else if (n === nr) {
         stap.style.opacity = '1';
         if (nr_el) { nr_el.style.background = 'var(--teal)'; nr_el.style.color = 'white'; nr_el.textContent = n; }
+        if (btn) btn.style.display = 'inline-flex';
       } else {
         stap.style.opacity = '0.4';
         if (nr_el) { nr_el.style.background = 'var(--border)'; nr_el.style.color = 'var(--muted)'; nr_el.textContent = n; }
+        if (btn) btn.style.display = 'none';
       }
     });
+  }
+
+  function eersteNormaleBijlageOpenen() {
+    if (!huidigeEmail || !huidigeEmail.bijlagen) return;
+    const idx = huidigeEmail.bijlagen.findIndex(b => !isEdifactBijlage(b));
+    if (idx >= 0) openBijlage(idx);
+    else if (huidigeEmail.bijlagen.length > 0) openBijlage(0);
   }
 
   function valideerBSNEmail(input) {
