@@ -141,6 +141,48 @@
 </div>
 
 <!-- Werkblad -->
+<!-- Stappenbalk Balie -->
+<div class="stappenbalk" id="balie-stappen">
+  <div class="stappen">
+    <div class="stap-item" id="balie-stap1">
+      <div class="stap-info">
+        <span class="stap-nr actief" id="balie-nr1">1</span>
+        <div><div style="font-size:12px;font-weight:500;">Upload</div><div style="font-size:10px;color:var(--muted);">Recept kiezen</div></div>
+      </div>
+    </div>
+    <div class="stap-pijl">›</div>
+    <div class="stap-item inactief" id="balie-stap2">
+      <div class="stap-info">
+        <span class="stap-nr" id="balie-nr2">2</span>
+        <div><div style="font-size:12px;font-weight:500;">Uitlezen</div><div style="font-size:10px;color:var(--muted);">OCR + AI</div></div>
+      </div>
+    </div>
+    <div class="stap-pijl">›</div>
+    <div class="stap-item inactief" id="balie-stap3">
+      <div class="stap-info">
+        <span class="stap-nr" id="balie-nr3">3</span>
+        <div><div style="font-size:12px;font-weight:500;">Controleren</div><div style="font-size:10px;color:var(--muted);">Aanpassen indien nodig</div></div>
+      </div>
+      <button id="balie-btn3" onclick="toonTab('patient')" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:white;color:var(--text);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✏ Bewerken</button>
+    </div>
+    <div class="stap-pijl">›</div>
+    <div class="stap-item inactief" id="balie-stap4">
+      <div class="stap-info">
+        <span class="stap-nr" id="balie-nr4">4</span>
+        <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + EDIFACT</div></div>
+      </div>
+      <button id="balie-btn4" onclick="toonTab('woocommerce')" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--teal);background:var(--teal);color:white;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">📦 Aanmaken</button>
+    </div>
+  </div>
+  <div class="stap-acties" id="balie-acties">
+    <div id="balie-order-melding" style="font-size:12px;color:var(--success);"></div>
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      <button class="btn" onclick="downloadReceptBalie()" style="font-size:12px;padding:6px 12px;">⬇ Recept opslaan</button>
+      <button class="btn" onclick="downloadEdifactBalie()" style="font-size:12px;padding:6px 12px;">📤 EDIFACT downloaden</button>
+    </div>
+  </div>
+</div>
+
 <div id="werkblad">
   <div class="split">
 
@@ -559,7 +601,9 @@
   }
 
   function balieStelStap(nr) {
-    document.getElementById('balie-stappen').classList.add('zichtbaar');
+    const stappen = document.getElementById('balie-stappen');
+    if (!stappen) return;
+    stappen.classList.add('zichtbaar');
     [1,2,3,4].forEach(n => {
       const item = document.getElementById('balie-stap' + n);
       const nr_el = document.getElementById('balie-nr' + n);
@@ -573,12 +617,12 @@
       } else if (n === nr) {
         item.classList.remove('inactief');
         nr_el.className = 'stap-nr actief';
-        nr_el.textContent = n;
+        nr_el.textContent = String(n);
         if (btn) btn.style.display = 'inline-flex';
       } else {
         item.classList.add('inactief');
         nr_el.className = 'stap-nr';
-        nr_el.textContent = n;
+        nr_el.textContent = String(n);
         if (btn) btn.style.display = 'none';
       }
     });
