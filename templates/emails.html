@@ -890,23 +890,40 @@
     try {
       const bijlage = huidigeEmail.bijlagen[huidigeBijlageIndex];
 
-      // Optie 1: gebruik opgeslagen preview (base64 afbeelding)
+      // Optie 1: gebruik opgeslagen preview (afbeelding) → omzetten naar PDF
       if (bijlage._preview && bijlage.type && bijlage.type.startsWith('image/')) {
-        const base64Data = bijlage._preview.split(',')[1];
-        const bytes = atob(base64Data);
-        const arr = new Uint8Array(bytes.length);
-        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-        const blob = new Blob([arr], { type: bijlage.type });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        // Gebruik juiste extensie voor afbeeldingen
-        const ext = bijlage.type.includes('jpeg') ? '.jpg' : '.png';
-        a.download = bestandsnaam.replace('.pdf', ext);
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const img = new Image();
+        img.onload = function() {
+          const a4w = 595, a4h = 842;
+          const ratio = Math.min(a4w / img.width, a4h / img.height);
+          const w = Math.round(img.width * ratio);
+          const h = Math.round(img.height * ratio);
+          const x = Math.round((a4w - w) / 2);
+          const y = Math.round((a4h - h) / 2);
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width; canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          const imgData = canvas.toDataURL('image/jpeg', 0.92);
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+          script.onload = function() {
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+            pdf.addImage(imgData, 'JPEG', x, y, w, h);
+            pdf.save(bestandsnaam);
+          };
+          if (window.jspdf) {
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+            pdf.addImage(imgData, 'JPEG', x, y, w, h);
+            pdf.save(bestandsnaam);
+          } else {
+            document.head.appendChild(script);
+          }
+        };
+        img.src = bijlage._preview;
         return;
       }
 
