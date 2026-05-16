@@ -653,21 +653,45 @@
   }
 
   async function downloadReceptBalie() {
-    if (!bestandUrl || !window._balieOrderId) return;
+    if (!origineelBestand || !window._balieOrderId) return;
     const achternaam = (el('v-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
     const bestandsnaam = window._balieOrderId + '_farmamed_' + achternaam + '.pdf';
+    const ext = origineelBestand.name.split('.').pop().toLowerCase();
     try {
-      // Bestand is al lokaal beschikbaar als blob URL
-      const res = await fetch(bestandUrl);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = bestandsnaam;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      if (ext === 'pdf') {
+        const blobUrl = URL.createObjectURL(origineelBestand);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = bestandsnaam;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      } else {
+        const img = new Image();
+        const imgUrl = URL.createObjectURL(origineelBestand);
+        img.onload = function() {
+          const a4w = 595, a4h = 842;
+          const ratio = Math.min(a4w / img.width, a4h / img.height);
+          const w = Math.round(img.width * ratio);
+          const h = Math.round(img.height * ratio);
+          const x = Math.round((a4w - w) / 2);
+          const y = Math.round((a4h - h) / 2);
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width; canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(imgUrl);
+          const imgData = canvas.toDataURL('image/jpeg', 0.92);
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+          pdf.addImage(imgData, 'JPEG', x, y, w, h);
+          pdf.save(bestandsnaam);
+        };
+        img.src = imgUrl;
+      }
     } catch(e) {
       alert('Fout bij downloaden: ' + e.message);
     }
