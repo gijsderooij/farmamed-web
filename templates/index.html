@@ -319,7 +319,10 @@
     }
   });
 
+  let origineelBestand = null;  // bewaar origineel File object voor download
+
   async function verwerkBestand(bestand) {
+    origineelBestand = bestand;  // bewaar voor latere download
     bestandNaam = bestand.name;
     bestandUrl = URL.createObjectURL(bestand);
     const us = el('uploadScherm');
@@ -526,6 +529,7 @@
     if (actiesEl) actiesEl.classList.remove('zichtbaar');
     window._edifactBalie = null;
     window._balieOrderId = null;
+    origineelBestand = null;
     if (el('statusTekst')) el('statusTekst').textContent = '✓ Opgeslagen';
     setTimeout(() => { if (el('statusTekst')) el('statusTekst').textContent = ''; }, 2000);
   }
@@ -735,6 +739,7 @@
     if (actiesEl) actiesEl.classList.remove('zichtbaar');
     window._edifactBalie = null;
     window._balieOrderId = null;
+    origineelBestand = null;
   }
 </script>
 </body>
