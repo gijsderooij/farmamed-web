@@ -790,6 +790,14 @@
     else if (huidigeEmail.bijlagen.length > 0) openBijlage(0);
   }
 
+  function slaWerklijstStatusOp(key, veld, waarde) {
+    // Sla op in sessionStorage zodat werklijst het oppikt
+    const cache = JSON.parse(sessionStorage.getItem('farmamed_status') || '{}');
+    if (!cache[key]) cache[key] = {};
+    cache[key][veld] = waarde;
+    sessionStorage.setItem('farmamed_status', JSON.stringify(cache));
+  }
+
   function valideerBSNEmail(input) {
     // Verwijder alles behalve cijfers
     const waarde = input.value.replace(/[^0-9]/g, '');
@@ -886,6 +894,8 @@
   // --- Recept download (e-mail stroom) ---
   async function downloadReceptEmail() {
     if (!huidigeEmail || huidigeBijlageIndex === null || !window._emailOrderId) return;
+    // Werklijst: markeer PDF als gedaan
+    slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'pdf', true);
     const bijlage = huidigeEmail.bijlagen[huidigeBijlageIndex];
     const achternaam = (document.getElementById('o-achternaam')?.value || 'onbekend').replace(/[^a-zA-Z0-9]/g, '_');
     const bestandsnaam = window._emailOrderId + '_farmamed_' + achternaam + '.pdf';
@@ -946,6 +956,8 @@
   // --- EDIFACT download na order aanmaken ---
   function downloadEdifactEmail() {
     if (!window._edifact) return;
+    // Werklijst: markeer EDIFACT als gedaan
+    if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'edifact', true);
     const blob = new Blob([window._edifact], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
