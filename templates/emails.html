@@ -731,6 +731,8 @@
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
         btn.textContent = '✓ Aangemaakt';
+        // Werklijst: markeer WC Order als gedaan
+        if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'order', true);
       } else {
         throw new Error(data.fout || 'Onbekende fout');
       }
