@@ -318,11 +318,11 @@ async def maak_order(request: Request):
             "patient_naam": data.get("patient_naam", ""),
         }, data)
 
-        # Markeer e-mail als verwerkt als bron e-mail is
+        # Sla order_id op bij e-mail maar markeer NIET als verwerkt
+        # Verwerkt wordt pas gezet als apotheker op "E-mail verwerkt" klikt
         if data.get("bron") == "email" and data.get("email_uid"):
             email_cached = _zoek_email_op_uid(data["email_uid"])
             if email_cached:
-                email_cached["verwerkt"] = True
                 email_cached["order_id"] = order["id"]
                 _sla_email_op(email_cached)
 
