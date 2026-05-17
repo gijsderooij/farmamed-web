@@ -209,8 +209,16 @@
         return;
       }
 
-      const header = lijst.querySelector('.werklijst-header');
-      let html = '';
+      let html = `<div class="werklijst-header">
+        <span>Order / Datum</span>
+        <span>Patiënt</span>
+        <span>Medicijn</span>
+        <span style="text-align:center">PDF</span>
+        <span style="text-align:center">EDIFACT</span>
+        <span style="text-align:center">Recept</span>
+        <span style="text-align:center">Verzonden</span>
+        <span>Actie</span>
+      </div>`;
       orders.forEach(o => {
         const key = 'order_' + o.id;
         const heeftRecept = o.heeft_recept;
@@ -229,9 +237,7 @@
         </div>`;
       });
 
-      lijst.innerHTML = '';
-      lijst.appendChild(header.cloneNode(true));
-      lijst.innerHTML += html;
+      lijst.innerHTML = html;
       updateStats();
     } catch(e) {
       lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${e.message}</div>`;
@@ -252,17 +258,26 @@
         return;
       }
 
-      const header = lijst.querySelector('.werklijst-header');
-      let html = '';
+      let html = `<div class="werklijst-header">
+        <span>Datum</span>
+        <span>Afzender</span>
+        <span>Onderwerp</span>
+        <span style="text-align:center">WC Order</span>
+        <span style="text-align:center">PDF</span>
+        <span style="text-align:center">EDIFACT</span>
+        <span style="text-align:center">Verwerkt</span>
+        <span>Actie</span>
+      </div>`;
       emails.forEach(e => {
         const key = 'email_' + e.uid;
+        const ond = (e.onderwerp || '—').slice(0, 40) + (e.onderwerp?.length > 40 ? '…' : '');
         html += `<div class="werklijst-rij">
           <div>
-            <div style="font-size:11px;color:var(--muted);">${e.datum?.slice(0,16) || '—'}</div>
+            <div style="font-size:11px;color:var(--muted);">${(e.datum || '—').slice(0,16)}</div>
             <span class="bron-badge bron-email">E-mail</span>
           </div>
           <div class="naam-cel">${e.afzender_naam || e.afzender || '—'}</div>
-          <div class="medicijn-cel" title="${e.onderwerp}">${e.onderwerp?.slice(0,40) || '—'}${e.onderwerp?.length > 40 ? '…' : ''}</div>
+          <div class="medicijn-cel">${ond}</div>
           ${statusIcon(key, 'order')}
           ${statusIcon(key, 'pdf')}
           ${statusIcon(key, 'edifact')}
@@ -271,9 +286,7 @@
         </div>`;
       });
 
-      lijst.innerHTML = '';
-      lijst.appendChild(header.cloneNode(true));
-      lijst.innerHTML += html;
+      lijst.innerHTML = html;
       updateStats();
     } catch(e) {
       lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${e.message}</div>`;
