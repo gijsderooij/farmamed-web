@@ -316,7 +316,7 @@
         const allesDone = wcKlaar && pdfKlaar && edifactKlaar;
         const actieKnop = allesDone
           ? `<button class="actie-btn" style="background:#fdecea;color:var(--danger);border-color:#f5c6c2;" onclick="verwijderEmail('${e.uid}', this)">✓ E-mail verwerkt</button>`
-          : `<button class="actie-btn" onclick="window.location='/emails'">→ Openen</button>`;
+          : `<button class="actie-btn" style="opacity:0.4;cursor:not-allowed;" disabled title="Eerst alle drie stappen voltooien">✓ E-mail verwerkt</button>`;
         html += `<div class="werklijst-rij" id="emailrij-${e.uid}" style="grid-template-columns:180px 1fr 80px 80px 80px 120px;">
           <div>
             <div style="font-size:11px;color:var(--muted);">${(e.datum || '—').slice(0,16)}</div>
