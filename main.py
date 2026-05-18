@@ -426,6 +426,176 @@ Regels:
 # Orders pagina
 # ------------------------------------------------------------------
 
+@app.get("/bestellingen")
+async def haal_bestellingen_op():
+    """Haalt openstaande WooCommerce orders op met betaal- en verzendstatus."""
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+    sc_public = os.getenv("SENDCLOUD_PUBLIC_KEY", "")
+    sc_secret = os.getenv("SENDCLOUD_SECRET_KEY", "")
+    paynl_token = os.getenv("PAYNL_API_TOKEN", "")
+    paynl_service = os.getenv("PAYNL_SERVICE_ID", "")
+
+    if not all([wc_url, wc_key, wc_secret]):
+        return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
+
+    # Haal openstaande orders op
+    try:
+        resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            headers={"Accept": "application/json"},
+            params={"status": "processing,pending,on-hold", "per_page": 50, "orderby": "date", "order": "desc"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        orders_raw = resp.json()
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
+
+    # Haal SendCloud zendingen op als credentials beschikbaar
+    sendcloud_zendingen = {}
+    if sc_public and sc_secret:
+        try:
+            sc_resp = http_requests.get(
+                "https://panel.sendcloud.sc/api/v2/parcels",
+                auth=(sc_public, sc_secret),
+                params={"results": 200},
+                timeout=10,
+            )
+            if sc_resp.status_code == 200:
+                for p in sc_resp.json().get("parcels", []):
+                    ref = str(p.get("order_number") or p.get("external_reference") or "")
+                    if ref:
+                        sendcloud_zendingen[ref] = {
+                            "status": p.get("status", {}).get("message", ""),
+                            "tracking": p.get("tracking_number", ""),
+                            "tracking_url": p.get("tracking_url", ""),
+                        }
+        except Exception:
+            pass
+
+    # Verwerk orders
+    orders = []
+    for o in orders_raw:
+        billing = o.get("billing", {})
+        meta = {m["key"]: m["value"] for m in o.get("meta_data", [])}
+        items = o.get("line_items", [])
+        naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+        medicijn = items[0]["name"] if items else "—"
+        order_id = str(o["id"])
+
+        # Betaalstatus
+        betaal_methode = o.get("payment_method", "")
+        betaal_titel = o.get("payment_method_title", "")
+        datum_betaald = o.get("date_paid")
+
+        if datum_betaald:
+            if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower():
+                betaal_status = "Pay ✓"
+                betaal_type = "pay"
+            elif "bank" in betaal_methode.lower() or "transfer" in betaal_methode.lower() or "bacs" in betaal_methode.lower():
+                betaal_status = "Bank ✓"
+                betaal_type = "bank"
+            else:
+                betaal_status = f"Betaald ({betaal_titel or betaal_methode})"
+                betaal_type = "anders"
+        else:
+            betaal_status = "Niet betaald"
+            betaal_type = "onbetaald"
+
+        # Verzendstatus: haal ordernotities op voor SendCloud tracking
+        zending = sendcloud_zendingen.get(order_id) or sendcloud_zendingen.get(f"#{order_id}")
+        verzend_status = "Niet verzonden"
+        tracking_url = ""
+        tracking_nr = ""
+
+        if zending:
+            verzend_status = zending["status"]
+            tracking_url = zending["tracking_url"]
+            tracking_nr = zending["tracking"]
+        else:
+            # Zoek in order notities naar SendCloud tracking
+            for note in o.get("order_notes", []):
+                note_tekst = note.get("note", "") if isinstance(note, dict) else str(note)
+                import re as _re
+                # SendCloud schrijft: "shipment is: TRACKINGNR and can be traced at: URL"
+                match = _re.search(r'shipment is[:\s]+(\S+).*?traced at[:\s]+(https?://\S+)', note_tekst, _re.IGNORECASE)
+                if match:
+                    tracking_nr = match.group(1)
+                    tracking_url = match.group(2).rstrip('.')
+                    verzend_status = "Verzonden"
+                    break
+                # Alternatief formaat
+                if any(w in note_tekst.lower() for w in ['tracking', 'verzonden', 'shipped', 'label']):
+                    url_match = _re.search(r'https?://\S+track\S*', note_tekst, _re.IGNORECASE)
+                    if url_match:
+                        tracking_url = url_match.group(0).rstrip('.')
+                        verzend_status = "Verzonden"
+                        break
+
+        # Oorsprong
+        oorsprong = meta.get("oorsprong", "")
+        if not oorsprong:
+            via = o.get("created_via", "")
+            oorsprong = "Webshop" if via == "checkout" else "API"
+
+        # Haal ordernotities op
+        try:
+            notes_resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                timeout=5,
+            )
+            o["order_notes"] = notes_resp.json() if notes_resp.status_code == 200 else []
+        except Exception:
+            o["order_notes"] = []
+
+        orders.append({
+            "id": o["id"],
+            "status": o.get("status", ""),
+            "datum": o.get("date_created", "")[:10],
+            "klant_naam": naam,
+            "medicijn": medicijn[:40],
+            "totaal": o.get("total", "0"),
+            "betaal_status": betaal_status,
+            "betaal_type": betaal_type,
+            "verzend_status": verzend_status,
+            "tracking_url": tracking_url,
+            "tracking_nr": tracking_nr,
+            "oorsprong": oorsprong,
+        })
+
+    return JSONResponse(content={"orders": orders})
+
+
+@app.post("/api/order-afronden")
+async def order_afronden(request: Request):
+    """Markeert een of meerdere WooCommerce orders als completed."""
+    body = await request.json()
+    order_ids = body.get("order_ids", [])
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    resultaten = []
+    for oid in order_ids:
+        try:
+            resp = http_requests.put(
+                f"{wc_url}/wp-json/wc/v3/orders/{oid}",
+                auth=(wc_key, wc_secret),
+                json={"status": "completed"},
+                timeout=10,
+            )
+            resultaten.append({"order_id": oid, "ok": resp.status_code == 200})
+        except Exception as e:
+            resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
+
+    return JSONResponse(content={"resultaten": resultaten})
+
+
 @app.get("/status", response_class=HTMLResponse)
 async def status_pagina():
     html_path = BASE_DIR / "templates" / "status.html"
@@ -761,7 +931,19 @@ async def haal_orders_op():
             # Recept URL via plugin
             recept_url = o.get("recept_url") or meta.get("recept_url", "")
 
-            orders.append({
+            # Haal ordernotities op
+        try:
+            notes_resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                timeout=5,
+            )
+            o["order_notes"] = notes_resp.json() if notes_resp.status_code == 200 else []
+        except Exception:
+            o["order_notes"] = []
+
+        orders.append({
                 "id": o["id"],
                 "status": o.get("status", ""),
                 "datum": o.get("date_created", "")[:10],
