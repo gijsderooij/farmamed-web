@@ -528,7 +528,7 @@
     if (actiesEl) actiesEl.classList.remove('zichtbaar');
     window._edifactBalie = null;
     window._balieOrderId = null;
-    origineelBestand = null;
+    // origineelBestand bewaren voor PDF download na order aanmaken
     if (el('statusTekst')) el('statusTekst').textContent = '✓ Opgeslagen';
     setTimeout(() => { if (el('statusTekst')) el('statusTekst').textContent = ''; }, 2000);
   }
