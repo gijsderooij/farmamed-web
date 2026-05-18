@@ -571,6 +571,169 @@ async def haal_bestellingen_op():
     return JSONResponse(content={"orders": orders})
 
 
+@app.post("/api/verwerk-mt940")
+async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None):
+    """
+    Parseert een MT940 bankbestand en matcht betalingen aan openstaande WooCommerce orders.
+    """
+    import re as _re
+    from rapidfuzz import fuzz
+
+    inhoud = await bestand.read()
+    tekst = inhoud.decode("utf-8", errors="replace")
+
+    # MT940 parser
+    betalingen = []
+    transacties = _re.split(r':61:', tekst)
+
+    for i, blok in enumerate(transacties[1:], 1):
+        try:
+            # Datum (YYMMDD)
+            datum_match = _re.match(r'(\d{6})', blok)
+            datum = ""
+            if datum_match:
+                d = datum_match.group(1)
+                datum = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
+
+            # Bedrag (C=credit/inkomend, D=debet/uitgaand)
+            bedrag_match = _re.search(r'[CD](\d+),(\d*)', blok)
+            if not bedrag_match:
+                continue
+            richting = 'C' if 'C' in blok[:20] else 'D'
+            if richting != 'C':
+                continue  # Alleen inkomende betalingen
+            bedrag = float(f"{bedrag_match.group(1)}.{bedrag_match.group(2) or '00'}")
+
+            # Omschrijving uit :86: tag
+            omschrijving = ""
+            naam = ""
+            iban = ""
+            omschrijving_match = _re.search(r':86:(.*?)(?=:6[12]:|$)', blok, _re.DOTALL)
+            if omschrijving_match:
+                omschrijving_raw = omschrijving_match.group(1).strip()
+                omschrijving = omschrijving_raw.replace('\n', ' ').replace('\r', '')
+
+                # Naam tegenhanger
+                naam_match = _re.search(r'/NAME/([^/]+)', omschrijving_raw) or _re.search(r'(?:naam|name)[:\s]+([^/]+)', omschrijving_raw, _re.IGNORECASE)
+                if naam_match:
+                    naam = naam_match.group(1).strip()
+
+                # IBAN
+                iban_match = _re.search(r'[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,}', omschrijving_raw)
+                if iban_match:
+                    iban = iban_match.group(0)
+
+            betalingen.append({
+                "datum": datum,
+                "bedrag": bedrag,
+                "naam": naam,
+                "iban": iban,
+                "omschrijving": omschrijving[:200],
+            })
+        except Exception:
+            continue
+
+    if not betalingen:
+        return JSONResponse(content={"fout": "Geen betalingen gevonden in MT940 bestand"})
+
+    # Haal openstaande orders op
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    try:
+        resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            headers={"Accept": "application/json"},
+            params={"status": "pending", "per_page": 50},
+            timeout=15,
+        )
+        orders = resp.json() if resp.status_code == 200 else []
+    except Exception:
+        orders = []
+
+    # Match betalingen aan orders
+    matches = []
+    for betaling in betalingen:
+        beste_match = None
+        beste_score = 0
+
+        for order in orders:
+            billing = order.get("billing", {})
+            wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+            wc_bedrag = float(order.get("total", 0))
+            wc_id = str(order["id"])
+
+            score = 0
+
+            # Bedrag match (zwaarst gewogen)
+            if abs(betaling["bedrag"] - wc_bedrag) < 0.02:
+                score += 50
+
+            # Naam match
+            if betaling["naam"]:
+                naam_score = fuzz.token_sort_ratio(
+                    _normaliseer_naam(betaling["naam"]),
+                    _normaliseer_naam(wc_naam)
+                )
+                score += int(naam_score * 0.4)
+
+            # Ordernummer in omschrijving
+            if wc_id in betaling["omschrijving"]:
+                score += 30
+
+            if score > beste_score and score >= 50:
+                beste_score = score
+                beste_match = order
+
+        matches.append({
+            "betaling": betaling,
+            "order": {
+                "id": beste_match["id"],
+                "klant_naam": f"{beste_match['billing']['first_name']} {beste_match['billing']['last_name']}".strip(),
+                "totaal": beste_match.get("total"),
+                "status": beste_match.get("status"),
+            } if beste_match else None,
+            "score": beste_score,
+            "gematcht": beste_match is not None,
+        })
+
+    return JSONResponse(content={
+        "betalingen": len(betalingen),
+        "gematcht": sum(1 for m in matches if m["gematcht"]),
+        "matches": matches,
+    })
+
+
+@app.post("/api/betalingen-verwerken")
+async def betalingen_verwerken(request: Request):
+    """Markeert geselecteerde orders als betaald in WooCommerce."""
+    body = await request.json()
+    order_ids = body.get("order_ids", [])
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    resultaten = []
+    for oid in order_ids:
+        try:
+            resp = http_requests.put(
+                f"{wc_url}/wp-json/wc/v3/orders/{oid}",
+                auth=(wc_key, wc_secret),
+                json={
+                    "set_paid": True,
+                    "status": "processing",
+                },
+                timeout=10,
+            )
+            resultaten.append({"order_id": oid, "ok": resp.status_code == 200})
+        except Exception as e:
+            resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
+
+    return JSONResponse(content={"resultaten": resultaten})
+
+
 @app.post("/api/order-afronden")
 async def order_afronden(request: Request):
     """Markeert een of meerdere WooCommerce orders als completed."""
