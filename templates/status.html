@@ -92,9 +92,15 @@
 
 <div class="hoofd">
   <div class="boven">
-    <h1 class="pagina-titel">Werklijst</h1>
-    <button class="vernieuwen-btn" onclick="laadAlles()">↻ Vernieuwen</button>
+    <div style="display:flex;gap:4px;background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:3px;">
+      <button onclick="toonTabblad('werklijst')" id="tab-werklijst" style="padding:6px 16px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--teal);color:white;font-weight:500;">Werklijst</button>
+      <button onclick="toonTabblad('bestellingen')" id="tab-bestellingen" style="padding:6px 16px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;background:transparent;color:var(--muted);">Bestellingen</button>
+    </div>
+    <button class="vernieuwen-btn" onclick="vernieuwHuidig()">↻ Vernieuwen</button>
   </div>
+
+  <!-- Werklijst tabblad -->
+  <div id="tabblad-werklijst">
 
   <!-- Statistieken -->
   <div class="stats">
@@ -157,9 +163,184 @@
       <div class="laden"><span class="spinner"></span>Orders laden…</div>
     </div>
   </div>
+  </div><!-- einde tabblad-werklijst -->
+
+  <!-- Bestellingen tabblad -->
+  <div id="tabblad-bestellingen" style="display:none;">
+
+    <!-- Filter knoppen -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <button class="filter-btn actief" onclick="filterBestellingen('alle')" id="filter-alle">Alle openstaand</button>
+      <button class="filter-btn" onclick="filterBestellingen('onbetaald')" id="filter-onbetaald">Niet betaald</button>
+      <button class="filter-btn" onclick="filterBestellingen('betaald')" id="filter-betaald">Betaald</button>
+      <button class="filter-btn" onclick="filterBestellingen('niet-verzonden')" id="filter-niet-verzonden">Niet verzonden</button>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <span id="selectie-tekst" style="font-size:12px;color:var(--muted);"></span>
+        <button class="vernieuwen-btn" onclick="rondeAfBatch()" id="btn-afronden" style="display:none;background:var(--success);color:white;border-color:var(--success);">✓ Afronden</button>
+      </div>
+    </div>
+
+    <div class="werklijst" id="lijst-bestellingen">
+      <div class="laden"><span class="spinner"></span>Bestellingen laden…</div>
+    </div>
+
+  </div><!-- einde tabblad-bestellingen -->
+
 </div>
 
-<script>
+<style>
+  .filter-btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: white; cursor: pointer; font-size: 12px; font-family: 'DM Sans', sans-serif; color: var(--muted); transition: all 0.15s; }
+  .filter-btn:hover, .filter-btn.actief { background: var(--teal-lt); border-color: var(--teal); color: var(--teal-dk); }
+  .checkbox-col { width: 32px; text-align: center; }
+</style>
+
+  let allBestellingen = [];
+  let huidigFilter = 'alle';
+  let geselecteerd = new Set();
+
+  function toonTabblad(naam) {
+    document.getElementById('tabblad-werklijst').style.display = naam === 'werklijst' ? 'block' : 'none';
+    document.getElementById('tabblad-bestellingen').style.display = naam === 'bestellingen' ? 'block' : 'none';
+    document.getElementById('tab-werklijst').style.background = naam === 'werklijst' ? 'var(--teal)' : 'transparent';
+    document.getElementById('tab-werklijst').style.color = naam === 'werklijst' ? 'white' : 'var(--muted)';
+    document.getElementById('tab-bestellingen').style.background = naam === 'bestellingen' ? 'var(--teal)' : 'transparent';
+    document.getElementById('tab-bestellingen').style.color = naam === 'bestellingen' ? 'white' : 'var(--muted)';
+    if (naam === 'bestellingen' && allBestellingen.length === 0) laadBestellingen();
+  }
+
+  function vernieuwHuidig() {
+    if (document.getElementById('tabblad-bestellingen').style.display !== 'none') laadBestellingen();
+    else laadAlles();
+  }
+
+  async function laadBestellingen() {
+    const lijst = document.getElementById('lijst-bestellingen');
+    lijst.innerHTML = '<div class="laden"><span class="spinner"></span>Bestellingen laden…</div>';
+    try {
+      const res = await fetch('/bestellingen');
+      const data = await res.json();
+      if (data.fout) { lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${data.fout}</div>`; return; }
+      allBestellingen = data.orders || [];
+      toonBestellingen();
+    } catch(e) {
+      lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Verbindingsfout: ${e.message}</div>`;
+    }
+  }
+
+  function filterBestellingen(filter) {
+    huidigFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('actief'));
+    document.getElementById('filter-' + filter)?.classList.add('actief');
+    geselecteerd.clear();
+    toonBestellingen();
+  }
+
+  function statusKleur(status) {
+    if (status === 'processing') return '#e8f0ff;color:#3a6fd8';
+    if (status === 'pending') return '#fef3e2;color:var(--warn)';
+    if (status === 'on-hold') return '#f5f5f5;color:var(--muted)';
+    return 'var(--teal-lt);color:var(--teal-dk)';
+  }
+
+  function toonBestellingen() {
+    const lijst = document.getElementById('lijst-bestellingen');
+    let gefilterd = allBestellingen.filter(o => {
+      if (huidigFilter === 'onbetaald') return o.betaal_type === 'onbetaald';
+      if (huidigFilter === 'betaald') return o.betaal_type !== 'onbetaald';
+      if (huidigFilter === 'niet-verzonden') return o.verzend_status === 'Niet verzonden';
+      return true;
+    });
+
+    if (gefilterd.length === 0) {
+      lijst.innerHTML = '<div class="leeg"><span class="groot">✓</span>Geen bestellingen</div>';
+      return;
+    }
+
+    const betaalKleur = {'pay': '#e8f8ee;color:var(--success)', 'bank': '#e8f0ff;color:#3a6fd8', 'anders': 'var(--teal-lt);color:var(--teal-dk)', 'onbetaald': '#fdecea;color:var(--danger)'};
+
+    let html = `<div style="display:grid;grid-template-columns:32px 90px 140px 1fr 1fr 120px 120px 80px;gap:8px;padding:10px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);border-bottom:1px solid var(--border);">
+      <span></span>
+      <span>Status</span>
+      <span>Order / Datum</span>
+      <span>Patiënt</span>
+      <span>Medicijn</span>
+      <span>Betaling</span>
+      <span>Verzending</span>
+      <span>Totaal</span>
+    </div>`;
+
+    gefilterd.forEach(o => {
+      const checked = geselecteerd.has(o.id);
+      const sc = statusKleur(o.status);
+      const bc = betaalKleur[o.betaal_type] || betaalKleur.anders;
+      const statusNl = {'processing': 'In behandeling', 'pending': 'Wacht op betaling', 'on-hold': 'In de wacht'}[o.status] || o.status;
+      const trackingHtml = o.tracking_url
+        ? `<a href="${o.tracking_url}" target="_blank" style="color:var(--teal-dk);font-size:11px;">${o.verzend_status}</a>`
+        : `<span style="color:var(--muted);font-size:12px;">${o.verzend_status}</span>`;
+
+      html += `<div style="display:grid;grid-template-columns:32px 90px 140px 1fr 1fr 120px 120px 80px;gap:8px;padding:11px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;${checked ? 'background:var(--teal-lt);' : ''}">
+        <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleSelectie(${o.id}, this)" style="cursor:pointer;">
+        <span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500;background:${sc.split(';')[0]};${sc.split(';')[1] || ''}">${statusNl}</span>
+        <div>
+          <div style="font-weight:500;">#${o.id}</div>
+          <div style="font-size:11px;color:var(--muted);">${o.datum}</div>
+        </div>
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;">${o.klant_naam || '—'}</div>
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);">${o.medicijn || '—'}</div>
+        <span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:500;background:${bc.split(';')[0]};${bc.split(';')[1] || ''}">${o.betaal_status}</span>
+        <div>${trackingHtml}</div>
+        <div style="font-weight:500;">€${o.totaal}</div>
+      </div>`;
+    });
+
+    lijst.innerHTML = html;
+    updateSelectieTekst();
+  }
+
+  function toggleSelectie(id, checkbox) {
+    if (checkbox.checked) geselecteerd.add(id);
+    else geselecteerd.delete(id);
+    // Update rij achtergrond
+    checkbox.closest('div').style.background = checkbox.checked ? 'var(--teal-lt)' : '';
+    updateSelectieTekst();
+  }
+
+  function updateSelectieTekst() {
+    const tekst = document.getElementById('selectie-tekst');
+    const btn = document.getElementById('btn-afronden');
+    if (geselecteerd.size > 0) {
+      tekst.textContent = `${geselecteerd.size} geselecteerd`;
+      btn.style.display = 'inline-flex';
+    } else {
+      tekst.textContent = '';
+      btn.style.display = 'none';
+    }
+  }
+
+  async function rondeAfBatch() {
+    if (geselecteerd.size === 0) return;
+    if (!confirm(`${geselecteerd.size} order(s) afronden in WooCommerce?`)) return;
+    const btn = document.getElementById('btn-afronden');
+    btn.textContent = '⏳ Bezig…';
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/order-afronden', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_ids: [...geselecteerd] })
+      });
+      const data = await res.json();
+      const ok = data.resultaten.filter(r => r.ok).length;
+      alert(`✓ ${ok} van ${geselecteerd.size} orders afgerond.`);
+      geselecteerd.clear();
+      await laadBestellingen();
+    } catch(e) {
+      alert('Fout: ' + e.message);
+    } finally {
+      btn.textContent = '✓ Afronden';
+      btn.disabled = false;
+    }
+  }
   // Lokale status opslag (sessie)
   const statusCache = JSON.parse(sessionStorage.getItem('farmamed_status') || '{}');
 
