@@ -168,6 +168,25 @@
   <!-- Bestellingen tabblad -->
   <div id="tabblad-bestellingen" style="display:none;">
 
+    <!-- MT940 bank import -->
+    <div style="background:white;border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span style="font-size:13px;font-weight:500;">🏦 Bankbetalingen importeren</span>
+      <label style="display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border:1px solid var(--teal);border-radius:6px;background:var(--teal-lt);color:var(--teal-dk);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;">
+        📂 MT940 bestand kiezen
+        <input type="file" id="mt940Input" accept=".mt940,.sta,.cat,.txt" style="display:none" onchange="verwerkMT940(this)">
+      </label>
+      <div id="mt940Status" style="font-size:12px;color:var(--muted);"></div>
+    </div>
+
+    <!-- MT940 matches -->
+    <div id="mt940Matches" style="display:none;background:white;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden;">
+      <div style="padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:13px;font-weight:500;" id="mt940Titel">Gevonden betalingen</span>
+        <button class="vernieuwen-btn" onclick="bevestigBetalingen()" id="btnBevestigBetalingen" style="background:var(--success);color:white;border-color:var(--success);display:none;">✓ Geselecteerde betalingen verwerken</button>
+      </div>
+      <div id="mt940Lijst"></div>
+    </div>
+
     <!-- Filter knoppen -->
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       <button class="filter-btn actief" onclick="filterBestellingen('alle')" id="filter-alle">Alle openstaand</button>
@@ -212,6 +231,114 @@
   function vernieuwHuidig() {
     if (document.getElementById('tabblad-bestellingen').style.display !== 'none') laadBestellingen();
     else laadAlles();
+  }
+
+  let mt940GeselecteerdeOrders = new Set();
+
+  async function verwerkMT940(input) {
+    if (!input.files[0]) return;
+    const status = document.getElementById('mt940Status');
+    status.textContent = '⏳ Bestand verwerken…';
+
+    const formData = new FormData();
+    formData.append('bestand', input.files[0]);
+
+    try {
+      const res = await fetch('/api/verwerk-mt940', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (data.fout) {
+        status.textContent = '✕ ' + data.fout;
+        status.style.color = 'var(--danger)';
+        return;
+      }
+
+      status.textContent = `✓ ${data.betalingen} betalingen gevonden, ${data.gematcht} gematcht`;
+      status.style.color = 'var(--success)';
+
+      toonMT940Matches(data.matches);
+    } catch(e) {
+      status.textContent = '✕ Fout: ' + e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+
+  function toonMT940Matches(matches) {
+    const sectie = document.getElementById('mt940Matches');
+    const lijst = document.getElementById('mt940Lijst');
+    const titel = document.getElementById('mt940Titel');
+    mt940GeselecteerdeOrders.clear();
+
+    titel.textContent = `${matches.length} betalingen — klik om te selecteren voor verwerking`;
+    sectie.style.display = 'block';
+
+    let html = `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:9px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);border-bottom:1px solid var(--border);">
+      <span></span><span>Datum</span><span>Bedrag</span><span>Afzender (bank)</span><span>Order match</span><span>Score</span>
+    </div>`;
+
+    matches.forEach((m, idx) => {
+      const b = m.betaling;
+      const o = m.order;
+      const kleur = m.score >= 80 ? 'var(--success)' : m.score >= 50 ? 'var(--warn)' : 'var(--danger)';
+      const checked = m.gematcht && m.score >= 70;
+      if (checked && o) mt940GeselecteerdeOrders.add(o.id);
+
+      html += `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;${checked ? 'background:var(--teal-lt);' : ''}">
+        <input type="checkbox" ${checked ? 'checked' : ''} ${!o ? 'disabled' : ''} 
+          onchange="toggleMT940(${o ? o.id : 'null'}, this)"
+          style="cursor:${o ? 'pointer' : 'not-allowed'};">
+        <span>${b.datum}</span>
+        <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
+        <span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.naam || b.omschrijving.slice(0,40) || '—'}</span>
+        <div>${o ? `<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>` : '<span style="color:var(--muted)">Geen match gevonden</span>'}</div>
+        <span style="font-weight:600;color:${kleur}">${m.score}%</span>
+      </div>`;
+    });
+
+    lijst.innerHTML = html;
+    updateMT940Knop();
+  }
+
+  function toggleMT940(orderId, checkbox) {
+    if (orderId === null) return;
+    if (checkbox.checked) mt940GeselecteerdeOrders.add(orderId);
+    else mt940GeselecteerdeOrders.delete(orderId);
+    checkbox.closest('div').style.background = checkbox.checked ? 'var(--teal-lt)' : '';
+    updateMT940Knop();
+  }
+
+  function updateMT940Knop() {
+    const btn = document.getElementById('btnBevestigBetalingen');
+    btn.style.display = mt940GeselecteerdeOrders.size > 0 ? 'inline-flex' : 'none';
+    btn.textContent = `✓ ${mt940GeselecteerdeOrders.size} betaling(en) verwerken`;
+  }
+
+  async function bevestigBetalingen() {
+    if (mt940GeselecteerdeOrders.size === 0) return;
+    if (!confirm(`${mt940GeselecteerdeOrders.size} order(s) als betaald markeren?`)) return;
+    const btn = document.getElementById('btnBevestigBetalingen');
+    btn.disabled = true;
+    btn.textContent = '⏳ Bezig…';
+    try {
+      const res = await fetch('/api/betalingen-verwerken', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_ids: [...mt940GeselecteerdeOrders] })
+      });
+      const data = await res.json();
+      const ok = data.resultaten.filter(r => r.ok).length;
+      alert(`✓ ${ok} van ${mt940GeselecteerdeOrders.size} orders als betaald gemarkeerd.`);
+      document.getElementById('mt940Matches').style.display = 'none';
+      document.getElementById('mt940Status').textContent = '';
+      document.getElementById('mt940Input').value = '';
+      mt940GeselecteerdeOrders.clear();
+      await laadBestellingen();
+    } catch(e) {
+      alert('Fout: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      updateMT940Knop();
+    }
   }
 
   async function laadBestellingen() {
