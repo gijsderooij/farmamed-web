@@ -679,8 +679,10 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                 )
                 score += int(naam_score * 0.4)
 
-            # Ordernummer in omschrijving
-            if wc_id in betaling["omschrijving"]:
+            # Ordernummer directe match (zwaarste gewicht)
+            if betaling.get("order_nr") == wc_id:
+                score += 60
+            elif wc_id in betaling["omschrijving"]:
                 score += 30
 
             if score > beste_score and score >= 50:
@@ -696,7 +698,7 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                 "status": beste_match.get("status"),
             } if beste_match else None,
             "score": beste_score,
-            "gematcht": beste_match is not None,
+            "gematcht": beste_match is not None and beste_score >= 50,
         })
 
     return JSONResponse(content={
