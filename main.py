@@ -442,15 +442,25 @@ async def haal_bestellingen_op():
 
     # Haal openstaande orders op
     try:
-        resp = http_requests.get(
-            f"{wc_url}/wp-json/wc/v3/orders",
-            auth=(wc_key, wc_secret),
-            headers={"Accept": "application/json"},
-            params={"status": "processing,pending,on-hold", "per_page": 50, "orderby": "date", "order": "desc"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        orders_raw = resp.json()
+        # Haal alle pagina's op (WooCommerce max 100 per pagina)
+        orders_raw = []
+        pagina = 1
+        while True:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                params={"status": "processing,pending,on-hold", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            batch = resp.json()
+            if not batch:
+                break
+            orders_raw.extend(batch)
+            if len(batch) < 100:
+                break
+            pagina += 1
     except Exception as e:
         return JSONResponse(content={"fout": str(e)})
 
