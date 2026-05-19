@@ -184,12 +184,20 @@
             <button id="stapBtn3" onclick="bewerkStap3()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:white;color:var(--text);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✏ Bewerken</button>
           </div>
           <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
-          <div id="stap4" style="flex:1;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
+          <div id="stap4" style="flex:1;padding:10px 14px;border-right:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
             <div style="display:flex;align-items:center;gap:8px;">
               <span class="stap-nr" id="nr4" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">4</span>
               <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + EDIFACT</div></div>
             </div>
             <button id="stapBtn4" onclick="maakOrder()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--teal);background:var(--teal);color:white;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">📦 Aanmaken</button>
+          </div>
+          <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
+          <div id="stap5" style="flex:1;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="stap-nr" id="nr5" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">5</span>
+              <div><div style="font-size:12px;font-weight:500;">Afronden</div><div style="font-size:10px;color:var(--muted);">E-mail verwerkt</div></div>
+            </div>
+            <button id="stapBtn5" onclick="markeerEmailVerwerkt()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Verwerkt</button>
           </div>
         </div>
         <!-- Acties verschijnen na order aanmaken -->
@@ -227,9 +235,8 @@
             <div class="email-body" id="emailBody"></div>
           </div>
 
-          <!-- Bijlagen -->
-          <div class="bijlage-sectie" id="bijlageSectie" style="display:none">
-            <div class="bijlage-titel">Bijlagen</div>
+          <!-- Bijlagen verborgen - worden automatisch verwerkt in stap 2 -->
+          <div id="bijlageSectie" style="display:none">
             <div id="bijlageLijst"></div>
           </div>
         </div>
@@ -744,8 +751,7 @@
   }
 
   function zetStapVoltooid() {
-    // Alle stappen groen
-    [1,2,3,4].forEach(n => {
+    [1,2,3,4,5].forEach(n => {
       const stap = document.getElementById('stap' + n);
       const nr_el = document.getElementById('nr' + n);
       const btn = document.getElementById('stapBtn' + n);
@@ -757,7 +763,7 @@
 
   function zetStap(nr) {
     document.getElementById('stappenbalk').style.display = 'block';
-    [1,2,3,4].forEach(n => {
+    [1,2,3,4,5].forEach(n => {
       const stap = document.getElementById('stap' + n);
       const btn = document.getElementById('stapBtn' + n);
       if (!stap) return;
@@ -790,6 +796,39 @@
     const idx = huidigeEmail.bijlagen.findIndex(b => !isEdifactBijlage(b));
     if (idx >= 0) openBijlage(idx);
     else if (huidigeEmail.bijlagen.length > 0) openBijlage(0);
+  }
+
+  async function markeerEmailVerwerkt() {
+    if (!huidigeEmail) return;
+    const btn5 = document.getElementById('stapBtn5');
+    if (btn5) { btn5.disabled = true; btn5.textContent = '⏳ Bezig…'; }
+
+    try {
+      await fetch('/api/email-verwerkt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_uid: huidigeEmail.uid, order_id: window._emailOrderId })
+      });
+      // Alle stappen groen
+      zetStapVoltooid();
+      if (btn5) { btn5.style.display = 'none'; }
+
+      // Verwijder e-mail uit de lijst
+      document.querySelectorAll('.email-item').forEach(item => {
+        if (item.classList.contains('actief')) item.remove();
+      });
+
+      // Reset detail paneel
+      document.getElementById('detailInhoud').classList.remove('zichtbaar');
+      document.getElementById('detailLeeg').style.display = 'flex';
+      document.getElementById('stappenbalk').style.display = 'none';
+
+      huidigeEmail = null;
+
+    } catch(e) {
+      if (btn5) { btn5.disabled = false; btn5.textContent = '✓ Verwerkt'; }
+      alert('Fout: ' + e.message);
+    }
   }
 
   function slaWerklijstStatusOp(key, veld, waarde) {
