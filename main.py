@@ -1093,6 +1093,7 @@ async def haal_orders_op():
         )
         response.raise_for_status()
         orders_raw = response.json()
+        print(f"DEBUG orders: {len(orders_raw)} opgehaald, status codes: {[o.get('id') for o in orders_raw[:5]]}")
 
         orders = []
         for o in orders_raw:
