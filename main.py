@@ -1108,18 +1108,18 @@ async def haal_orders_op():
             recept_url = o.get("recept_url") or meta.get("recept_url", "")
 
             # Haal ordernotities op
-        try:
-            notes_resp = http_requests.get(
-                f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
-                auth=(wc_key, wc_secret),
-                headers={"Accept": "application/json"},
-                timeout=5,
-            )
-            o["order_notes"] = notes_resp.json() if notes_resp.status_code == 200 else []
-        except Exception:
-            o["order_notes"] = []
+            try:
+                notes_resp = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
+                    timeout=5,
+                )
+                o["order_notes"] = notes_resp.json() if notes_resp.status_code == 200 else []
+            except Exception:
+                o["order_notes"] = []
 
-        orders.append({
+            orders.append({
                 "id": o["id"],
                 "status": o.get("status", ""),
                 "datum": o.get("date_created", "")[:10],
