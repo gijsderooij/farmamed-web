@@ -704,8 +704,8 @@
           window._edifactOrderId = data.order_id;
           edifactKnop = `<button onclick="downloadEdifactEmail()" style="margin-top:8px;padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Download EDIFACT verstrekkingsverzoek</button>`;
         }
-        // Stap 4 voltooid: alle stappen groen
-        zetStapVoltooid();
+        // Stap 4 voltooid: stap 5 actief
+        zetStap(5);
 
         // Actiebalk tonen met alle drie sub-routines
         const stapActies = document.getElementById('stapActies');
