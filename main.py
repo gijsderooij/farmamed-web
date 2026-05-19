@@ -273,13 +273,24 @@ async def maak_order(request: Request):
         "phone": data.get("telefoon") or "",
     }
 
+    # Aantal tubes bepalen uit hoeveelheid (bijv. "60 gram" = 2 tubes van 30g)
+    import re as _re2
+    hoeveelheid_str = str(data.get("hoeveelheid") or "30")
+    gram_match = _re2.search(r"[\d.]+", hoeveelheid_str.replace(",", "."))
+    gram_totaal = float(gram_match.group(0)) if gram_match else 30.0
+    aantal_tubes = max(1, round(gram_totaal / 30))
+
+    # Line items: medicijn + WMG tarief
+    line_items = []
+    if product_id:
+        line_items.append({"product_id": product_id, "quantity": aantal_tubes})
+    line_items.append({"product_id": 1139, "quantity": 1})  # WMG tarief
+
     order_payload = {
         "status": "pending",
         "billing": billing,
         "shipping": billing,
-        "line_items": [
-            {"product_id": product_id, "quantity": 1}
-        ] if product_id else [],
+        "line_items": line_items,
         "meta_data": [
             {"key": "geboortedatum",    "value": data.get("geboortedatum") or ""},
             {"key": "_geboortedatum",   "value": data.get("geboortedatum") or ""},
@@ -294,7 +305,7 @@ async def maak_order(request: Request):
             {"key": "gebruiksaanwijzing","value": data.get("gebruiksaanwijzing") or ""},
             {"key": "iter",             "value": data.get("iter") or ""},
             {"key": "oorsprong",        "value": oorsprong},
-            {"key": "_created_via_farmamed", "value": oorsprong},
+            {"key": "_created_via_farmamed", "value": "Farmamed_apotheek"},
             {"key": "Oorsprong bestelling", "value": oorsprong},
         ],
         "customer_note": f"Recept ingediend via {oorsprong}. Medicijn: {medicijn}",
