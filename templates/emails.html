@@ -445,32 +445,21 @@
       const bijlageLijst = document.getElementById('bijlageLijst');
       huidigeEmail.bijlagen = data.bijlagen || [];
 
+      // Bijlagensectie altijd verborgen - wordt automatisch verwerkt
+      bijlageSectie.style.display = 'none';
       if (data.bijlagen && data.bijlagen.length > 0) {
-        bijlageSectie.style.display = 'block';
         bijlageLijst.innerHTML = '';
         let eersteNormaal = -1;
         data.bijlagen.forEach((bijlage, idx) => {
-          const div = document.createElement('div');
-          div.className = 'bijlage-item';
           const isEdi = isEdifactBijlage(bijlage);
-          if (isEdi) {
-            div.innerHTML = `<span class="bijlage-naam">📋 ${bijlage.naam} <span style="color:var(--teal-dk);font-size:10px;font-weight:600">EDIFACT</span></span>
-              <button class="bijlage-btn" id="bijlageBtn${idx}" onclick="verwerkEdifactBijlage(${idx})" style="background:var(--teal);color:white;">▶ Order aanmaken</button>`;
-          } else {
-            if (eersteNormaal === -1) eersteNormaal = idx;
-            div.innerHTML = `<span class="bijlage-naam">📎 ${bijlage.naam}</span>
-              <button class="bijlage-btn" id="bijlageBtn${idx}" onclick="openBijlage(${idx})">Openen & uitlezen</button>`;
-          }
-          bijlageLijst.appendChild(div);
+          if (!isEdi && eersteNormaal === -1) eersteNormaal = idx;
         });
-
-        // Eerste normale bijlage automatisch laden (geen EDIFACT)
+        // Eerste normale bijlage automatisch laden
         if (eersteNormaal >= 0) openBijlage(eersteNormaal);
         else if (data.bijlagen.length > 0 && isEdifactBijlage(data.bijlagen[0])) {
           document.getElementById('uitgelezenInhoud').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px;">EDIFACT bijlage gevonden &#8212; klik op Order aanmaken om te verwerken.</div>';
         }
       } else {
-        bijlageSectie.style.display = 'none';
         // Geen bijlage — zoek naar eerdere order van deze afzender
         zoekHerhaalorder(huidigeEmail);
       }
