@@ -1,6 +1,6 @@
 # Farmamed Recept Agent — Web
 
-FastAPI chatbot die klanten begeleidt bij het indienen van hun recept.
+FastAPI chatbot die klanten begeleidt bij het indienen van hun recept en orders laat uitlezen uit WC.
 
 ## Lokaal testen
 
