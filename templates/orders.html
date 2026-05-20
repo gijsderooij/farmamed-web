@@ -186,6 +186,7 @@
             <div><div style="font-size:12px;font-weight:500;">Afronden</div><div style="font-size:10px;color:var(--muted);">Order completed</div></div>
           </div>
           <button id="obtn5" onclick="orderAfronden()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Afronden</button>
+          <div id="ostap5-info" style="font-size:10px;color:var(--muted);display:none;margin-top:2px;"></div>
         </div>
       </div>
       <!-- Actiebalk na EDIFACT -->
@@ -557,6 +558,22 @@
   function downloadEdifact() {
     if (!edifactTekst || !huidigeOrder) return;
     zetOrderStap(5);
+    // Toon verzendstatus bij stap 5
+    const s5info = document.getElementById('ostap5-info');
+    if (s5info && huidigeOrder) {
+      const vs = huidigeOrder.verzend_status || 'Niet verzonden';
+      const isVerzonden = vs && vs !== 'Niet verzonden';
+      s5info.style.display = 'block';
+      s5info.textContent = isVerzonden ? '✓ ' + vs : '⚠ Wacht op verzending';
+      s5info.style.color = isVerzonden ? 'var(--success)' : 'var(--warn)';
+      // Knop groen als verzonden, anders oranje
+      const btn5 = document.getElementById('obtn5');
+      if (btn5 && isVerzonden) {
+        btn5.style.background = '#e8f8ee';
+        btn5.style.borderColor = 'var(--success)';
+        btn5.style.color = 'var(--success)';
+      }
+    }
     const blob = new Blob([edifactTekst], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -623,35 +640,30 @@
     }
   }
 
-  async function orderAfronden() {
+  function orderAfronden() {
     if (!huidigeOrder) return;
-    const btn = document.getElementById('obtn5');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Bezig…'; }
-    try {
-      await fetch('/api/order-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: huidigeOrder.id, status: 'completed' })
-      });
-      // Alle stappen groen
-      for (let n = 1; n <= 5; n++) {
-        const nr_el = document.getElementById('onr' + n);
-        const stap = document.getElementById('ostap' + n);
-        const b = document.getElementById('obtn' + n);
-        if (stap) stap.style.opacity = '1';
-        if (nr_el) { nr_el.style.background = 'var(--success)'; nr_el.style.color = 'white'; nr_el.textContent = '✓'; }
-        if (b) b.style.display = 'none';
-      }
-      const melding = document.getElementById('order-actie-melding');
-      if (melding) melding.textContent = '✓ Order #' + huidigeOrder.id + ' afgerond';
-      // Verwijder uit wachtrij
-      document.querySelectorAll('.order-item').forEach(item => {
-        if (item.classList.contains('actief')) item.remove();
-      });
-    } catch(e) {
-      if (btn) { btn.disabled = false; btn.textContent = '✓ Afronden'; }
-      alert('Fout: ' + e.message);
+    // Alle stappen groen - wij zijn klaar, WooCommerce status blijft ongewijzigd
+    for (let n = 1; n <= 5; n++) {
+      const nr_el = document.getElementById('onr' + n);
+      const stap = document.getElementById('ostap' + n);
+      const b = document.getElementById('obtn' + n);
+      if (stap) stap.style.opacity = '1';
+      if (nr_el) { nr_el.style.background = 'var(--success)'; nr_el.style.color = 'white'; nr_el.textContent = '✓'; }
+      if (b) b.style.display = 'none';
     }
+    const melding = document.getElementById('order-actie-melding');
+    if (melding) melding.textContent = '✓ Verwerking order #' + huidigeOrder.id + ' afgerond';
+    // Verwijder uit wachtrij
+    document.querySelectorAll('.order-item').forEach(item => {
+      if (item.classList.contains('actief')) item.remove();
+    });
+    // Reset detail
+    setTimeout(() => {
+      document.getElementById('detailSplit').style.display = 'none';
+      document.getElementById('order-stappen').style.display = 'none';
+      document.getElementById('detailLeeg').style.display = 'flex';
+      huidigeOrder = null;
+    }, 1500);
   }
 
   function toonTab(naam) {
