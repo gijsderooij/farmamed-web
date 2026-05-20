@@ -1322,8 +1322,12 @@ async def _verrijk_met_woocommerce(recept: dict, wc_url: str, wc_key: str, wc_se
         from rapidfuzz import fuzz
         beste_order = None
         beste_score = 0
+        huidige_order_id = str(body.get("huidige_order_id", ""))
 
         for order in orders:
+            # Sla huidige order zelf over
+            if str(order.get("id")) == huidige_order_id:
+                continue
             billing = order.get("billing", {})
             meta = {m["key"]: m["value"] for m in order.get("meta_data", [])}
 
