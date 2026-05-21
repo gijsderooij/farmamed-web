@@ -260,6 +260,18 @@
   let huidigeReceptData = null;
   let edifactTekst = '';
 
+  // Bijhouden welke orders lokaal zijn afgerond (overleeft vernieuwen)
+  function getAfgerond() {
+    return JSON.parse(sessionStorage.getItem('farmamed_afgerond_orders') || '[]');
+  }
+  function markeerAfgerond(orderId) {
+    const lijst = getAfgerond();
+    if (!lijst.includes(orderId)) {
+      lijst.push(orderId);
+      sessionStorage.setItem('farmamed_afgerond_orders', JSON.stringify(lijst));
+    }
+  }
+
   // --- Orders laden ---
   async function laadOrders() {
     const lijst = document.getElementById('orderLijst');
@@ -275,8 +287,12 @@
         lijst.innerHTML = '<div class="laden-tekst">Geen openstaande orders</div>';
         return;
       }
+      const afgerond = getAfgerond();
+      const zichtbaar = data.orders.filter(o => !afgerond.includes(o.id));
+      document.getElementById('badge-orders') && (document.getElementById('badge-orders').textContent = zichtbaar.length);
+
       lijst.innerHTML = '';
-      data.orders.forEach(order => {
+      zichtbaar.forEach(order => {
         const div = document.createElement('div');
         div.className = 'order-item';
         div.onclick = () => selecteerOrder(order);
@@ -720,6 +736,8 @@
     }
     const melding = document.getElementById('order-actie-melding');
     if (melding) melding.textContent = '✓ Verwerking order #' + huidigeOrder.id + ' afgerond';
+    // Markeer als afgerond in sessie zodat hij niet terugkomt bij vernieuwen
+    if (huidigeOrder) markeerAfgerond(huidigeOrder.id);
     // Verwijder uit wachtrij
     document.querySelectorAll('.order-item').forEach(item => {
       if (item.classList.contains('actief')) item.remove();
