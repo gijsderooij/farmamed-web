@@ -537,24 +537,24 @@ async def haal_bestellingen_op():
             tracking_url = zending["tracking_url"]
             tracking_nr = zending["tracking"]
         else:
-            # Zoek in order notities naar SendCloud tracking
-            for note in o.get("order_notes", []):
-                note_tekst = note.get("note", "") if isinstance(note, dict) else str(note)
-                import re as _re
-                # SendCloud schrijft: "shipment is: TRACKINGNR and can be traced at: URL"
-                match = _re.search(r'shipment is[:\s]+(\S+).*?traced at[:\s]+(https?://\S+)', note_tekst, _re.IGNORECASE)
-                if match:
-                    tracking_nr = match.group(1)
-                    tracking_url = match.group(2).rstrip('.')
-                    verzend_status = "Verzonden"
-                    break
-                # Alternatief formaat
-                if any(w in note_tekst.lower() for w in ['tracking', 'verzonden', 'shipped', 'label']):
-                    url_match = _re.search(r'https?://\S+track\S*', note_tekst, _re.IGNORECASE)
-                    if url_match:
-                        tracking_url = url_match.group(0).rstrip('.')
-                        verzend_status = "Verzonden"
-                        break
+            try:
+                notes_resp = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
+                    timeout=5,
+                )
+                if notes_resp.status_code == 200:
+                    import re as _re
+                    for note in notes_resp.json():
+                        note_tekst = note.get("note", "")
+                        url_match = _re.search(r'https?://\S+track\S*', note_tekst, _re.IGNORECASE)
+                        if url_match:
+                            tracking_url = url_match.group(0).rstrip('.')
+                            verzend_status = "Verzonden"
+                            break
+            except Exception:
+                pass
 
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
