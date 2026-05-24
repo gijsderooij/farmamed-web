@@ -512,13 +512,17 @@ async def haal_bestellingen_op():
         betaal_titel = o.get("payment_method_title", "")
         datum_betaald = o.get("date_paid")
 
-        if datum_betaald:
+        if datum_betaald and o.get("transaction_id"):
             if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower():
                 betaal_status = "Pay ✓"
                 betaal_type = "pay"
             elif "bank" in betaal_methode.lower() or "transfer" in betaal_methode.lower() or "bacs" in betaal_methode.lower():
                 betaal_status = "Bank ✓"
                 betaal_type = "bank"
+            else:
+                elif not betaal_methode and not datum_betaald:
+                betaal_status = "Niet betaald"
+                betaal_type = "onbetaald"
             else:
                 betaal_status = f"Betaald ({betaal_titel or betaal_methode})"
                 betaal_type = "anders"
@@ -563,16 +567,7 @@ async def haal_bestellingen_op():
             oorsprong = "Webshop" if via == "checkout" else "API"
 
         # Haal ordernotities op
-        try:
-            notes_resp = http_requests.get(
-                f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
-                auth=(wc_key, wc_secret),
-                headers={"Accept": "application/json"},
-                timeout=5,
-            )
-            o["order_notes"] = notes_resp.json() if notes_resp.status_code == 200 else []
-        except Exception:
-            o["order_notes"] = []
+        o["order_notes"] = []
 
         orders.append({
             "id": o["id"],
