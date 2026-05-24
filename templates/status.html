@@ -6,79 +6,53 @@
   <title>Farmamed — Werklijst</title>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --teal:    #7bb8b8;
-      --teal-dk: #5a9898;
-      --teal-lt: #e8f4f4;
-      --cream:   #faf8f5;
-      --text:    #2c3e3e;
-      --muted:   #7a9090;
-      --border:  #dde8e8;
-      --success: #27ae60;
-      --warn:    #e67e22;
-      --danger:  #c0392b;
-      --radius:  10px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
-
-    header { background: var(--teal); padding: 10px 24px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-    .nav { display: flex; gap: 4px; justify-content: center; }
-    .nav a { color: rgba(255,255,255,0.75); text-decoration: none; font-size: 13px; font-weight: 500; padding: 7px 18px; border-radius: 6px; transition: all 0.2s; }
-    .nav a:hover, .nav a.actief { background: rgba(255,255,255,0.22); color: white; }
-
-    .hoofd { flex: 1; padding: 24px; max-width: 1200px; margin: 0 auto; width: 100%; }
-
-    .boven { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-    .pagina-titel { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 400; }
-    .vernieuwen-btn { padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: white; cursor: pointer; font-size: 13px; font-family: 'DM Sans', sans-serif; color: var(--teal-dk); }
-    .vernieuwen-btn:hover { background: var(--teal-lt); }
-
-    /* Statistieken */
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-    .stat-kaart { background: white; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center; }
-    .stat-getal { font-size: 28px; font-weight: 600; color: var(--teal-dk); }
-    .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
-
-    /* Secties */
-    .sectie { margin-bottom: 28px; }
-    .sectie-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .sectie-titel { font-size: 14px; font-weight: 600; color: var(--text); }
-    .sectie-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--teal-lt); color: var(--teal-dk); font-weight: 500; }
-
-    /* Werklijst tabel */
-    .werklijst { background: white; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-    .werklijst-header { display: grid; grid-template-columns: 160px 1fr 1fr 60px 60px 60px 60px 80px; gap: 8px; padding: 10px 16px; background: var(--cream); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--border); }
-    .werklijst-rij { display: grid; grid-template-columns: 160px 1fr 1fr 60px 60px 60px 60px 80px; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); align-items: center; font-size: 13px; transition: background 0.1s; }
-    .werklijst-rij:last-child { border-bottom: none; }
-    .werklijst-rij:hover { background: var(--teal-lt); }
-
-    .bron-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 500; display: inline-block; }
-    .bron-orders { background: #e8f0ff; color: #3a6fd8; }
-    .bron-email { background: #fff3e0; color: #e65100; }
-    .bron-balie { background: #e8f8ee; color: var(--success); }
-
-    .status-icon { text-align: center; font-size: 16px; cursor: pointer; }
-    .status-icon.klaar { color: var(--success); }
-    .status-icon.open { color: var(--border); }
-    .status-icon.open:hover { color: var(--teal); }
-
-    .actie-btn { font-size: 11px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: white; cursor: pointer; color: var(--teal-dk); font-family: 'DM Sans', sans-serif; white-space: nowrap; }
-    .actie-btn:hover { background: var(--teal-lt); border-color: var(--teal); }
-
-    .laden { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
-    .spinner { width: 20px; height: 20px; border: 2px solid var(--teal-lt); border-top-color: var(--teal); border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .leeg { padding: 32px; text-align: center; color: var(--muted); font-size: 13px; }
-    .leeg .groot { font-size: 32px; display: block; margin-bottom: 8px; }
-
-    .naam-cel { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .medicijn-cel { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    :root { --teal:#7bb8b8; --teal-dk:#5a9898; --teal-lt:#e8f4f4; --cream:#faf8f5; --text:#2c3e3e; --muted:#7a9090; --border:#dde8e8; --success:#27ae60; --warn:#e67e22; --danger:#c0392b; --radius:10px; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'DM Sans',sans-serif; background:var(--cream); color:var(--text); min-height:100vh; display:flex; flex-direction:column; }
+    header { background:var(--teal); padding:10px 24px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+    .nav { display:flex; gap:4px; justify-content:center; }
+    .nav a { color:rgba(255,255,255,0.75); text-decoration:none; font-size:13px; font-weight:500; padding:7px 18px; border-radius:6px; transition:all 0.2s; }
+    .nav a:hover, .nav a.actief { background:rgba(255,255,255,0.22); color:white; }
+    .hoofd { flex:1; padding:20px 24px; max-width:1400px; margin:0 auto; width:100%; }
+    .boven { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
+    .pagina-titel { font-family:'Cormorant Garamond',serif; font-size:24px; font-weight:400; }
+    .acties { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .btn { padding:7px 14px; border:1px solid var(--border); border-radius:7px; background:white; cursor:pointer; font-size:12px; font-family:'DM Sans',sans-serif; color:var(--text); transition:all 0.15s; }
+    .btn:hover { background:var(--teal-lt); border-color:var(--teal); }
+    .btn-succes { background:#e8f8ee; color:var(--success); border-color:#b8e8c8; }
+    .btn-primair { background:var(--teal); color:white; border-color:var(--teal); }
+    .btn:disabled { opacity:0.4; cursor:not-allowed; }
+    .filterbalk { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+    .filter-btn { padding:5px 12px; border:1px solid var(--border); border-radius:6px; background:white; cursor:pointer; font-size:12px; font-family:'DM Sans',sans-serif; color:var(--muted); }
+    .filter-btn.actief { background:var(--teal-lt); border-color:var(--teal); color:var(--teal-dk); font-weight:500; }
+    .mt940-balk { background:white; border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; margin-bottom:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .mt940-matches { background:white; border:1px solid var(--border); border-radius:var(--radius); margin-bottom:14px; overflow:hidden; display:none; }
+    .mt940-header { padding:10px 16px; background:var(--cream); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .tabel { background:white; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+    .tabel-header { display:grid; grid-template-columns:32px 130px 1fr 110px 90px 90px 110px; gap:8px; padding:10px 16px; background:var(--cream); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); border-bottom:1px solid var(--border); }
+    .tabel-rij { display:grid; grid-template-columns:32px 130px 1fr 110px 90px 90px 110px; gap:8px; padding:11px 16px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; transition:background 0.1s; }
+    .tabel-rij:last-child { border-bottom:none; }
+    .tabel-rij:hover { background:#fafafa; }
+    .tabel-rij.geselecteerd { background:var(--teal-lt); }
+    .status-badge { padding:2px 8px; border-radius:10px; font-size:10px; font-weight:500; display:inline-block; }
+    .status-processing { background:#e8f0ff; color:#3a6fd8; }
+    .status-pending { background:#fef3e2; color:var(--warn); }
+    .status-on-hold { background:#f5f5f5; color:var(--muted); }
+    .betaal-badge { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; display:inline-block; }
+    .betaal-pay { background:#e8f8ee; color:var(--success); }
+    .betaal-bank { background:#e8f0ff; color:#3a6fd8; }
+    .betaal-anders { background:var(--teal-lt); color:var(--teal-dk); }
+    .betaal-niet { background:#fdecea; color:var(--danger); }
+    .vinkje { font-size:16px; text-align:center; cursor:pointer; display:block; }
+    .vinkje.klaar { color:var(--success); cursor:default; }
+    .vinkje.open { color:var(--border); }
+    .vinkje.open:hover { color:var(--teal); }
+    .laden { padding:40px; text-align:center; color:var(--muted); font-size:13px; }
+    .spinner { width:20px; height:20px; border:2px solid var(--teal-lt); border-top-color:var(--teal); border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block; vertical-align:middle; margin-right:8px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
   </style>
 </head>
 <body>
-
 <header>
   <div style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:300;color:white;">Farmamed</div>
   <nav class="nav">
@@ -92,588 +66,225 @@
 
 <div class="hoofd">
   <div class="boven">
-    <div style="display:flex;gap:4px;background:var(--cream);border:1px solid var(--border);border-radius:8px;padding:3px;">
-      <button onclick="toonTabblad('werklijst')" id="tab-werklijst" style="padding:6px 16px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;background:var(--teal);color:white;font-weight:500;">Werklijst</button>
-      <button onclick="toonTabblad('bestellingen')" id="tab-bestellingen" style="padding:6px 16px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;background:transparent;color:var(--muted);">Bestellingen</button>
-    </div>
-    <button class="vernieuwen-btn" onclick="vernieuwHuidig()">↻ Vernieuwen</button>
-  </div>
-
-  <!-- Werklijst tabblad -->
-  <div id="tabblad-werklijst">
-
-  <!-- Statistieken -->
-  <div class="stats">
-    <div class="stat-kaart">
-      <div class="stat-getal" id="stat-totaal">—</div>
-      <div class="stat-label">Openstaand totaal</div>
-    </div>
-    <div class="stat-kaart">
-      <div class="stat-getal" id="stat-order">—</div>
-      <div class="stat-label">Nog geen WC order</div>
-    </div>
-    <div class="stat-kaart">
-      <div class="stat-getal" id="stat-edifact">—</div>
-      <div class="stat-label">EDIFACT nog te doen</div>
-    </div>
-    <div class="stat-kaart">
-      <div class="stat-getal" id="stat-pdf">—</div>
-      <div class="stat-label">PDF nog op te slaan</div>
+    <h1 class="pagina-titel">Werklijst</h1>
+    <div class="acties">
+      <span id="selectie-info" style="font-size:12px;color:var(--muted);"></span>
+      <button class="btn btn-succes" id="btn-afronden" style="display:none" onclick="rondeAfBatch()">✓ Afronden in WooCommerce</button>
+      <button class="btn" onclick="laadOrders()">↻ Vernieuwen</button>
     </div>
   </div>
 
-  <!-- E-mails in wachtrij - bovenaan want order + EDIFACT nog te doen -->
-  <div class="sectie">
-    <div class="sectie-header">
-      <span class="sectie-titel">📧 E-mails — nog te verwerken</span>
-      <span class="sectie-badge" id="badge-emails">laden…</span>
-    </div>
-    <div class="werklijst" id="lijst-emails">
-      <div class="werklijst-header">
-        <span>Datum</span>
-        <span>Afzender</span>
-        <span>Onderwerp</span>
-        <span style="text-align:center">WC Order</span>
-        <span style="text-align:center">PDF</span>
-        <span style="text-align:center">EDIFACT</span>
-        <span style="text-align:center">Verwerkt</span>
-        <span>Actie</span>
-      </div>
-      <div class="laden"><span class="spinner"></span>E-mails laden…</div>
-    </div>
+  <div class="filterbalk">
+    <button class="filter-btn actief" onclick="setFilter('alle',this)">Alle open</button>
+    <button class="filter-btn" onclick="setFilter('pending',this)">Wacht op betaling</button>
+    <button class="filter-btn" onclick="setFilter('processing',this)">In behandeling</button>
+    <button class="filter-btn" onclick="setFilter('onbetaald',this)">Niet betaald</button>
+    <button class="filter-btn" onclick="setFilter('geen-verstrekking',this)">Geen verstrekking</button>
+    <button class="filter-btn" onclick="setFilter('niet-verzonden',this)">Niet verzonden</button>
   </div>
 
-  <!-- WooCommerce orders -->
-  <div class="sectie">
-    <div class="sectie-header">
-      <span class="sectie-titel">📦 WooCommerce orders — nog af te handelen</span>
-      <span class="sectie-badge" id="badge-orders">laden…</span>
-    </div>
-    <div class="werklijst" id="lijst-orders">
-      <div class="werklijst-header">
-        <span>Order / Datum</span>
-        <span>Patiënt</span>
-        <span>Medicijn</span>
-        <span style="text-align:center">PDF</span>
-        <span style="text-align:center">EDIFACT</span>
-        <span style="text-align:center">Recept</span>
-        <span style="text-align:center">Verzonden</span>
-        <span>Actie</span>
-      </div>
-      <div class="laden"><span class="spinner"></span>Orders laden…</div>
-    </div>
+  <div class="mt940-balk">
+    <span style="font-size:13px;font-weight:500;">🏦 Bankbetalingen importeren</span>
+    <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--teal);border-radius:6px;background:var(--teal-lt);color:var(--teal-dk);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;">
+      📂 MT940 kiezen
+      <input type="file" id="mt940Input" accept=".mt940,.sta,.cat,.txt" style="display:none" onchange="verwerkMT940(this)">
+    </label>
+    <span id="mt940Status" style="font-size:12px;color:var(--muted);"></span>
   </div>
-  </div><!-- einde tabblad-werklijst -->
 
-  <!-- Bestellingen tabblad -->
-  <div id="tabblad-bestellingen" style="display:none;">
-
-    <!-- MT940 bank import -->
-    <div style="background:white;border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span style="font-size:13px;font-weight:500;">🏦 Bankbetalingen importeren</span>
-      <label style="display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border:1px solid var(--teal);border-radius:6px;background:var(--teal-lt);color:var(--teal-dk);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;">
-        📂 MT940 bestand kiezen
-        <input type="file" id="mt940Input" accept=".mt940,.sta,.cat,.txt" style="display:none" onchange="verwerkMT940(this)">
-      </label>
-      <div id="mt940Status" style="font-size:12px;color:var(--muted);"></div>
+  <div class="mt940-matches" id="mt940Matches">
+    <div class="mt940-header">
+      <span style="font-size:13px;font-weight:500;" id="mt940Titel">Gevonden betalingen</span>
+      <button class="btn btn-primair" id="btnBevestig" onclick="bevestigBetalingen()" style="display:none;">✓ Verwerken</button>
     </div>
+    <div id="mt940Lijst"></div>
+  </div>
 
-    <!-- MT940 matches -->
-    <div id="mt940Matches" style="display:none;background:white;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden;">
-      <div style="padding:12px 16px;background:var(--cream);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-size:13px;font-weight:500;" id="mt940Titel">Gevonden betalingen</span>
-        <button class="vernieuwen-btn" onclick="bevestigBetalingen()" id="btnBevestigBetalingen" style="background:var(--success);color:white;border-color:var(--success);display:none;">✓ Geselecteerde betalingen verwerken</button>
-      </div>
-      <div id="mt940Lijst"></div>
-    </div>
-
-    <!-- Filter knoppen -->
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-      <button class="filter-btn actief" onclick="filterBestellingen('alle')" id="filter-alle">Alle openstaand</button>
-      <button class="filter-btn" onclick="filterBestellingen('onbetaald')" id="filter-onbetaald">Niet betaald</button>
-      <button class="filter-btn" onclick="filterBestellingen('betaald')" id="filter-betaald">Betaald</button>
-      <button class="filter-btn" onclick="filterBestellingen('niet-verzonden')" id="filter-niet-verzonden">Niet verzonden</button>
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-        <span id="selectie-tekst" style="font-size:12px;color:var(--muted);"></span>
-        <button class="vernieuwen-btn" onclick="rondeAfBatch()" id="btn-afronden" style="display:none;background:var(--success);color:white;border-color:var(--success);">✓ Afronden</button>
-      </div>
-    </div>
-
-    <div class="werklijst" id="lijst-bestellingen">
-      <div class="laden"><span class="spinner"></span>Bestellingen laden…</div>
-    </div>
-
-  </div><!-- einde tabblad-bestellingen -->
-
+  <div class="tabel" id="tabel">
+    <div class="laden"><span class="spinner"></span>Orders laden…</div>
+  </div>
 </div>
 
-<style>
-  .filter-btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: white; cursor: pointer; font-size: 12px; font-family: 'DM Sans', sans-serif; color: var(--muted); transition: all 0.15s; }
-  .filter-btn:hover, .filter-btn.actief { background: var(--teal-lt); border-color: var(--teal); color: var(--teal-dk); }
-  .checkbox-col { width: 32px; text-align: center; }
-</style>
-
 <script>
-  let allBestellingen = [];
+  let alleOrders = [];
   let huidigFilter = 'alle';
   let geselecteerd = new Set();
+  let mt940Geselecteerd = new Set();
 
-  function toonTabblad(naam) {
-    document.getElementById('tabblad-werklijst').style.display = naam === 'werklijst' ? 'block' : 'none';
-    document.getElementById('tabblad-bestellingen').style.display = naam === 'bestellingen' ? 'block' : 'none';
-    document.getElementById('tab-werklijst').style.background = naam === 'werklijst' ? 'var(--teal)' : 'transparent';
-    document.getElementById('tab-werklijst').style.color = naam === 'werklijst' ? 'white' : 'var(--muted)';
-    document.getElementById('tab-bestellingen').style.background = naam === 'bestellingen' ? 'var(--teal)' : 'transparent';
-    document.getElementById('tab-bestellingen').style.color = naam === 'bestellingen' ? 'white' : 'var(--muted)';
-    if (naam === 'bestellingen' && allBestellingen.length === 0) laadBestellingen();
+  function getVerstrekkingen() { return JSON.parse(sessionStorage.getItem('farmamed_verstrekkingen') || '[]'); }
+  function setVerstrekking(id) {
+    const l = getVerstrekkingen();
+    if (!l.includes(id)) { l.push(id); sessionStorage.setItem('farmamed_verstrekkingen', JSON.stringify(l)); }
   }
 
-  function vernieuwHuidig() {
-    if (document.getElementById('tabblad-bestellingen').style.display !== 'none') laadBestellingen();
-    else laadAlles();
-  }
-
-  let mt940GeselecteerdeOrders = new Set();
-
-  async function verwerkMT940(input) {
-    if (!input.files[0]) return;
-    const status = document.getElementById('mt940Status');
-    status.textContent = '⏳ Bestand verwerken…';
-
-    const formData = new FormData();
-    formData.append('bestand', input.files[0]);
-
-    try {
-      const res = await fetch('/api/verwerk-mt940', { method: 'POST', body: formData });
-      const data = await res.json();
-
-      if (data.fout) {
-        status.textContent = '✕ ' + data.fout;
-        status.style.color = 'var(--danger)';
-        return;
-      }
-
-      status.textContent = `✓ ${data.betalingen} betalingen gevonden, ${data.gematcht} gematcht`;
-      status.style.color = 'var(--success)';
-
-      toonMT940Matches(data.matches);
-    } catch(e) {
-      status.textContent = '✕ Fout: ' + e.message;
-      status.style.color = 'var(--danger)';
-    }
-  }
-
-  function toonMT940Matches(matches) {
-    const sectie = document.getElementById('mt940Matches');
-    const lijst = document.getElementById('mt940Lijst');
-    const titel = document.getElementById('mt940Titel');
-    mt940GeselecteerdeOrders.clear();
-
-    titel.textContent = `${matches.length} betalingen — klik om te selecteren voor verwerking`;
-    sectie.style.display = 'block';
-
-    let html = `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:9px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted);border-bottom:1px solid var(--border);">
-      <span></span><span>Datum</span><span>Bedrag</span><span>Afzender (bank)</span><span>Order match</span><span>Score</span>
-    </div>`;
-
-    matches.forEach((m, idx) => {
-      const b = m.betaling;
-      const o = m.order;
-      const kleur = m.score >= 80 ? 'var(--success)' : m.score >= 50 ? 'var(--warn)' : 'var(--danger)';
-      const checked = m.gematcht && m.score >= 70;
-      if (checked && o) mt940GeselecteerdeOrders.add(o.id);
-
-      html += `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;${checked ? 'background:var(--teal-lt);' : ''}">
-        <input type="checkbox" ${checked ? 'checked' : ''} ${!o ? 'disabled' : ''} 
-          onchange="toggleMT940(${o ? o.id : 'null'}, this)"
-          style="cursor:${o ? 'pointer' : 'not-allowed'};">
-        <span>${b.datum}</span>
-        <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
-        <span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.naam || b.omschrijving.slice(0,40) || '—'}</span>
-        <div>${o ? `<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>` : '<span style="color:var(--muted)">Geen match gevonden</span>'}</div>
-        <span style="font-weight:600;color:${kleur}">${m.score}%</span>
-      </div>`;
-    });
-
-    lijst.innerHTML = html;
-    updateMT940Knop();
-  }
-
-  function toggleMT940(orderId, checkbox) {
-    if (orderId === null) return;
-    if (checkbox.checked) mt940GeselecteerdeOrders.add(orderId);
-    else mt940GeselecteerdeOrders.delete(orderId);
-    checkbox.closest('div').style.background = checkbox.checked ? 'var(--teal-lt)' : '';
-    updateMT940Knop();
-  }
-
-  function updateMT940Knop() {
-    const btn = document.getElementById('btnBevestigBetalingen');
-    btn.style.display = mt940GeselecteerdeOrders.size > 0 ? 'inline-flex' : 'none';
-    btn.textContent = `✓ ${mt940GeselecteerdeOrders.size} betaling(en) verwerken`;
-  }
-
-  async function bevestigBetalingen() {
-    if (mt940GeselecteerdeOrders.size === 0) return;
-    if (!confirm(`${mt940GeselecteerdeOrders.size} order(s) als betaald markeren?`)) return;
-    const btn = document.getElementById('btnBevestigBetalingen');
-    btn.disabled = true;
-    btn.textContent = '⏳ Bezig…';
-    try {
-      const res = await fetch('/api/betalingen-verwerken', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_ids: [...mt940GeselecteerdeOrders] })
-      });
-      const data = await res.json();
-      const ok = data.resultaten.filter(r => r.ok).length;
-      alert(`✓ ${ok} van ${mt940GeselecteerdeOrders.size} orders als betaald gemarkeerd.`);
-      document.getElementById('mt940Matches').style.display = 'none';
-      document.getElementById('mt940Status').textContent = '';
-      document.getElementById('mt940Input').value = '';
-      mt940GeselecteerdeOrders.clear();
-      await laadBestellingen();
-    } catch(e) {
-      alert('Fout: ' + e.message);
-    } finally {
-      btn.disabled = false;
-      updateMT940Knop();
-    }
-  }
-
-  async function laadBestellingen() {
-    const lijst = document.getElementById('lijst-bestellingen');
-    lijst.innerHTML = '<div class="laden"><span class="spinner"></span>Bestellingen laden…</div>';
+  async function laadOrders() {
+    document.getElementById('tabel').innerHTML = '<div class="laden"><span class="spinner"></span>Orders laden…</div>';
+    geselecteerd.clear(); updateSelectie();
     try {
       const res = await fetch('/bestellingen');
       const data = await res.json();
-      if (data.fout) { lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${data.fout}</div>`; return; }
-      allBestellingen = data.orders || [];
-      toonBestellingen();
+      if (data.fout) { document.getElementById('tabel').innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${data.fout}</div>`; return; }
+      alleOrders = data.orders || [];
+      toonOrders();
     } catch(e) {
-      lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Verbindingsfout: ${e.message}</div>`;
+      document.getElementById('tabel').innerHTML = `<div class="laden" style="color:var(--danger)">Verbindingsfout: ${e.message}</div>`;
     }
   }
 
-  function filterBestellingen(filter) {
-    huidigFilter = filter;
+  function setFilter(f, btn) {
+    huidigFilter = f;
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('actief'));
-    document.getElementById('filter-' + filter)?.classList.add('actief');
-    geselecteerd.clear();
-    toonBestellingen();
+    btn.classList.add('actief');
+    toonOrders();
   }
 
-  function statusKleur(status) {
-    if (status === 'processing') return '#e8f0ff;color:#3a6fd8';
-    if (status === 'pending') return '#fef3e2;color:var(--warn)';
-    if (status === 'on-hold') return '#f5f5f5;color:var(--muted)';
-    return 'var(--teal-lt);color:var(--teal-dk)';
-  }
+  function toonOrders() {
+    const verstrekkingen = getVerstrekkingen();
+    const statusNl = { processing:'In behandeling', pending:'Wacht op betaling', 'on-hold':'In de wacht' };
+    const statusCls = { processing:'status-processing', pending:'status-pending', 'on-hold':'status-on-hold' };
+    const betaalCls = { pay:'betaal-pay', bank:'betaal-bank', anders:'betaal-anders', onbetaald:'betaal-niet' };
 
-  function toonBestellingen() {
-    const lijst = document.getElementById('lijst-bestellingen');
-    let gefilterd = allBestellingen.filter(o => {
+    let gefilterd = alleOrders.filter(o => {
+      if (huidigFilter === 'pending') return o.status === 'pending';
+      if (huidigFilter === 'processing') return o.status === 'processing';
       if (huidigFilter === 'onbetaald') return o.betaal_type === 'onbetaald';
-      if (huidigFilter === 'betaald') return o.betaal_type !== 'onbetaald';
+      if (huidigFilter === 'geen-verstrekking') return !verstrekkingen.includes(o.id);
       if (huidigFilter === 'niet-verzonden') return o.verzend_status === 'Niet verzonden';
       return true;
     });
 
-    if (gefilterd.length === 0) {
-      lijst.innerHTML = '<div class="leeg"><span class="groot">✓</span>Geen bestellingen</div>';
-      return;
-    }
+    if (gefilterd.length === 0) { document.getElementById('tabel').innerHTML = '<div class="laden">Geen orders gevonden</div>'; return; }
 
-    const betaalKleur = {'pay': '#e8f8ee;color:var(--success)', 'bank': '#e8f0ff;color:#3a6fd8', 'anders': 'var(--teal-lt);color:var(--teal-dk)', 'onbetaald': '#fdecea;color:var(--danger)'};
-
-    let html = `<div style="display:grid;grid-template-columns:32px 90px 140px 1fr 1fr 120px 120px 80px;gap:8px;padding:10px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);border-bottom:1px solid var(--border);">
-      <span></span>
-      <span>Status</span>
-      <span>Order / Datum</span>
-      <span>Patiënt</span>
-      <span>Medicijn</span>
-      <span>Betaling</span>
-      <span>Verzending</span>
-      <span>Totaal</span>
-    </div>`;
+    let html = `<div class="tabel-header"><span></span><span>Order / Datum</span><span>Patiënt</span><span>Status</span><span style="text-align:center">Verstrekking</span><span style="text-align:center">Verzonden</span><span>Betaald</span></div>`;
 
     gefilterd.forEach(o => {
-      const checked = geselecteerd.has(o.id);
-      const sc = statusKleur(o.status);
-      const bc = betaalKleur[o.betaal_type] || betaalKleur.anders;
-      const statusNl = {'processing': 'In behandeling', 'pending': 'Wacht op betaling', 'on-hold': 'In de wacht'}[o.status] || o.status;
-      const trackingHtml = o.tracking_url
-        ? `<a href="${o.tracking_url}" target="_blank" style="color:var(--teal-dk);font-size:11px;">${o.verzend_status}</a>`
-        : `<span style="color:var(--muted);font-size:12px;">${o.verzend_status}</span>`;
+      const sel = geselecteerd.has(o.id);
+      const heeftV = verstrekkingen.includes(o.id);
+      const isVerzonden = o.verzend_status && o.verzend_status !== 'Niet verzonden';
 
-      html += `<div style="display:grid;grid-template-columns:32px 90px 140px 1fr 1fr 120px 120px 80px;gap:8px;padding:11px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;${checked ? 'background:var(--teal-lt);' : ''}">
-        <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleSelectie(${o.id}, this)" style="cursor:pointer;">
-        <span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500;background:${sc.split(';')[0]};${sc.split(';')[1] || ''}">${statusNl}</span>
-        <div>
-          <div style="font-weight:500;">#${o.id}</div>
-          <div style="font-size:11px;color:var(--muted);">${o.datum}</div>
-        </div>
-        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;">${o.klant_naam || '—'}</div>
-        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);">${o.medicijn || '—'}</div>
-        <span style="padding:3px 8px;border-radius:10px;font-size:11px;font-weight:500;background:${bc.split(';')[0]};${bc.split(';')[1] || ''}">${o.betaal_status}</span>
-        <div>${trackingHtml}</div>
-        <div style="font-weight:500;">€${o.totaal}</div>
+      const verstrekkingHtml = heeftV
+        ? `<span class="vinkje klaar">✓</span>`
+        : `<span class="vinkje open" onclick="toggleVerstrekking(${o.id},this)" title="Klik om af te vinken">○</span>`;
+
+      const verzondHtml = isVerzonden
+        ? (o.tracking_url ? `<a href="${o.tracking_url}" target="_blank" style="color:var(--success);font-size:14px;display:block;text-align:center;">✓</a>` : `<span style="color:var(--success);display:block;text-align:center;">✓</span>`)
+        : `<span style="color:var(--border);display:block;text-align:center;">○</span>`;
+
+      html += `<div class="tabel-rij ${sel?'geselecteerd':''}" id="rij-${o.id}">
+        <input type="checkbox" ${sel?'checked':''} onchange="toggleSelectie(${o.id},this)" style="cursor:pointer;">
+        <div><div style="font-weight:500;">#${o.id}</div><div style="font-size:11px;color:var(--muted);">${o.datum}</div></div>
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.klant_naam||'—'}</div>
+        <span class="status-badge ${statusCls[o.status]||''}">${statusNl[o.status]||o.status}</span>
+        <div style="text-align:center;">${verstrekkingHtml}</div>
+        <div>${verzondHtml}</div>
+        <span class="betaal-badge ${betaalCls[o.betaal_type]||'betaal-anders'}">${o.betaal_status}</span>
       </div>`;
     });
 
-    lijst.innerHTML = html;
-    updateSelectieTekst();
+    document.getElementById('tabel').innerHTML = html;
   }
 
-  function toggleSelectie(id, checkbox) {
-    if (checkbox.checked) geselecteerd.add(id);
-    else geselecteerd.delete(id);
-    // Update rij achtergrond
-    checkbox.closest('div').style.background = checkbox.checked ? 'var(--teal-lt)' : '';
-    updateSelectieTekst();
+  function toggleVerstrekking(id, el) {
+    setVerstrekking(id);
+    el.textContent = '✓'; el.className = 'vinkje klaar'; el.onclick = null;
   }
 
-  function updateSelectieTekst() {
-    const tekst = document.getElementById('selectie-tekst');
+  function toggleSelectie(id, cb) {
+    if (cb.checked) geselecteerd.add(id); else geselecteerd.delete(id);
+    const rij = document.getElementById('rij-'+id);
+    if (rij) rij.className = 'tabel-rij '+(cb.checked?'geselecteerd':'');
+    updateSelectie();
+  }
+
+  function updateSelectie() {
+    const info = document.getElementById('selectie-info');
     const btn = document.getElementById('btn-afronden');
-    if (geselecteerd.size > 0) {
-      tekst.textContent = `${geselecteerd.size} geselecteerd`;
-      btn.style.display = 'inline-flex';
-    } else {
-      tekst.textContent = '';
-      btn.style.display = 'none';
-    }
+    info.textContent = geselecteerd.size > 0 ? geselecteerd.size+' geselecteerd' : '';
+    btn.style.display = geselecteerd.size > 0 ? 'inline-flex' : 'none';
   }
 
   async function rondeAfBatch() {
-    if (geselecteerd.size === 0) return;
-    if (!confirm(`${geselecteerd.size} order(s) afronden in WooCommerce?`)) return;
+    if (!confirm(`${geselecteerd.size} order(s) afronden?`)) return;
     const btn = document.getElementById('btn-afronden');
-    btn.textContent = '⏳ Bezig…';
-    btn.disabled = true;
+    btn.disabled = true; btn.textContent = '⏳ Bezig…';
     try {
-      const res = await fetch('/api/order-afronden', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_ids: [...geselecteerd] })
-      });
+      const res = await fetch('/api/order-afronden', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_ids:[...geselecteerd]}) });
       const data = await res.json();
-      const ok = data.resultaten.filter(r => r.ok).length;
-      alert(`✓ ${ok} van ${geselecteerd.size} orders afgerond.`);
+      alert('✓ '+data.resultaten.filter(r=>r.ok).length+' orders afgerond.');
       geselecteerd.clear();
-      await laadBestellingen();
-    } catch(e) {
-      alert('Fout: ' + e.message);
-    } finally {
-      btn.textContent = '✓ Afronden';
-      btn.disabled = false;
-    }
-  }
-  // Lokale status opslag (sessie)
-  const statusCache = JSON.parse(sessionStorage.getItem('farmamed_status') || '{}');
-
-  function slaStatusOp(key, veld, waarde) {
-    if (!statusCache[key]) statusCache[key] = {};
-    statusCache[key][veld] = waarde;
-    sessionStorage.setItem('farmamed_status', JSON.stringify(statusCache));
+      await laadOrders();
+    } catch(e) { alert('Fout: '+e.message); }
+    finally { btn.disabled=false; btn.textContent='✓ Afronden in WooCommerce'; updateSelectie(); }
   }
 
-  function getStatus(key, veld, standaard = false) {
-    return statusCache[key]?.[veld] ?? standaard;
-  }
-
-  function statusIcon(key, veld, standaard = false) {
-    const klaar = getStatus(key, veld, standaard);
-    return `<span class="status-icon ${klaar ? 'klaar' : 'open'}" 
-      onclick="toggleStatus('${key}','${veld}',this)" 
-      title="${klaar ? 'Klik om te markeren als niet gedaan' : 'Klik om af te vinken'}">
-      ${klaar ? '✓' : '○'}
-    </span>`;
-  }
-
-  function toggleStatus(key, veld, el) {
-    const huidig = getStatus(key, veld);
-    slaStatusOp(key, veld, !huidig);
-    el.className = `status-icon ${!huidig ? 'klaar' : 'open'}`;
-    el.textContent = !huidig ? '✓' : '○';
-    updateStats();
-
-    // Check of alle drie e-mail stappen klaar zijn
-    if (key.startsWith('email_')) {
-      const uid = key.replace('email_', '');
-      const wcKlaar = getStatus(key, 'order');
-      const pdfKlaar = getStatus(key, 'pdf');
-      const edifactKlaar = getStatus(key, 'edifact');
-      const actieDiv = document.getElementById('actie-' + uid);
-      if (actieDiv) {
-        if (wcKlaar && pdfKlaar && edifactKlaar) {
-          actieDiv.innerHTML = `<button class="actie-btn" style="background:#fdecea;color:var(--danger);border-color:#f5c6c2;" onclick="verwijderEmail('${uid}', this)">✓ E-mail verwerkt</button>`;
-        } else {
-          actieDiv.innerHTML = `<button class="actie-btn" onclick="window.location='/emails'">→ Openen</button>`;
-        }
-      }
-    }
-  }
-
-  async function verwijderEmail(uid, btn) {
-    if (!confirm('E-mail markeren als volledig verwerkt en verwijderen uit de lijst?')) return;
-    btn.disabled = true;
-    btn.textContent = '⏳ Bezig…';
+  async function verwerkMT940(input) {
+    if (!input.files[0]) return;
+    const status = document.getElementById('mt940Status');
+    status.textContent = '⏳ Verwerken…'; status.style.color = 'var(--muted)';
+    const fd = new FormData(); fd.append('bestand', input.files[0]);
     try {
-      await fetch('/api/email-verwerkt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email_uid: uid })
-      });
-      const rij = document.getElementById('emailrij-' + uid);
-      if (rij) rij.remove();
-      updateStats();
-      // Update badge
-      const aantalRijen = document.querySelectorAll('#lijst-emails .werklijst-rij').length;
-      document.getElementById('badge-emails').textContent = aantalRijen + ' in wachtrij';
-      if (aantalRijen === 0) {
-        document.getElementById('lijst-emails').innerHTML += '<div class="leeg"><span class="groot">✓</span>Geen e-mails meer te verwerken</div>';
-      }
-    } catch(e) {
-      btn.disabled = false;
-      btn.textContent = '✓ E-mail verwerkt';
-      alert('Fout: ' + e.message);
-    }
-  }
-
-  async function laadAlles() {
-    laadOrders();
-    laadEmails();
-  }
-
-  async function laadOrders() {
-    const lijst = document.getElementById('lijst-orders');
-    try {
-      const res = await fetch('/api/orders');
+      const res = await fetch('/api/verwerk-mt940', { method:'POST', body:fd });
       const data = await res.json();
-      const orders = data.orders || [];
-      document.getElementById('badge-orders').textContent = orders.length + ' open';
-
-      if (orders.length === 0) {
-        lijst.innerHTML = '<div class="leeg"><span class="groot">✓</span>Geen openstaande orders</div>';
-        updateStats();
-        return;
-      }
-
-      let html = `<div class="werklijst-header">
-        <span>Order / Datum</span>
-        <span>Patiënt</span>
-        <span>Medicijn</span>
-        <span style="text-align:center">PDF</span>
-        <span style="text-align:center">EDIFACT</span>
-        <span style="text-align:center">Recept</span>
-        <span style="text-align:center">Verzonden</span>
-        <span>Actie</span>
-      </div>`;
-      orders.forEach(o => {
-        const key = 'order_' + o.id;
-        const heeftRecept = o.heeft_recept;
-        html += `<div class="werklijst-rij">
-          <div>
-            <div style="font-size:12px;font-weight:500;">#${o.id} <span class="bron-badge bron-orders">Orders</span></div>
-            <div style="font-size:11px;color:var(--muted);">${o.datum}</div>
-          </div>
-          <div class="naam-cel">${o.klant_naam || '—'}</div>
-          <div class="medicijn-cel">${o.medicijn || '—'}</div>
-          ${statusIcon(key, 'pdf')}
-          ${statusIcon(key, 'edifact')}
-          <span class="status-icon ${heeftRecept ? 'klaar' : 'open'}" title="${heeftRecept ? 'Recept aanwezig' : 'Geen recept'}">${heeftRecept ? '✓' : '○'}</span>
-          ${statusIcon(key, 'verzonden')}
-          <button class="actie-btn" onclick="window.location='/orders'">→ Openen</button>
-        </div>`;
-      });
-
-      lijst.innerHTML = html;
-      updateStats();
-    } catch(e) {
-      lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${e.message}</div>`;
-    }
+      if (data.fout) { status.textContent = '✕ '+data.fout; status.style.color='var(--danger)'; return; }
+      status.textContent = `✓ ${data.betalingen} betalingen, ${data.gematcht} gematcht`;
+      status.style.color = 'var(--success)';
+      toonMT940Matches(data.matches);
+    } catch(e) { status.textContent = '✕ '+e.message; status.style.color='var(--danger)'; }
   }
 
-  async function laadEmails() {
-    const lijst = document.getElementById('lijst-emails');
+  function toonMT940Matches(matches) {
+    mt940Geselecteerd.clear();
+    document.getElementById('mt940Matches').style.display = 'block';
+    document.getElementById('mt940Titel').textContent = matches.length+' betalingen gevonden';
+    let html = `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 60px;gap:8px;padding:9px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);"><span></span><span>Datum</span><span>Bedrag</span><span>Afzender</span><span>Order match</span><span>Score</span></div>`;
+    matches.forEach(m => {
+      const b=m.betaling, o=m.order;
+      const kleur = m.score>=80?'var(--success)':m.score>=50?'var(--warn)':'var(--danger)';
+      const checked = m.gematcht && m.score>=70;
+      if (checked && o) mt940Geselecteerd.add(o.id);
+      html += `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 60px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;${checked?'background:var(--teal-lt);':''}">
+        <input type="checkbox" ${checked?'checked':''} ${!o?'disabled':''} onchange="toggleMT940(${o?o.id:'null'},this)" style="cursor:${o?'pointer':'not-allowed'};">
+        <span>${b.datum}</span><span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
+        <span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.naam||b.omschrijving?.slice(0,30)||'—'}</span>
+        <div>${o?`<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>`:'<span style="color:var(--muted)">Geen match</span>'}</div>
+        <span style="font-weight:600;color:${kleur}">${m.score}%</span>
+      </div>`;
+    });
+    document.getElementById('mt940Lijst').innerHTML = html;
+    updateMT940Knop();
+  }
+
+  function toggleMT940(id, cb) {
+    if (id===null) return;
+    if (cb.checked) mt940Geselecteerd.add(id); else mt940Geselecteerd.delete(id);
+    cb.closest('div').style.background = cb.checked?'var(--teal-lt)':'';
+    updateMT940Knop();
+  }
+
+  function updateMT940Knop() {
+    const btn = document.getElementById('btnBevestig');
+    btn.style.display = mt940Geselecteerd.size>0?'inline-flex':'none';
+    btn.textContent = `✓ ${mt940Geselecteerd.size} betaling(en) verwerken`;
+  }
+
+  async function bevestigBetalingen() {
+    if (!confirm(`${mt940Geselecteerd.size} order(s) als betaald markeren?`)) return;
+    const btn = document.getElementById('btnBevestig');
+    btn.disabled=true; btn.textContent='⏳ Bezig…';
     try {
-      const res = await fetch('/api/emails');
+      const res = await fetch('/api/betalingen-verwerken', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_ids:[...mt940Geselecteerd]}) });
       const data = await res.json();
-      const emails = data.emails || [];
-      document.getElementById('badge-emails').textContent = emails.length + ' in wachtrij';
-
-      if (emails.length === 0) {
-        lijst.innerHTML = '<div class="leeg"><span class="groot">✓</span>Geen e-mails in wachtrij</div>';
-        updateStats();
-        return;
-      }
-
-      let html = `<div class="werklijst-header" style="grid-template-columns:180px 1fr 80px 80px 80px 120px;">
-        <span>Datum</span>
-        <span>Afzender</span>
-        <span style="text-align:center">WC Order</span>
-        <span style="text-align:center">PDF Recept</span>
-        <span style="text-align:center">EDIFACT</span>
-        <span>Actie</span>
-      </div>`;
-      emails.forEach(e => {
-        const key = 'email_' + e.uid;
-        const wcKlaar = getStatus(key, 'order');
-        const pdfKlaar = getStatus(key, 'pdf');
-        const edifactKlaar = getStatus(key, 'edifact');
-        const allesDone = wcKlaar && pdfKlaar && edifactKlaar;
-        const actieKnop = allesDone
-          ? `<button class="actie-btn" style="background:#fdecea;color:var(--danger);border-color:#f5c6c2;" onclick="verwijderEmail('${e.uid}', this)">✓ E-mail verwerkt</button>`
-          : `<button class="actie-btn" style="opacity:0.4;cursor:not-allowed;" disabled title="Eerst alle drie stappen voltooien">✓ E-mail verwerkt</button>`;
-        html += `<div class="werklijst-rij" id="emailrij-${e.uid}" style="grid-template-columns:180px 1fr 80px 80px 80px 120px;">
-          <div>
-            <div style="font-size:11px;color:var(--muted);">${(e.datum || '—').slice(0,16)}</div>
-            <span class="bron-badge bron-email">E-mail</span>
-          </div>
-          <div class="naam-cel">${e.afzender_naam || e.afzender || '—'}</div>
-          ${statusIcon(key, 'order')}
-          ${statusIcon(key, 'pdf')}
-          ${statusIcon(key, 'edifact')}
-          <div id="actie-${e.uid}">${actieKnop}</div>
-        </div>`;
-      });
-
-      lijst.innerHTML = html;
-      updateStats();
-    } catch(e) {
-      lijst.innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${e.message}</div>`;
-    }
+      alert('✓ '+data.resultaten.filter(r=>r.ok).length+' orders als betaald gemarkeerd.');
+      document.getElementById('mt940Matches').style.display='none';
+      document.getElementById('mt940Status').textContent='';
+      document.getElementById('mt940Input').value='';
+      mt940Geselecteerd.clear();
+      await laadOrders();
+    } catch(e) { alert('Fout: '+e.message); }
+    finally { btn.disabled=false; updateMT940Knop(); }
   }
 
-  function updateStats() {
-    let totaal = 0, geenOrder = 0, geenEdifact = 0, geenPdf = 0;
-
-    // Tel orders
-    document.querySelectorAll('#lijst-orders .werklijst-rij').forEach(rij => {
-      const icons = rij.querySelectorAll('.status-icon');
-      totaal++;
-      if (icons[0] && icons[0].textContent === '○') geenPdf++;
-      if (icons[1] && icons[1].textContent === '○') geenEdifact++;
-    });
-
-    // Tel emails
-    document.querySelectorAll('#lijst-emails .werklijst-rij').forEach(rij => {
-      const icons = rij.querySelectorAll('.status-icon');
-      totaal++;
-      if (icons[0] && icons[0].textContent === '○') geenOrder++;
-      if (icons[1] && icons[1].textContent === '○') geenPdf++;
-      if (icons[2] && icons[2].textContent === '○') geenEdifact++;
-    });
-
-    document.getElementById('stat-totaal').textContent = totaal;
-    document.getElementById('stat-order').textContent = geenOrder;
-    document.getElementById('stat-edifact').textContent = geenEdifact;
-    document.getElementById('stat-pdf').textContent = geenPdf;
-  }
-
-  // Start
-  laadAlles();
+  laadOrders();
 </script>
 </body>
 </html>
