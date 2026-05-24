@@ -548,9 +548,9 @@ async def haal_bestellingen_op():
                     import re as _re
                     for note in notes_resp.json():
                         note_tekst = note.get("note", "")
-                        url_match = _re.search(r'https?://\S+track\S*', note_tekst, _re.IGNORECASE)
-                        if url_match:
-                            tracking_url = url_match.group(0).rstrip('.')
+                        url_match = _re.search(r'(https?://\S+)', note_tekst, _re.IGNORECASE)
+                        if url_match and ('track' in note_tekst.lower() or 'sendcloud' in note_tekst.lower()):
+                            tracking_url = url_match.group(1).replace('&amp;', '&').rstrip('.')
                             verzend_status = "Verzonden"
                             break
             except Exception:
