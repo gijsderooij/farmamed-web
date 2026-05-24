@@ -520,10 +520,6 @@ async def haal_bestellingen_op():
                 betaal_status = "Bank ✓"
                 betaal_type = "bank"
             else:
-                elif not betaal_methode and not datum_betaald:
-                betaal_status = "Niet betaald"
-                betaal_type = "onbetaald"
-            else:
                 betaal_status = f"Betaald ({betaal_titel or betaal_methode})"
                 betaal_type = "anders"
         else:
