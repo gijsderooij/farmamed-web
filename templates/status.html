@@ -126,6 +126,8 @@
       if (data.fout) { document.getElementById('tabel').innerHTML = `<div class="laden" style="color:var(--danger)">Fout: ${data.fout}</div>`; return; }
       alleOrders = data.orders || [];
       toonOrders();
+      // Haal verzendstatus op na laden (op achtergrond)
+      laadVerzending();
     } catch(e) {
       document.getElementById('tabel').innerHTML = `<div class="laden" style="color:var(--danger)">Verbindingsfout: ${e.message}</div>`;
     }
@@ -182,6 +184,52 @@
     });
 
     document.getElementById('tabel').innerHTML = html;
+  }
+
+  async function laadVerzending() {
+    if (alleOrders.length === 0) return;
+    const ids = alleOrders.map(o => o.id);
+    try {
+      const res = await fetch('/api/verzend-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_ids: ids })
+      });
+      const data = await res.json();
+      const verstrekkingen = getVerstrekkingen();
+      let verstrekkingGewijzigd = false;
+
+      Object.entries(data.resultaten).forEach(([orderId, info]) => {
+        const id = parseInt(orderId);
+        if (info.verzonden) {
+          // Update verzend icoon
+          const rij = document.getElementById('rij-' + orderId);
+          if (rij) {
+            const verzondCel = rij.children[5];
+            if (verzondCel) {
+              verzondCel.innerHTML = info.tracking_url
+                ? `<a href="${info.tracking_url}" target="_blank" style="color:var(--success);font-size:14px;display:block;text-align:center;">✓</a>`
+                : `<span style="color:var(--success);display:block;text-align:center;">✓</span>`;
+            }
+            // Zet ook verstrekking vinkje
+            if (!verstrekkingen.includes(id)) {
+              verstrekkingen.push(id);
+              verstrekkingGewijzigd = true;
+              const verstrCel = rij.children[4];
+              if (verstrCel) {
+                verstrCel.innerHTML = `<span class="vinkje klaar">✓</span>`;
+              }
+            }
+          }
+        }
+      });
+
+      if (verstrekkingGewijzigd) {
+        sessionStorage.setItem('farmamed_verstrekkingen', JSON.stringify(verstrekkingen));
+      }
+    } catch(e) {
+      console.log('Verzendstatus ophalen mislukt:', e.message);
+    }
   }
 
   function toggleVerstrekking(id, el) {
