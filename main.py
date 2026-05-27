@@ -439,6 +439,8 @@ Regels:
 
 @app.get("/bestellingen")
 async def haal_bestellingen_op():
+    headers={"Accept": "application/json"},
+    from datetime import datetime, timedelta
     """Haalt openstaande WooCommerce orders op met betaal- en verzendstatus."""
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
@@ -460,8 +462,6 @@ async def haal_bestellingen_op():
             resp = http_requests.get(
                 f"{wc_url}/wp-json/wc/v3/orders",
                 auth=(wc_key, wc_secret),
-                headers={"Accept": "application/json"},
-                from datetime import datetime, timedelta
                 twee_weken_geleden = (datetime.now() - timedelta(weeks=2)).strftime("%Y-%m-%dT00:00:00")
                 from datetime import datetime, timedelta
     twee_weken_geleden = (datetime.now() - timedelta(weeks=2)).strftime("%Y-%m-%dT00:00:00")
