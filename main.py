@@ -735,6 +735,44 @@ async def betalingen_verwerken(request: Request):
     return JSONResponse(content={"resultaten": resultaten})
 
 
+@app.post("/api/verzend-status")
+async def haal_verzend_status(request: Request):
+    """Haalt verzendstatus op uit ordernotities voor een lijst order IDs."""
+    body = await request.json()
+    order_ids = body.get("order_ids", [])
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+    import re as _re
+
+    resultaten = {}
+    for oid in order_ids:
+        try:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders/{oid}/notes",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                for note in resp.json():
+                    note_tekst = note.get("note", "")
+                    if "sendcloud" in note_tekst.lower() or "postnl" in note_tekst.lower() or "tracking" in note_tekst.lower():
+                        url_match = _re.search(r'(https?://\S+)', note_tekst)
+                        if url_match:
+                            resultaten[str(oid)] = {
+                                "verzonden": True,
+                                "tracking_url": url_match.group(1).replace("&amp;", "&").rstrip(".")
+                            }
+                            break
+                if str(oid) not in resultaten:
+                    resultaten[str(oid)] = {"verzonden": False, "tracking_url": ""}
+        except Exception:
+            resultaten[str(oid)] = {"verzonden": False, "tracking_url": ""}
+
+    return JSONResponse(content={"resultaten": resultaten})
+
+
 @app.post("/api/order-afronden")
 async def order_afronden(request: Request):
     """Markeert een of meerdere WooCommerce orders als completed."""
