@@ -466,8 +466,9 @@
       const data = await res.json();
       if (data.preview) {
         viewer.innerHTML = '<img src="' + data.preview + '" alt="Recept" style="max-width:100%;border-radius:4px;box-shadow:0 2px 12px rgba(0,0,0,0.15);">';
-        document.getElementById('downloadReceptBtn').style.display = 'block';
-        document.getElementById('downloadReceptBtn').dataset.url = receptUrl;
+        // downloadReceptBtn zit nu in stap 4 actiebalk
+        const dlBtn = document.getElementById('downloadReceptBtn');
+        if (dlBtn) { dlBtn.style.display = 'block'; dlBtn.dataset.url = receptUrl; }
       } else {
         viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">Voorvertoning niet beschikbaar</div>';
       }
