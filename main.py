@@ -537,25 +537,8 @@ async def haal_bestellingen_op():
             tracking_url = zending["tracking_url"]
             tracking_nr = zending["tracking"]
         else:
-            try:
-                notes_resp = http_requests.get(
-                    f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
-                    auth=(wc_key, wc_secret),
-                    headers={"Accept": "application/json"},
-                    timeout=5,
-                )
-                if notes_resp.status_code == 200:
-                    import re as _re
-                    for note in notes_resp.json():
-                        note_tekst = note.get("note", "")
-                        url_match = _re.search(r'(https?://\S+)', note_tekst, _re.IGNORECASE)
-                        if url_match and ('track' in note_tekst.lower() or 'sendcloud' in note_tekst.lower()):
-                            tracking_url = url_match.group(1).replace('&amp;', '&').rstrip('.')
-                            verzend_status = "Verzonden"
-                            break
-            except Exception:
-                pass
-
+            pass  # Ordernotities worden niet opgehaald voor snelheid
+            
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
         if not oorsprong:
