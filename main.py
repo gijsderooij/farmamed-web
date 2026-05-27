@@ -463,7 +463,12 @@ async def haal_bestellingen_op():
                 headers={"Accept": "application/json"},
                 from datetime import datetime, timedelta
                 twee_weken_geleden = (datetime.now() - timedelta(weeks=2)).strftime("%Y-%m-%dT00:00:00")
-                params={"status": "processing,pending,on-hold", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina, "after": twee_weken_geleden},
+                from datetime import datetime, timedelta
+    twee_weken_geleden = (datetime.now() - timedelta(weeks=2)).strftime("%Y-%m-%dT00:00:00")
+    
+    orders_raw = []
+    pagina = 1
+    while True:
                 timeout=20,
             )
             resp.raise_for_status()
