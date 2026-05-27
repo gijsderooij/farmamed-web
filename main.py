@@ -461,7 +461,9 @@ async def haal_bestellingen_op():
                 f"{wc_url}/wp-json/wc/v3/orders",
                 auth=(wc_key, wc_secret),
                 headers={"Accept": "application/json"},
-                params={"status": "processing,pending,on-hold", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
+                from datetime import datetime, timedelta
+                twee_weken_geleden = (datetime.now() - timedelta(weeks=2)).strftime("%Y-%m-%dT00:00:00")
+                params={"status": "processing,pending,on-hold", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina, "after": twee_weken_geleden},
                 timeout=20,
             )
             resp.raise_for_status()
