@@ -489,7 +489,7 @@ async def haal_bestellingen_op():
             sc_resp = http_requests.get(
                 "https://panel.sendcloud.sc/api/v2/parcels",
                 auth=(sc_public, sc_secret),
-                params={"results": 200},
+                params={"after": twee_weken_geleden,},
                 timeout=10,
             )
             if sc_resp.status_code == 200:
