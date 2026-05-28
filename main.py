@@ -543,6 +543,9 @@ async def haal_bestellingen_op():
         else:
             pass  # Ordernotities worden niet opgehaald voor snelheid
             
+        # Verstrekking uit WooCommerce meta
+        heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
+
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
         if not oorsprong:
@@ -564,6 +567,7 @@ async def haal_bestellingen_op():
             "verzend_status": verzend_status,
             "tracking_url": tracking_url,
             "tracking_nr": tracking_nr,
+            "heeft_verstrekking": heeft_verstrekking,
             "oorsprong": oorsprong,
         })
 
@@ -733,6 +737,26 @@ async def betalingen_verwerken(request: Request):
             resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
 
     return JSONResponse(content={"resultaten": resultaten})
+
+
+@app.post("/api/order-verstrekking")
+async def markeer_verstrekking(request: Request):
+    """Slaat verstrekking op als meta-veld in WooCommerce order."""
+    body = await request.json()
+    order_id = body.get("order_id")
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+    try:
+        resp = http_requests.put(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+            auth=(wc_key, wc_secret),
+            json={"meta_data": [{"key": "_farmamed_verstrekking", "value": "1"}]},
+            timeout=10,
+        )
+        return JSONResponse(content={"ok": resp.status_code == 200})
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
 
 
 @app.post("/api/verzend-status")
