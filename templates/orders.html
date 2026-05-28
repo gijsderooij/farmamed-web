@@ -183,9 +183,9 @@
         <div id="ostap5" style="flex:1;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span id="onr5" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">5</span>
-            <div><div style="font-size:12px;font-weight:500;">Afronden</div><div style="font-size:10px;color:var(--muted);">Order completed</div></div>
+            <div><div style="font-size:12px;font-weight:500;">Verstrekkingsverzoek</div><div style="font-size:10px;color:var(--muted);">Ingediend</div></div>
           </div>
-          <button id="obtn5" onclick="orderAfronden()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Afronden</button>
+          <button id="obtn5" onclick="orderAfronden()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Verstrekking ingediend</button>
           <div id="ostap5-info" style="font-size:10px;color:var(--muted);display:none;margin-top:2px;"></div>
         </div>
       </div>
@@ -748,7 +748,7 @@
 
   function orderAfronden() {
     if (!huidigeOrder) return;
-    // Alle stappen groen - wij zijn klaar, WooCommerce status blijft ongewijzigd
+    // Alle stappen groen
     for (let n = 1; n <= 5; n++) {
       const nr_el = document.getElementById('onr' + n);
       const stap = document.getElementById('ostap' + n);
@@ -758,20 +758,21 @@
       if (b) b.style.display = 'none';
     }
     const melding = document.getElementById('order-actie-melding');
-    if (melding) melding.textContent = '✓ Verwerking order #' + huidigeOrder.id + ' afgerond';
-    // Markeer als afgerond in sessie zodat hij niet terugkomt bij vernieuwen
-    if (huidigeOrder) markeerAfgerond(huidigeOrder.id);
-    // Verwijder uit wachtrij
+    if (melding) melding.textContent = '✓ Verstrekking ingediend voor order #' + huidigeOrder.id;
+    // Markeer in de linker lijst
     document.querySelectorAll('.order-item').forEach(item => {
-      if (item.classList.contains('actief')) item.remove();
+      if (item.classList.contains('actief')) {
+        // Voeg label toe onder de ordernaam
+        let label = item.querySelector('.verstrekking-label');
+        if (!label) {
+          label = document.createElement('div');
+          label.className = 'verstrekking-label';
+          label.style.cssText = 'font-size:10px;color:var(--success);margin-top:2px;';
+          item.appendChild(label);
+        }
+        label.textContent = '✓ Verstrekking ingediend';
+      }
     });
-    // Reset detail
-    setTimeout(() => {
-      document.getElementById('detailSplit').style.display = 'none';
-      document.getElementById('order-stappen').style.display = 'none';
-      document.getElementById('detailLeeg').style.display = 'flex';
-      huidigeOrder = null;
-    }, 1500);
   }
 
   function toonTab(naam) {
