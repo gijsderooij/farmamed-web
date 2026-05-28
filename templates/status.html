@@ -69,7 +69,7 @@
     <h1 class="pagina-titel">Werklijst</h1>
     <div class="acties">
       <span id="selectie-info" style="font-size:12px;color:var(--muted);"></span>
-      <button class="btn btn-succes" id="btn-afronden" style="display:none" onclick="rondeAfBatch()">✓ Afronden in WooCommerce</button>
+<!-- Afronden knop tijdelijk verwijderd - orders worden handmatig afgerond in WooCommerce -->
       <button class="btn" onclick="laadOrders()">↻ Vernieuwen</button>
     </div>
   </div>
@@ -161,7 +161,7 @@
 
     gefilterd.forEach(o => {
       const sel = geselecteerd.has(o.id);
-      const heeftV = verstrekkingen.includes(o.id);
+      const heeftV = o.heeft_verstrekking;
       const isVerzonden = o.verzend_status && o.verzend_status !== 'Niet verzonden';
 
       const verstrekkingHtml = heeftV
@@ -212,9 +212,13 @@
                 : `<span style="color:var(--success);display:block;text-align:center;">✓</span>`;
             }
             // Zet ook verstrekking vinkje
-            if (!verstrekkingen.includes(id)) {
-              verstrekkingen.push(id);
-              verstrekkingGewijzigd = true;
+            if (!o.heeft_verstrekking) {
+              // Markeer ook in WooCommerce
+              fetch('/api/order-verstrekking', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id: id })
+              });
               const verstrCel = rij.children[4];
               if (verstrCel) {
                 verstrCel.innerHTML = `<span class="vinkje klaar">✓</span>`;
@@ -224,17 +228,27 @@
         }
       });
 
-      if (verstrekkingGewijzigd) {
-        sessionStorage.setItem('farmamed_verstrekkingen', JSON.stringify(verstrekkingen));
-      }
+
     } catch(e) {
       console.log('Verzendstatus ophalen mislukt:', e.message);
     }
   }
 
-  function toggleVerstrekking(id, el) {
-    setVerstrekking(id);
-    el.textContent = '✓'; el.className = 'vinkje klaar'; el.onclick = null;
+  async function toggleVerstrekking(id, el) {
+    el.textContent = '⏳'; el.style.cursor = 'wait';
+    try {
+      await fetch('/api/order-verstrekking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: id })
+      });
+      el.textContent = '✓'; el.className = 'vinkje klaar'; el.onclick = null; el.style.cursor = 'default';
+      // Update lokaal in alleOrders
+      const o = alleOrders.find(x => x.id === id);
+      if (o) o.heeft_verstrekking = true;
+    } catch(e) {
+      el.textContent = '○'; el.style.cursor = 'pointer';
+    }
   }
 
   function toggleSelectie(id, cb) {
@@ -248,7 +262,6 @@
     const info = document.getElementById('selectie-info');
     const btn = document.getElementById('btn-afronden');
     info.textContent = geselecteerd.size > 0 ? geselecteerd.size+' geselecteerd' : '';
-    btn.style.display = geselecteerd.size > 0 ? 'inline-flex' : 'none';
   }
 
   async function rondeAfBatch() {
