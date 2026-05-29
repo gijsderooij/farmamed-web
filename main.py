@@ -1426,6 +1426,27 @@ async def _verrijk_met_woocommerce(recept: dict, wc_url: str, wc_key: str, wc_se
     except Exception as e:
         verrijkt["_verrijking_fout"] = str(e)
 
+    # Extraheer telefoonnummer uit e-mailtekst als het nog ontbreekt
+    if not verrijkt.get("telefoon"):
+        import re as _re
+        email_tekst = recept.get("_email_body", "")
+        if email_tekst:
+            # Zoek Nederlandse telefoonnummers (06, 0031, +31, vaste nummers)
+            tel_match = _re.search(
+                r'(?:tel(?:efoon)?|phone|mob(?:iel)?|gsm)[^\d]*(\+?(?:0031|31|0)\s*[\d\s\-]{8,12})',
+                email_tekst, _re.IGNORECASE
+            )
+            if not tel_match:
+                # Losse nummers zoeken
+                tel_match = _re.search(
+                    r'((?:\+31|0031|0)[\s\-]?(?:6[\s\-]?\d{8}|\d{2}[\s\-]?\d{7}|\d{3}[\s\-]?\d{6}))',
+                    email_tekst
+                )
+            if tel_match:
+                tel = _re.sub(r'[\s\-]', '', tel_match.group(1))
+                verrijkt["telefoon"] = tel
+                verrijkt["_verrijking"]["Telefoon"] = f"{tel} (uit e-mail)"
+
     return verrijkt
 
 
@@ -2162,7 +2183,12 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
         wc_key = os.getenv("WC_KEY", "")
         wc_secret = os.getenv("WC_SECRET", "")
         if all([wc_url, wc_key, wc_secret]):
+            # Geef e-mailtekst mee voor telefoonnummer extractie
+            email_cached_voor_verrijking = _zoek_email_op_uid(email_uid)
+            if email_cached_voor_verrijking:
+                recept_data["_email_body"] = email_cached_voor_verrijking.get("body", "")
             recept_data = await _verrijk_met_woocommerce(recept_data, wc_url, wc_key, wc_secret)
+            recept_data.pop("_email_body", None)  # verwijder intern veld uit output
 
         # Sla bijlagedata op in cache voor latere download
         email_cached = _zoek_email_op_uid(email_uid)
