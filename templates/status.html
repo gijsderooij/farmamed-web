@@ -29,8 +29,8 @@
     .mt940-matches { background:white; border:1px solid var(--border); border-radius:var(--radius); margin-bottom:14px; overflow:hidden; display:none; }
     .mt940-header { padding:10px 16px; background:var(--cream); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
     .tabel { background:white; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
-    .tabel-header { display:grid; grid-template-columns:32px 130px 1fr 110px 90px 90px 110px; gap:8px; padding:10px 16px; background:var(--cream); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); border-bottom:1px solid var(--border); }
-    .tabel-rij { display:grid; grid-template-columns:32px 130px 1fr 110px 90px 90px 110px; gap:8px; padding:11px 16px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; transition:background 0.1s; }
+    .tabel-header { display:grid; grid-template-columns:32px 130px 160px 110px 1fr 1fr 1fr 1fr; gap:8px; padding:10px 16px; background:var(--cream); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); border-bottom:1px solid var(--border); }
+    .tabel-rij { display:grid; grid-template-columns:32px 130px 160px 110px 1fr 1fr 1fr 1fr; gap:8px; padding:11px 16px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; transition:background 0.1s; }
     .tabel-rij:last-child { border-bottom:none; }
     .tabel-rij:hover { background:#fafafa; }
     .tabel-rij.geselecteerd { background:var(--teal-lt); }
@@ -177,8 +177,8 @@
         <div><div style="font-weight:500;">#${o.id}</div><div style="font-size:11px;color:var(--muted);">${o.datum}</div></div>
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.klant_naam||'—'}</div>
         <span class="status-badge ${statusCls[o.status]||''}">${statusNl[o.status]||o.status}</span>
-        <div style="text-align:center;">${verstrekkingHtml}</div>
-        <div>${verzondHtml}</div>
+        <div id="verstr-${o.id}" style="text-align:center;">${verstrekkingHtml}</div>
+        <div id="verzond-${o.id}">${verzondHtml}</div>
         <span class="betaal-badge ${betaalCls[o.betaal_type]||'betaal-anders'}">${o.betaal_status}</span>
       </div>`;
     });
@@ -202,27 +202,25 @@
       Object.entries(data.resultaten).forEach(([orderId, info]) => {
         const id = parseInt(orderId);
         if (info.verzonden) {
-          // Update verzend icoon
-          const rij = document.getElementById('rij-' + orderId);
-          if (rij) {
-            const verzondCel = rij.children[5];
-            if (verzondCel) {
-              verzondCel.innerHTML = info.tracking_url
-                ? `<a href="${info.tracking_url}" target="_blank" style="color:var(--success);font-size:14px;display:block;text-align:center;">✓</a>`
-                : `<span style="color:var(--success);display:block;text-align:center;">✓</span>`;
-            }
-            // Zet ook verstrekking vinkje
-            if (!o.heeft_verstrekking) {
-              // Markeer ook in WooCommerce
-              fetch('/api/order-verstrekking', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ order_id: id })
-              });
-              const verstrCel = rij.children[4];
-              if (verstrCel) {
-                verstrCel.innerHTML = `<span class="vinkje klaar">✓</span>`;
-              }
+          // Update verzend icoon via ID
+          const verzondCel = document.getElementById('verzond-' + orderId);
+          if (verzondCel) {
+            verzondCel.innerHTML = info.tracking_url
+              ? `<a href="${info.tracking_url}" target="_blank" style="color:var(--success);font-size:14px;display:block;text-align:center;">✓</a>`
+              : `<span style="color:var(--success);display:block;text-align:center;">✓</span>`;
+          }
+          // Zet ook verstrekking vinkje als nog niet aanwezig
+          const orderObj = alleOrders.find(x => x.id === id);
+          if (orderObj && !orderObj.heeft_verstrekking) {
+            fetch('/api/order-verstrekking', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ order_id: id })
+            });
+            orderObj.heeft_verstrekking = true;
+            const verstrCel = document.getElementById('verstr-' + orderId);
+            if (verstrCel) {
+              verstrCel.innerHTML = `<span class="vinkje klaar">✓</span>`;
             }
           }
         }
