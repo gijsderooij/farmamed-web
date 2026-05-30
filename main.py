@@ -516,21 +516,15 @@ async def haal_bestellingen_op():
         betaal_titel = o.get("payment_method_title", "")
         datum_betaald = o.get("date_paid")
 
-        # Controleer op Bank-betaling via meta veld (gezet door MT940 import)
-        bank_betaald = meta.get("_farmamed_bank_betaald", "") == "1"
-
-        if bank_betaald:
-            betaal_status = "Bank ✓"
-            betaal_type = "bank"
-        elif datum_betaald and o.get("transaction_id"):
-            if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower() or "ideal" in betaal_methode.lower():
+        if datum_betaald and o.get("transaction_id"):
+            if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower():
                 betaal_status = "Pay ✓"
                 betaal_type = "pay"
             elif "bank" in betaal_methode.lower() or "transfer" in betaal_methode.lower() or "bacs" in betaal_methode.lower():
                 betaal_status = "Bank ✓"
                 betaal_type = "bank"
             else:
-                betaal_status = f"Anders"
+                betaal_status = f"Betaald ({betaal_titel or betaal_methode})"
                 betaal_type = "anders"
         else:
             betaal_status = "Niet betaald"
@@ -646,17 +640,29 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
 
+    # Haal ALLE pending orders op (meerdere pagina's) voor MT940 matching
+    orders = []
     try:
-        resp = http_requests.get(
-            f"{wc_url}/wp-json/wc/v3/orders",
-            auth=(wc_key, wc_secret),
-            headers={"Accept": "application/json"},
-            params={"status": "pending", "per_page": 50},
-            timeout=15,
-        )
-        orders = resp.json() if resp.status_code == 200 else []
+        pagina_mt = 1
+        while True:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                params={"status": "pending", "per_page": 100, "page": pagina_mt, "orderby": "date", "order": "desc"},
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            orders.extend(batch)
+            if len(batch) < 100:
+                break
+            pagina_mt += 1
     except Exception:
-        orders = []
+        pass
 
     # Match betalingen aan orders
     matches = []
@@ -686,17 +692,13 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
 
             # Ordernummer directe match (zwaarste gewicht)
             if betaling.get("order_nr") == wc_id:
-                score += 70
-            elif wc_id in betaling.get("omschrijving", ""):
+                score += 60
+            elif wc_id in betaling["omschrijving"]:
                 score += 30
 
             if score > beste_score and score >= 50:
                 beste_score = score
                 beste_match = order
-
-        # Normaliseer score naar max 100
-        # Max mogelijke score: 80 (ordernr) + 50 (naam) + 40 (bedrag) = 170
-        score_genormaliseerd = min(100, round(beste_score / 170 * 100)) if beste_score > 0 else 0
 
         matches.append({
             "betaling": betaling,
@@ -706,7 +708,7 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                 "totaal": beste_match.get("total"),
                 "status": beste_match.get("status"),
             } if beste_match else None,
-            "score": score_genormaliseerd,
+            "score": beste_score,
             "gematcht": beste_match is not None and beste_score >= 50,
         })
 
@@ -719,15 +721,9 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
 
 @app.post("/api/betalingen-verwerken")
 async def betalingen_verwerken(request: Request):
-    """
-    Verwerkt bevestigde bankbetalingen.
-    - Zet _farmamed_bank_betaald meta veld
-    - Als ook verzonden: status completed
-    - Als alleen betaald: status processing
-    """
+    """Markeert geselecteerde orders als betaald in WooCommerce."""
     body = await request.json()
     order_ids = body.get("order_ids", [])
-    verzonden_ids = set(body.get("verzonden_ids", []))  # orders die al verzonden zijn
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
@@ -735,23 +731,16 @@ async def betalingen_verwerken(request: Request):
     resultaten = []
     for oid in order_ids:
         try:
-            is_verzonden = oid in verzonden_ids
-            nieuwe_status = "completed" if is_verzonden else "processing"
-
             resp = http_requests.put(
                 f"{wc_url}/wp-json/wc/v3/orders/{oid}",
                 auth=(wc_key, wc_secret),
                 json={
-                    "status": nieuwe_status,
-                    "meta_data": [{"key": "_farmamed_bank_betaald", "value": "1"}]
+                    "set_paid": True,
+                    "status": "processing",
                 },
                 timeout=10,
             )
-            resultaten.append({
-                "order_id": oid,
-                "ok": resp.status_code == 200,
-                "nieuwe_status": nieuwe_status
-            })
+            resultaten.append({"order_id": oid, "ok": resp.status_code == 200})
         except Exception as e:
             resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
 
