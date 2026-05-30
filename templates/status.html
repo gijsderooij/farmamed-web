@@ -291,26 +291,67 @@
     } catch(e) { status.textContent = '✕ '+e.message; status.style.color='var(--danger)'; }
   }
 
+  let mt940VerzondIds = new Set();
+
   function toonMT940Matches(matches) {
     mt940Geselecteerd.clear();
+    mt940VerzondIds.clear();
     document.getElementById('mt940Matches').style.display = 'block';
-    document.getElementById('mt940Titel').textContent = matches.length+' betalingen gevonden';
-    let html = `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 60px;gap:8px;padding:9px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);"><span></span><span>Datum</span><span>Bedrag</span><span>Afzender</span><span>Order match</span><span>Score</span></div>`;
-    matches.forEach(m => {
-      const b=m.betaling, o=m.order;
-      const kleur = m.score>=80?'var(--success)':m.score>=50?'var(--warn)':'var(--danger)';
-      const checked = m.gematcht && m.score>=70;
-      if (checked && o) mt940Geselecteerd.add(o.id);
-      html += `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 60px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;${checked?'background:var(--teal-lt);':''}">
-        <input type="checkbox" ${checked?'checked':''} ${!o?'disabled':''} onchange="toggleMT940(${o?o.id:'null'},this)" style="cursor:${o?'pointer':'not-allowed'};">
-        <span>${b.datum}</span><span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
-        <span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.naam||b.omschrijving?.slice(0,30)||'—'}</span>
-        <div>${o?`<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>`:'<span style="color:var(--muted)">Geen match</span>'}</div>
-        <span style="font-weight:600;color:${kleur}">${m.score}%</span>
-      </div>`;
-    });
+
+    // Splits in zeker (≥80%) en onzeker (50-79%)
+    const zeker = matches.filter(m => m.gematcht && m.score >= 80);
+    const onzeker = matches.filter(m => m.gematcht && m.score >= 50 && m.score < 80);
+    const geen = matches.filter(m => !m.gematcht || m.score < 50);
+
+    // Zekere matches automatisch aanvinken
+    zeker.forEach(m => { if (m.order) mt940Geselecteerd.add(m.order.id); });
+
+    document.getElementById('mt940Titel').textContent =
+      `${matches.length} betalingen — ${zeker.length} zeker, ${onzeker.length} onzeker, ${geen.length} geen match`;
+
+    const grid = 'display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;';
+    const header = `<div style="${grid.replace('10px','9px')}background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;color:var(--muted);">
+      <span></span><span>Datum</span><span>Bedrag</span><span>Afzender</span><span>Order match</span><span>Score / Actie</span></div>`;
+
+    let html = header;
+
+    // Zekere matches
+    if (zeker.length > 0) {
+      html += `<div style="padding:6px 16px;background:#e8f8ee;font-size:11px;font-weight:600;color:var(--success);border-bottom:1px solid var(--border);">✓ Zekere matches (≥80%) — worden automatisch verwerkt</div>`;
+      zeker.forEach(m => { html += rij(m, true, '#e8f8ee'); });
+    }
+
+    // Onzekere matches
+    if (onzeker.length > 0) {
+      html += `<div style="padding:6px 16px;background:#fef3e2;font-size:11px;font-weight:600;color:var(--warn);border-bottom:1px solid var(--border);">⚠ Onzekere matches (50-79%) — controleer en vink aan</div>`;
+      onzeker.forEach(m => { html += rij(m, false, '#fef3e2'); });
+    }
+
+    // Geen match
+    if (geen.length > 0) {
+      html += `<div style="padding:6px 16px;background:#fafafa;font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);">○ Geen match gevonden</div>`;
+      geen.forEach(m => { html += rij(m, false, 'white'); });
+    }
+
     document.getElementById('mt940Lijst').innerHTML = html;
     updateMT940Knop();
+  }
+
+  function rij(m, checked, bg) {
+    const b = m.betaling, o = m.order;
+    const kleur = m.score >= 80 ? 'var(--success)' : m.score >= 50 ? 'var(--warn)' : 'var(--muted)';
+    if (checked && o) mt940Geselecteerd.add(o.id);
+    const match_tekst = o
+      ? `<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>`
+      : `<span style="color:var(--muted)">${b.naam || b.omschrijving?.slice(0,40) || '—'}</span>`;
+    return `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;background:${bg};">
+      <input type="checkbox" ${checked?'checked':''} ${!o?'disabled':''} onchange="toggleMT940(${o?o.id:'null'},this)" style="cursor:${o?'pointer':'not-allowed'};">
+      <span>${b.datum}</span>
+      <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);">${b.naam||b.omschrijving?.slice(0,30)||'—'}</span>
+      <div>${match_tekst}</div>
+      <span style="font-weight:600;color:${kleur}">${m.score > 0 ? m.score+'%' : '—'}</span>
+    </div>`;
   }
 
   function toggleMT940(id, cb) {
@@ -323,7 +364,8 @@
   function updateMT940Knop() {
     const btn = document.getElementById('btnBevestig');
     btn.style.display = mt940Geselecteerd.size>0?'inline-flex':'none';
-    btn.textContent = `✓ ${mt940Geselecteerd.size} betaling(en) verwerken`;
+    const zeker_count = [...mt940Geselecteerd].length;
+    btn.textContent = `✓ ${zeker_count} betaling(en) verwerken`;
   }
 
   async function bevestigBetalingen() {
