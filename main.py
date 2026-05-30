@@ -26,6 +26,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- HTTP Basic Auth beveiliging ---
+import secrets
+from fastapi.responses import Response
+
+@app.middleware("http")
+async def basic_auth_middleware(request: Request, call_next):
+    # Sta health check altijd toe
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    APP_USER = os.getenv("APP_USER", "farmamed")
+    APP_PASS = os.getenv("APP_PASS", "")
+
+    # Als geen wachtwoord ingesteld is, geen beveiliging
+    if not APP_PASS:
+        return await call_next(request)
+
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Basic "):
+        import base64 as _b64
+        try:
+            decoded = _b64.b64decode(auth[6:]).decode("utf-8")
+            username, password = decoded.split(":", 1)
+            if secrets.compare_digest(username, APP_USER) and secrets.compare_digest(password, APP_PASS):
+                return await call_next(request)
+        except Exception:
+            pass
+
+    return Response(
+        content="Toegang geweigerd",
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="Farmamed"'},
+    )
+
 BASE_DIR = Path(__file__).parent
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = "claude-sonnet-4-5"
@@ -543,9 +577,6 @@ async def haal_bestellingen_op():
         else:
             pass  # Ordernotities worden niet opgehaald voor snelheid
             
-        # Verstrekking uit WooCommerce meta
-        heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
-
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
         if not oorsprong:
@@ -567,7 +598,6 @@ async def haal_bestellingen_op():
             "verzend_status": verzend_status,
             "tracking_url": tracking_url,
             "tracking_nr": tracking_nr,
-            "heeft_verstrekking": heeft_verstrekking,
             "oorsprong": oorsprong,
         })
 
@@ -737,26 +767,6 @@ async def betalingen_verwerken(request: Request):
             resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
 
     return JSONResponse(content={"resultaten": resultaten})
-
-
-@app.post("/api/order-verstrekking")
-async def markeer_verstrekking(request: Request):
-    """Slaat verstrekking op als meta-veld in WooCommerce order."""
-    body = await request.json()
-    order_id = body.get("order_id")
-    wc_url = os.getenv("WC_URL", "")
-    wc_key = os.getenv("WC_KEY", "")
-    wc_secret = os.getenv("WC_SECRET", "")
-    try:
-        resp = http_requests.put(
-            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
-            auth=(wc_key, wc_secret),
-            json={"meta_data": [{"key": "_farmamed_verstrekking", "value": "1"}]},
-            timeout=10,
-        )
-        return JSONResponse(content={"ok": resp.status_code == 200})
-    except Exception as e:
-        return JSONResponse(content={"fout": str(e)})
 
 
 @app.post("/api/verzend-status")
@@ -1425,27 +1435,6 @@ async def _verrijk_met_woocommerce(recept: dict, wc_url: str, wc_key: str, wc_se
 
     except Exception as e:
         verrijkt["_verrijking_fout"] = str(e)
-
-    # Extraheer telefoonnummer uit e-mailtekst als het nog ontbreekt
-    if not verrijkt.get("telefoon"):
-        import re as _re
-        email_tekst = recept.get("_email_body", "")
-        if email_tekst:
-            # Zoek Nederlandse telefoonnummers (06, 0031, +31, vaste nummers)
-            tel_match = _re.search(
-                r'(?:tel(?:efoon)?|phone|mob(?:iel)?|gsm)[^\d]*(\+?(?:0031|31|0)\s*[\d\s\-]{8,12})',
-                email_tekst, _re.IGNORECASE
-            )
-            if not tel_match:
-                # Losse nummers zoeken
-                tel_match = _re.search(
-                    r'((?:\+31|0031|0)[\s\-]?(?:6[\s\-]?\d{8}|\d{2}[\s\-]?\d{7}|\d{3}[\s\-]?\d{6}))',
-                    email_tekst
-                )
-            if tel_match:
-                tel = _re.sub(r'[\s\-]', '', tel_match.group(1))
-                verrijkt["telefoon"] = tel
-                verrijkt["_verrijking"]["Telefoon"] = f"{tel} (uit e-mail)"
 
     return verrijkt
 
@@ -2183,12 +2172,7 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
         wc_key = os.getenv("WC_KEY", "")
         wc_secret = os.getenv("WC_SECRET", "")
         if all([wc_url, wc_key, wc_secret]):
-            # Geef e-mailtekst mee voor telefoonnummer extractie
-            email_cached_voor_verrijking = _zoek_email_op_uid(email_uid)
-            if email_cached_voor_verrijking:
-                recept_data["_email_body"] = email_cached_voor_verrijking.get("body", "")
             recept_data = await _verrijk_met_woocommerce(recept_data, wc_url, wc_key, wc_secret)
-            recept_data.pop("_email_body", None)  # verwijder intern veld uit output
 
         # Sla bijlagedata op in cache voor latere download
         email_cached = _zoek_email_op_uid(email_uid)
