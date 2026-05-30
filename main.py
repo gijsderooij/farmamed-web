@@ -26,40 +26,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- HTTP Basic Auth beveiliging ---
-import secrets
-from fastapi.responses import Response
-
-@app.middleware("http")
-async def basic_auth_middleware(request: Request, call_next):
-    # Sta health check altijd toe
-    if request.url.path == "/health":
-        return await call_next(request)
-
-    APP_USER = os.getenv("APP_USER", "farmamed")
-    APP_PASS = os.getenv("APP_PASS", "")
-
-    # Als geen wachtwoord ingesteld is, geen beveiliging
-    if not APP_PASS:
-        return await call_next(request)
-
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Basic "):
-        import base64 as _b64
-        try:
-            decoded = _b64.b64decode(auth[6:]).decode("utf-8")
-            username, password = decoded.split(":", 1)
-            if secrets.compare_digest(username, APP_USER) and secrets.compare_digest(password, APP_PASS):
-                return await call_next(request)
-        except Exception:
-            pass
-
-    return Response(
-        content="Toegang geweigerd",
-        status_code=401,
-        headers={"WWW-Authenticate": 'Basic realm="Farmamed"'},
-    )
-
 BASE_DIR = Path(__file__).parent
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = "claude-sonnet-4-5"
@@ -550,15 +516,21 @@ async def haal_bestellingen_op():
         betaal_titel = o.get("payment_method_title", "")
         datum_betaald = o.get("date_paid")
 
-        if datum_betaald and o.get("transaction_id"):
-            if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower():
+        # Controleer op Bank-betaling via meta veld (gezet door MT940 import)
+        bank_betaald = meta.get("_farmamed_bank_betaald", "") == "1"
+
+        if bank_betaald:
+            betaal_status = "Bank ✓"
+            betaal_type = "bank"
+        elif datum_betaald and o.get("transaction_id"):
+            if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower() or "ideal" in betaal_methode.lower():
                 betaal_status = "Pay ✓"
                 betaal_type = "pay"
             elif "bank" in betaal_methode.lower() or "transfer" in betaal_methode.lower() or "bacs" in betaal_methode.lower():
                 betaal_status = "Bank ✓"
                 betaal_type = "bank"
             else:
-                betaal_status = f"Betaald ({betaal_titel or betaal_methode})"
+                betaal_status = f"Anders"
                 betaal_type = "anders"
         else:
             betaal_status = "Niet betaald"
@@ -714,8 +686,8 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
 
             # Ordernummer directe match (zwaarste gewicht)
             if betaling.get("order_nr") == wc_id:
-                score += 60
-            elif wc_id in betaling["omschrijving"]:
+                score += 70
+            elif wc_id in betaling.get("omschrijving", ""):
                 score += 30
 
             if score > beste_score and score >= 50:
@@ -743,9 +715,15 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
 
 @app.post("/api/betalingen-verwerken")
 async def betalingen_verwerken(request: Request):
-    """Markeert geselecteerde orders als betaald in WooCommerce."""
+    """
+    Verwerkt bevestigde bankbetalingen.
+    - Zet _farmamed_bank_betaald meta veld
+    - Als ook verzonden: status completed
+    - Als alleen betaald: status processing
+    """
     body = await request.json()
     order_ids = body.get("order_ids", [])
+    verzonden_ids = set(body.get("verzonden_ids", []))  # orders die al verzonden zijn
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
@@ -753,16 +731,23 @@ async def betalingen_verwerken(request: Request):
     resultaten = []
     for oid in order_ids:
         try:
+            is_verzonden = oid in verzonden_ids
+            nieuwe_status = "completed" if is_verzonden else "processing"
+
             resp = http_requests.put(
                 f"{wc_url}/wp-json/wc/v3/orders/{oid}",
                 auth=(wc_key, wc_secret),
                 json={
-                    "set_paid": True,
-                    "status": "processing",
+                    "status": nieuwe_status,
+                    "meta_data": [{"key": "_farmamed_bank_betaald", "value": "1"}]
                 },
                 timeout=10,
             )
-            resultaten.append({"order_id": oid, "ok": resp.status_code == 200})
+            resultaten.append({
+                "order_id": oid,
+                "ok": resp.status_code == 200,
+                "nieuwe_status": nieuwe_status
+            })
         except Exception as e:
             resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
 
