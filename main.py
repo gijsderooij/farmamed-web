@@ -669,7 +669,6 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
     for betaling in betalingen:
         beste_match = None
         beste_score = 0
-        beste_ordernr_exact = False
 
         for order in orders:
             billing = order.get("billing", {})
