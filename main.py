@@ -694,6 +694,10 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                 beste_score = score
                 beste_match = order
 
+        # Normaliseer score naar max 100
+        # Max mogelijke score: 80 (ordernr) + 50 (naam) + 40 (bedrag) = 170
+        score_genormaliseerd = min(100, round(beste_score / 170 * 100)) if beste_score > 0 else 0
+
         matches.append({
             "betaling": betaling,
             "order": {
@@ -702,7 +706,7 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                 "totaal": beste_match.get("total"),
                 "status": beste_match.get("status"),
             } if beste_match else None,
-            "score": beste_score,
+            "score": score_genormaliseerd,
             "gematcht": beste_match is not None and beste_score >= 50,
         })
 
