@@ -311,7 +311,7 @@
 
     const grid = 'display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;';
     const header = `<div style="${grid.replace('10px','9px')}background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;color:var(--muted);">
-      <span></span><span>Datum</span><span>Bedrag</span><span>Afzender</span><span>Order match</span><span>Score / Actie</span></div>`;
+      <span></span><span>Datum</span><span>Bedrag</span><span>Naam / Omschrijving</span><span>Order match</span><span>Score</span></div>`;
 
     let html = header;
 
@@ -343,12 +343,17 @@
     if (checked && o) mt940Geselecteerd.add(o.id);
     const match_tekst = o
       ? `<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>`
-      : `<span style="color:var(--muted)">${b.naam || b.omschrijving?.slice(0,40) || '—'}</span>`;
+      : `<span style="color:var(--muted)">Geen match</span>`;
+    // Toon REMI omschrijving (ordernummer etc) ipv rekeninghouder naam
+    const afzender_tekst = b.remi || b.naam || '—';
     return `<div style="display:grid;grid-template-columns:32px 100px 80px 1fr 1fr 80px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;background:${bg};">
       <input type="checkbox" ${checked?'checked':''} ${!o?'disabled':''} onchange="toggleMT940(${o?o.id:'null'},this)" style="cursor:${o?'pointer':'not-allowed'};">
       <span>${b.datum}</span>
       <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);">${b.naam||b.omschrijving?.slice(0,30)||'—'}</span>
+      <div style="overflow:hidden;">
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${b.naam||'—'}</div>
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--teal-dk);">${afzender_tekst}</div>
+      </div>
       <div>${match_tekst}</div>
       <span style="font-weight:600;color:${kleur}">${m.score > 0 ? m.score+'%' : '—'}</span>
     </div>`;
