@@ -374,7 +374,6 @@
         <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${naam_tekst||'—'}</div>
         <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${remi_tekst}">${oms_html}</div>
       </div>
-      <div>${match_tekst}</div>
       <span style="font-weight:600;color:${kleur};font-size:10px;">${m.methode === 'ordernummer' ? (m.bedrag_klopt ? '✓ nr+€' : '⚠ nr') : m.methode === 'naam+bedrag' ? '~ naam+€' : m.methode === 'naam' ? '? naam' : '—'}</span>
     </div>`;
   }
