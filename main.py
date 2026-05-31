@@ -2163,4 +2163,1642 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
 
         return JSONResponse(content={"preview": preview, "recept": recept_data})
     except Exception as e:
+        return JSONResponse(content={"preview": preview, "fout": str(e)})    # MT940 parser - schoon en eenvoudig
+    betalingen = []
+    FARMAMED_AGB = "02009907"
+    blokken_mt = _re.split(r':61:', tekst)
+
+    for blok in blokken_mt[1:]:
+        try:
+            header = _re.match(r'(\d{6})(\d{4})?([CD])(\d+),(\d*)', blok)
+            if not header or header.group(3) == 'D':
+                continue
+            d = header.group(1)
+            datum = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
+            bedrag = float(f"{header.group(4)}.{header.group(5) or '00'}")
+
+            oms_match = _re.search(r':86:(.*?)(?=:6[12]:|:62|$)', blok, _re.DOTALL)
+            if not oms_match:
+                continue
+            oms_raw = oms_match.group(1)
+            if any(w in oms_raw for w in ['Pay.nl', 'CLEARING', 'Stichting Pay']):
+                continue
+
+            # Naam rekeninghouder
+            naam = ''
+            naam_match = _re.search(r'/NAME/([^/]+)', oms_raw) or _re.search(r'/NA ME/([^/]+)', oms_raw)
+            if naam_match:
+                naam = _re.sub(r'\s+', ' ', naam_match.group(1)).strip()
+                naam = _re.sub(r'^(De heer|Mevr?\.?|Dhr\.?|Mw\.?)\s+', '', naam, flags=_re.IGNORECASE).strip()
+
+            # REMI = klantomschrijving (wat klant invult)
+            remi = ''
+            remi_match = _re.search(r'/REMI/(.+?)(?=/EREF/|/CSID/|$)', oms_raw, _re.DOTALL)
+            if remi_match:
+                remi = _re.sub(r'\s+', ' ', remi_match.group(1)).strip()
+
+            # Ordernummer ALLEEN uit REMI
+            order_nr = ''
+            if remi:
+                remi_clean = remi.replace(FARMAMED_AGB, '')
+                # Expliciet ordernummer met keyword
+                nr_match = _re.search(
+                    r'(?:ordernummer|ordernr\.?|order\s*(?:nr\.?|nummer)|factuur(?:nr)?\.?|bestelling)\s*[:\s#]*(\d{1,3}\s?\d{3,4}|\d{3,5})',
+                    remi_clean, _re.IGNORECASE
+                )
+                if nr_match:
+                    order_nr = _re.sub(r'\s', '', nr_match.group(1))  # verwijder spaties
+                    if len(order_nr) > 5:
+                        order_nr = ''
+                # Losse 4-5 cijfers zonder keyword
+                if not order_nr:
+                    for m in _re.finditer(r'(\d{4,5})', remi_clean):
+                        c = m.group(1)
+                        if c != FARMAMED_AGB and not c.startswith('020'):
+                            order_nr = c
+                            break
+
+            betalingen.append({
+                "datum": datum,
+                "bedrag": bedrag,
+                "naam": naam,
+                "remi": remi[:80],
+                "order_nr": order_nr,
+            })
+        except Exception:
+            continue
+
+    if not betalingen:
+        return JSONResponse(content={"fout": "Geen betalingen gevonden in MT940 bestand"})
+
+    # Haal ALLE pending orders op
+    orders = []
+    try:
+        pagina_mt = 1
+        while True:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                params={"status": "pending", "per_page": 100, "page": pagina_mt},
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            orders.extend(batch)
+            if len(batch) < 100:
+                break
+            pagina_mt += 1
+    except Exception:
+        pass
+
+    # Maak lookup dict: ordernummer → order
+    order_lookup = {str(o["id"]): o for o in orders}
+
+    def order_info(o):
+        billing = o.get("billing", {})
+        return {
+            "id": o["id"],
+            "klant_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
+            "totaal": o.get("total"),
+            "status": o.get("status"),
+            "datum": o.get("date_created", "")[:10],
+        }
+
+    def datum_ok(betaling_datum, order_datum):
+        """Betaaldatum moet >= orderdatum zijn."""
+        return betaling_datum >= order_datum[:10] if order_datum else True
+
+    # STAP 1: Match op ordernummer
+    matches = []
+    niet_gematcht = []  # betalingen zonder ordernummer match
+
+    for betaling in betalingen:
+        order_nr = betaling.get("order_nr", "")
+        order = order_lookup.get(order_nr) if order_nr else None
+
+        if order and datum_ok(betaling["datum"], order.get("date_created", "")):
+            wc_bedrag = float(order.get("total", 0))
+            bedrag_klopt = abs(betaling["bedrag"] - wc_bedrag) < 0.02
+            matches.append({
+                "betaling": betaling,
+                "order": order_info(order),
+                "score": 100 if bedrag_klopt else 85,
+                "gematcht": True,
+                "methode": "ordernummer",
+                "bedrag_klopt": bedrag_klopt,
+            })
+        else:
+            niet_gematcht.append(betaling)
+
+    # STAP 2: Naamsmatch voor betalingen zonder ordernummer
+    al_gematcht_order_ids = {m["order"]["id"] for m in matches if m["gematcht"]}
+
+    for betaling in niet_gematcht:
+        if not betaling.get("naam"):
+            matches.append({"betaling": betaling, "order": None, "score": 0, "gematcht": False, "methode": "geen"})
+            continue
+
+        beste_order = None
+        beste_score = 0
+
+        for order in orders:
+            # Skip al gematchte orders
+            if order["id"] in al_gematcht_order_ids:
+                continue
+            # Datum check
+            if not datum_ok(betaling["datum"], order.get("date_created", "")):
+                continue
+
+            billing = order.get("billing", {})
+            wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+            naam_score = fuzz.token_sort_ratio(
+                _normaliseer_naam(betaling["naam"]),
+                _normaliseer_naam(wc_naam)
+            )
+
+            if naam_score > beste_score and naam_score >= 70:
+                beste_score = naam_score
+                beste_order = order
+
+        if beste_order:
+            wc_bedrag = float(beste_order.get("total", 0))
+            bedrag_klopt = abs(betaling["bedrag"] - wc_bedrag) < 0.02
+            # Alleen matchen als naam én bedrag kloppen
+            if bedrag_klopt:
+                matches.append({
+                    "betaling": betaling,
+                    "order": order_info(beste_order),
+                    "score": round(beste_score * 0.8),  # max 80% voor naam+bedrag
+                    "gematcht": True,
+                    "methode": "naam+bedrag",
+                    "bedrag_klopt": True,
+                })
+            else:
+                # Naam match maar bedrag klopt niet — tonen als onzeker
+                matches.append({
+                    "betaling": betaling,
+                    "order": order_info(beste_order),
+                    "score": round(beste_score * 0.5),  # max 50%
+                    "gematcht": False,
+                    "methode": "naam",
+                    "bedrag_klopt": False,
+                })
+        else:
+            matches.append({"betaling": betaling, "order": None, "score": 0, "gematcht": False, "methode": "geen"})
+
+    return JSONResponse(content={
+        "betalingen": len(betalingen),
+        "gematcht": sum(1 for m in matches if m["gematcht"]),
+        "matches": matches,
+    })
+
+
+@app.post("/api/betalingen-verwerken")
+async def betalingen_verwerken(request: Request):
+    """Markeert geselecteerde orders als betaald in WooCommerce."""
+    body = await request.json()
+    order_ids = body.get("order_ids", [])
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    resultaten = []
+    for oid in order_ids:
+        try:
+            resp = http_requests.put(
+                f"{wc_url}/wp-json/wc/v3/orders/{oid}",
+                auth=(wc_key, wc_secret),
+                json={
+                    "set_paid": True,
+                    "status": "processing",
+                },
+                timeout=10,
+            )
+            resultaten.append({"order_id": oid, "ok": resp.status_code == 200})
+        except Exception as e:
+            resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
+
+    return JSONResponse(content={"resultaten": resultaten})
+
+
+@app.post("/api/verzend-status")
+async def haal_verzend_status(request: Request):
+    """Haalt verzendstatus op uit ordernotities voor een lijst order IDs."""
+    body = await request.json()
+    order_ids = body.get("order_ids", [])
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+    import re as _re
+
+    resultaten = {}
+    for oid in order_ids:
+        try:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders/{oid}/notes",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                for note in resp.json():
+                    note_tekst = note.get("note", "")
+                    if "sendcloud" in note_tekst.lower() or "postnl" in note_tekst.lower() or "tracking" in note_tekst.lower():
+                        url_match = _re.search(r'(https?://\S+)', note_tekst)
+                        if url_match:
+                            resultaten[str(oid)] = {
+                                "verzonden": True,
+                                "tracking_url": url_match.group(1).replace("&amp;", "&").rstrip(".")
+                            }
+                            break
+                if str(oid) not in resultaten:
+                    resultaten[str(oid)] = {"verzonden": False, "tracking_url": ""}
+        except Exception:
+            resultaten[str(oid)] = {"verzonden": False, "tracking_url": ""}
+
+    return JSONResponse(content={"resultaten": resultaten})
+
+
+@app.post("/api/order-afronden")
+async def order_afronden(request: Request):
+    """Markeert een of meerdere WooCommerce orders als completed."""
+    body = await request.json()
+    order_ids = body.get("order_ids", [])
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    resultaten = []
+    for oid in order_ids:
+        try:
+            resp = http_requests.put(
+                f"{wc_url}/wp-json/wc/v3/orders/{oid}",
+                auth=(wc_key, wc_secret),
+                json={"status": "completed"},
+                timeout=10,
+            )
+            resultaten.append({"order_id": oid, "ok": resp.status_code == 200})
+        except Exception as e:
+            resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
+
+    return JSONResponse(content={"resultaten": resultaten})
+
+
+@app.get("/status", response_class=HTMLResponse)
+async def status_pagina():
+    html_path = BASE_DIR / "templates" / "status.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/orders", response_class=HTMLResponse)
+async def orders_pagina():
+    html_path = BASE_DIR / "templates" / "orders.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+def _parseer_edifact(tekst: str) -> dict:
+    """
+    Parseert een inkomend EDIFACT-bericht (verstrekkingsverzoek van arts).
+    Extraheert patiënt- en medicijngegevens voor WooCommerce order.
+    """
+    import re
+    data = {}
+
+    # Patiëntnaam uit NAD segment
+    nad = re.search(r"NAD\+PAT\+([^+']+)", tekst)
+    if nad:
+        data["patient_naam"] = nad.group(1).strip().replace(":", " ")
+
+    # Geboortedatum
+    dob = re.search(r"DTM\+329:(\d{8})", tekst)
+    if dob:
+        d = dob.group(1)
+        data["geboortedatum"] = f"{d[6:8]}-{d[4:6]}-{d[0:4]}"
+
+    # Medicijn uit LIN of IMD segment
+    imd = re.search(r"IMD\+F\+\+\+([^']+)", tekst)
+    if imd:
+        data["medicijn"] = imd.group(1).strip()
+
+    # Hoeveelheid uit QTY segment
+    qty = re.search(r"QTY\+21:(\d+):GRM", tekst)
+    if qty:
+        data["hoeveelheid"] = f"{qty.group(1)} gram"
+
+    # Voorschrijver uit NAD+PrescribingDoctor of PRE segment
+    prs = re.search(r"NAD\+PRS\+([^+']+)", tekst)
+    if prs:
+        data["voorschrijver"] = prs.group(1).strip().replace(":", " ")
+
+    # Receptdatum
+    rdt = re.search(r"DTM\+137:(\d{8}):102", tekst)
+    if rdt:
+        d = rdt.group(1)
+        data["recept_datum"] = f"{d[6:8]}-{d[4:6]}-{d[0:4]}"
+
+    # BSN uit PNA of GIN segment
+    bsn = re.search(r"GIN\+BSN\+(\d{8,9})", tekst)
+    if bsn:
+        data["bsn"] = bsn.group(1)
+
+    return data
+
+
+@app.post("/api/zoek-herhaalorder")
+async def zoek_herhaalorder(request: Request):
+    """
+    Zoekt een eerdere WooCommerce order op basis van e-mailadres en/of naam
+    uit de e-mailbody. Geeft de beste match terug als kloonvoorstel.
+    """
+    body = await request.json()
+    afzender_email = body.get("afzender_email", "")
+    afzender_naam = body.get("afzender_naam", "")
+    email_body = body.get("email_body", "")
+
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not all([wc_url, wc_key, wc_secret]):
+        return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
+
+    # Laat Claude de echte afzender en inhoud uit de (doorgestuurde) mail extraheren
+    prompt = f"""Analyseer deze e-mail. Het kan een doorgestuurde (forwarded) mail zijn.
+Geef ALLEEN JSON terug, geen uitleg.
+
+Directe afzender: {afzender_email}
+Naam directe afzender: {afzender_naam}
+Volledige e-mailinhoud:
+{email_body[:2000]}
+
+Instructies:
+- Als dit een doorgestuurde mail is, gebruik dan het e-mailadres en naam van de ORIGINELE afzender (niet de doorsturende partij zoals info@farmamed.nl)
+- De originele afzender staat meestal na "Van:", "From:", "Afzender:" of "-------- Oorspronkelijk bericht --------"
+- Extraheer het medicijn en eventuele hoeveelheid uit de gehele inhoud inclusief het doorgestuurde deel
+
+{{
+  "patient_naam": "naam van de originele patient/arts",
+  "patient_email": "e-mailadres van de originele afzender",
+  "medicijn": "gevraagd medicijn of null",
+  "hoeveelheid": "hoeveelheid of null",
+  "is_herhaalverzoek": true of false,
+  "is_doorgestuurd": true of false,
+  "notitie": "korte samenvatting van het verzoek"
+}}"""
+
+    try:
+        resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        tekst = resp.json()["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
+        email_data = json.loads(tekst)
+    except Exception as e:
+        email_data = {"patient_naam": afzender_naam, "is_herhaalverzoek": True}
+
+    # Gebruik het echte e-mailadres (uit doorgestuurde mail indien van toepassing)
+    zoek_email = email_data.get("patient_email") or afzender_email
+    zoek_naam = email_data.get("patient_naam") or afzender_naam
+
+    # Zoek eerdere orders op e-mailadres
+    beste_order = None
+    beste_score = 0
+
+    try:
+        # Zoek op e-mailadres van de originele afzender
+        if zoek_email and "@" in zoek_email:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                params={"search": zoek_email, "per_page": 5, "orderby": "date", "order": "desc"},
+                timeout=10,
+            )
+            orders = resp.json() if resp.status_code == 200 else []
+            for order in (orders if isinstance(orders, list) else []):
+                billing = order.get("billing", {})
+                if billing.get("email", "").lower() == zoek_email.lower():
+                    beste_order = order
+                    beste_score = 100
+                    break
+
+        # Fallback: zoek op naam
+        if not beste_order:
+            naam = zoek_naam
+            achternaam = naam.split()[-1] if naam.split() else ""
+            if achternaam and len(achternaam) >= 3:
+                from rapidfuzz import fuzz
+                resp = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders",
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
+                    params={"search": achternaam, "per_page": 10, "orderby": "date", "order": "desc"},
+                    timeout=10,
+                )
+                orders = resp.json() if resp.status_code == 200 else []
+                for order in (orders if isinstance(orders, list) else []):
+                    billing = order.get("billing", {})
+                    wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+                    score = fuzz.token_sort_ratio(_normaliseer_naam(naam), _normaliseer_naam(wc_naam))
+                    if score > beste_score:
+                        beste_score = score
+                        beste_order = order
+
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e), "email_data": email_data})
+
+    if not beste_order or beste_score < 60:
+        return JSONResponse(content={
+            "gevonden": False,
+            "email_data": email_data,
+            "bericht": "Geen eerdere order gevonden — vul handmatig in",
+        })
+
+    # Bouw kloonvoorstel op
+    billing = beste_order.get("billing", {})
+    meta = {m["key"]: m["value"] for m in beste_order.get("meta_data", [])}
+    items = beste_order.get("line_items", [])
+    medicijn = items[0]["name"] if items else ""
+    product_id = items[0]["product_id"] if items else None
+
+    # Gebruik productnaam uit catalogus
+    productnaam = medicijn
+    for pid, naam in FARMAMED_PRODUCTEN:
+        if pid == product_id:
+            productnaam = naam
+            break
+
+    kloon = {
+        "order_id": beste_order["id"],
+        "match_score": beste_score,
+        "patient_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
+        "email": billing.get("email", ""),
+        "telefoon": billing.get("phone", ""),
+        "straat": billing.get("address_1", ""),
+        "postcode_plaats": f"{billing.get('postcode','')} {billing.get('city','')}".strip(),
+        "geboortedatum": _amerikaans_naar_nederlands(meta.get("billing_birth") or meta.get("_billing_birth") or ""),
+        "bsn": meta.get("bsn", ""),
+        "medicijn": productnaam,
+        "hoeveelheid": "30 gram",
+        "product_id": product_id,
+        "iter": "1x iter",
+        "gebruiksaanwijzing": meta.get("gebruiksaanwijzing", ""),
+        "voorschrijver": meta.get("voorschrijver", ""),
+        "agb_code": meta.get("agb_code", ""),
+    }
+
+    return JSONResponse(content={
+        "gevonden": True,
+        "kloon": kloon,
+        "email_data": email_data,
+        "bericht": f"Eerdere order #{beste_order['id']} gevonden (match: {beste_score}%)",
+    })
+
+
+@app.post("/api/kloon-order")
+async def kloon_order(request: Request):
+    """Maakt een nieuwe WooCommerce order aan op basis van een gekloonde order."""
+    data = await request.json()
+    data["bron"] = "email"
+    # Hergebruik maak-order logica
+    return await maak_order(request.__class__(request._scope, request._receive))
+
+
+@app.post("/api/verwerk-edifact-bijlage")
+async def verwerk_edifact_bijlage(request: Request):
+    """
+    Stroom 4: verwerkt een inkomend EDIFACT-bestand van een arts.
+    Parseert de gegevens en maakt een WooCommerce order aan.
+    """
+    body = await request.json()
+    email_uid = body.get("email_uid", "")
+    bijlage_index = body.get("bijlage_index", 0)
+
+    email = _zoek_email_op_uid(email_uid)
+    if not email:
+        return JSONResponse(content={"fout": "E-mail niet gevonden"})
+
+    bijlagen = email.get("bijlagen", [])
+    if bijlage_index >= len(bijlagen):
+        return JSONResponse(content={"fout": "Bijlage niet gevonden"})
+
+    bijlage = bijlagen[bijlage_index]
+    try:
+        inhoud_bytes = base64.b64decode(bijlage["data"])
+        edifact_tekst = inhoud_bytes.decode("utf-8", errors="replace")
+    except Exception as e:
+        return JSONResponse(content={"fout": f"Kon bijlage niet lezen: {e}"})
+
+    # Parseer EDIFACT
+    gegevens = _parseer_edifact(edifact_tekst)
+    if not gegevens:
+        return JSONResponse(content={"fout": "Geen EDIFACT-gegevens gevonden in bijlage"})
+
+    # Maak WooCommerce order aan
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    naam_delen = (gegevens.get("patient_naam") or "").split(" ", 1)
+    order_payload = {
+        "status": "processing",
+        "billing": {
+            "first_name": naam_delen[0] if naam_delen else "",
+            "last_name": naam_delen[1] if len(naam_delen) > 1 else "",
+        },
+        "meta_data": [
+            {"key": "geboortedatum", "value": gegevens.get("geboortedatum", "")},
+            {"key": "bsn", "value": gegevens.get("bsn", "")},
+            {"key": "voorschrijver", "value": gegevens.get("voorschrijver", "")},
+            {"key": "recept_datum", "value": gegevens.get("recept_datum", "")},
+            {"key": "medicijn_ocr", "value": gegevens.get("medicijn", "")},
+            {"key": "bron", "value": "edifact_email"},
+        ],
+        "customer_note": f"Order aangemaakt vanuit EDIFACT-bijlage. Medicijn: {gegevens.get('medicijn', '')}",
+    }
+
+    try:
+        resp = http_requests.post(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            json=order_payload,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        order = resp.json()
+        return JSONResponse(content={
+            "order_id": order["id"],
+            "gegevens": gegevens,
+            "bericht": f"Order #{order['id']} aangemaakt vanuit EDIFACT-bijlage",
+        })
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e), "gegevens": gegevens})
+
+
+@app.get("/api/orders")
+async def haal_orders_op():
+    """Haalt openstaande WooCommerce orders op."""
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not all([wc_url, wc_key, wc_secret]):
+        return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
+
+    try:
+        response = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            params={"status": "processing", "per_page": 50, "orderby": "date", "order": "desc"},
+            headers={"Accept": "application/json"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        orders_raw = response.json()
+        print(f"DEBUG orders: {len(orders_raw)} opgehaald, status codes: {[o.get('id') for o in orders_raw[:5]]}")
+
+        orders = []
+        for o in orders_raw:
+            billing = o.get("billing", {})
+            meta = {m["key"]: m["value"] for m in o.get("meta_data", [])}
+            items = o.get("line_items", [])
+            medicijn = items[0]["name"] if items else "Onbekend"
+            naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+            geboortedatum = meta.get("billing_birth") or meta.get("_billing_birth", "")
+
+            # Recept URL via plugin
+            recept_url = o.get("recept_url") or meta.get("recept_url", "")
+
+            # Haal ordernotities op
+            try:
+                notes_resp = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
+                    timeout=5,
+                )
+                o["order_notes"] = notes_resp.json() if notes_resp.status_code == 200 else []
+            except Exception:
+                o["order_notes"] = []
+
+            orders.append({
+                "id": o["id"],
+                "status": o.get("status", ""),
+                "datum": o.get("date_created", "")[:10],
+                "klant_naam": naam,
+                "email": billing.get("email", ""),
+                "telefoon": billing.get("phone", ""),
+                "adres": f"{billing.get('address_1','')} {billing.get('postcode','')} {billing.get('city','')}".strip(),
+                "geboortedatum": _amerikaans_naar_nederlands(geboortedatum),
+                "medicijn": medicijn,
+                "hoeveelheid": float(items[0].get("quantity", 1)) * 30 if items else 30,
+                "aantal": int(items[0].get("quantity", 1)) if items else 1,
+                "totaal": o.get("total", "0"),
+                "heeft_recept": bool(recept_url),
+                "recept_url": recept_url,
+            })
+
+        return JSONResponse(content={"orders": orders})
+
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
+
+
+@app.post("/api/recept-preview-url")
+async def recept_preview_url(request: Request):
+    """Haalt recept op via URL en converteert naar afbeelding voor weergave."""
+    body = await request.json()
+    url = body.get("url", "")
+
+    if not url:
+        return JSONResponse(content={"fout": "Geen URL opgegeven"})
+
+    try:
+        response = http_requests.get(url, timeout=20)
+        response.raise_for_status()
+        inhoud = response.content
+
+        if url.lower().endswith(".pdf") or response.headers.get("content-type", "").startswith("application/pdf"):
+            import fitz
+            doc = fitz.open(stream=inhoud, filetype="pdf")
+            pagina = doc[0]
+            mat = fitz.Matrix(1.5, 1.5)
+            pix = pagina.get_pixmap(matrix=mat, alpha=False)
+            img_bytes = pix.tobytes("jpeg")
+            b64 = base64.standard_b64encode(img_bytes).decode()
+            return JSONResponse(content={"preview": f"data:image/jpeg;base64,{b64}"})
+        else:
+            b64 = base64.standard_b64encode(inhoud).decode()
+            ct = response.headers.get("content-type", "image/jpeg").split(";")[0]
+            return JSONResponse(content={"preview": f"data:{ct};base64,{b64}"})
+
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
+
+
+@app.post("/api/analyseer-order")
+async def analyseer_order(request: Request):
+    """Analyseert recept van een WooCommerce order en vergelijkt met besteldata."""
+    body = await request.json()
+    order_id = body.get("order_id")
+    recept_url = body.get("recept_url", "")
+
+    if not recept_url:
+        return JSONResponse(content={"fout": "Geen recept-URL"})
+
+    # Download recept
+    try:
+        resp = http_requests.get(recept_url, timeout=20)
+        resp.raise_for_status()
+        recept_bytes = resp.content
+    except Exception as e:
+        return JSONResponse(content={"fout": f"Kon recept niet downloaden: {str(e)}"})
+
+    # Analyseer met Claude Vision
+    b64 = base64.standard_b64encode(recept_bytes).decode()
+    is_pdf = recept_url.lower().endswith(".pdf")
+    document_blok = {
+        "type": "document" if is_pdf else "image",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf" if is_pdf else "image/jpeg",
+            "data": b64
+        }
+    }
+
+    prompt = """Analyseer dit recept en extraheer de velden als JSON.
+Geef ALLEEN JSON terug, geen uitleg of markdown.
+
+BELANGRIJK: Lees het adresblok van de PATIËNT uit (niet van de arts).
+Volgorde adresblok: naam → straat + huisnummer → postcode + woonplaats.
+Verwar de achternaam van de arts NIET met een woonplaats.
+
+{
+  "recept_datum": "DD-MM-YYYY of null",
+  "medicijn": "volledige naam inclusief concentratie",
+  "hoeveelheid": "bijv. 30 gram",
+  "iter": "herhalingen of null",
+  "gebruiksaanwijzing": "instructie na S:",
+  "patient_naam": "voor- en achternaam patiënt",
+  "geboortedatum": "DD-MM-YYYY of null",
+  "bsn": "BSN-nummer of null",
+  "straat": "straat + huisnummer patiënt",
+  "postcode_plaats": "postcode + woonplaats patiënt",
+  "email": "email patiënt of null",
+  "telefoon": "telefoon patiënt of null",
+  "voorschrijver": "naam arts",
+  "agb_code": "AGB-code of null",
+  "big_nummer": "BIG-nummer of null",
+  "geldig": true,
+  "vertrouwen": 85
+}"""
+
+    try:
+        api_resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": [document_blok, {"type": "text", "text": prompt}]}],
+            },
+            timeout=60,
+        )
+        api_resp.raise_for_status()
+        tekst = api_resp.json()["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
+        recept_data = json.loads(tekst)
+    except Exception as e:
+        return JSONResponse(content={"fout": f"OCR mislukt: {str(e)}"})
+
+    # Haal WooCommerce order op voor vergelijking
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+    wc_order = {}
+
+    try:
+        wc_resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+            auth=(wc_key, wc_secret),
+            timeout=15,
+        )
+        wc_order = wc_resp.json()
+    except Exception:
+        pass
+
+    # Vergelijking
+    vergelijking = _vergelijk_order_recept(wc_order, recept_data)
+
+    return JSONResponse(content={"recept": recept_data, "vergelijking": vergelijking})
+
+
+async def _verrijk_met_woocommerce(recept: dict, wc_url: str, wc_key: str, wc_secret: str) -> dict:
+    """
+    Zoekt eerdere WooCommerce orders van dezelfde patiënt en vult
+    ontbrekende velden aan vanuit die orders.
+    Geeft verrijkt recept-dict terug met bronvermelding per veld.
+    """
+    if not all([wc_url, wc_key, wc_secret]):
+        return recept
+
+    verrijkt = dict(recept)
+    verrijkt["_verrijking"] = {}  # bijhoudt welke velden verrijkt zijn
+
+    # Zoekterm: achternaam van patiënt
+    naam = recept.get("patient_naam") or ""
+    achternaam = naam.split()[-1] if naam.split() else ""
+    if not achternaam or len(achternaam) < 3:
+        return verrijkt
+
+    try:
+        # Zoek orders op naam
+        resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            headers={"Accept": "application/json"},
+            params={"search": achternaam, "per_page": 10, "orderby": "date", "order": "desc"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        orders = resp.json()
+
+        if not orders or not isinstance(orders, list):
+            return verrijkt
+
+        # Zoek beste match op geboortedatum of naam
+        from rapidfuzz import fuzz
+        beste_order = None
+        beste_score = 0
+        huidige_order_id = str(body.get("huidige_order_id", ""))
+
+        for order in orders:
+            # Sla huidige order zelf over
+            if str(order.get("id")) == huidige_order_id:
+                continue
+            billing = order.get("billing", {})
+            meta = {m["key"]: m["value"] for m in order.get("meta_data", [])}
+
+            # Naam vergelijken
+            wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+            naam_score = fuzz.token_sort_ratio(
+                _normaliseer_naam(naam),
+                _normaliseer_naam(wc_naam)
+            )
+
+            # Geboortedatum vergelijken (extra zekerheid)
+            geb_score = 0
+            recept_geb = recept.get("geboortedatum") or ""
+            wc_geb = _amerikaans_naar_nederlands(meta.get("billing_birth") or meta.get("_billing_birth") or "")
+            if recept_geb and wc_geb and recept_geb == wc_geb:
+                geb_score = 50  # bonus bij exacte match
+
+            totaal = naam_score + geb_score
+            if totaal > beste_score and naam_score >= 70:
+                beste_score = totaal
+                beste_order = order
+
+        if not beste_order:
+            return verrijkt
+
+        # Verrijk ontbrekende velden
+        billing = beste_order.get("billing", {})
+        meta = {m["key"]: m["value"] for m in beste_order.get("meta_data", [])}
+        order_id = beste_order.get("id")
+        bron = f"WooCommerce order #{order_id}"
+
+        def vul_aan(veld_recept, waarde, label):
+            if not recept.get(veld_recept) and waarde:
+                verrijkt[veld_recept] = waarde
+                verrijkt["_verrijking"][label] = f"{waarde} (uit {bron})"
+
+        vul_aan("email",    billing.get("email"), "E-mail")
+        vul_aan("telefoon", billing.get("phone"), "Telefoon")
+        vul_aan("bsn",      meta.get("bsn"), "BSN")
+        vul_aan("geboortedatum",
+                _amerikaans_naar_nederlands(meta.get("billing_birth") or meta.get("_billing_birth") or ""),
+                "Geboortedatum")
+
+        # Adres
+        adres1 = billing.get("address_1", "")
+        postcode = billing.get("postcode", "")
+        stad = billing.get("city", "")
+        if adres1:
+            vul_aan("straat", adres1, "Straat")
+        if postcode and stad:
+            vul_aan("postcode_plaats", f"{postcode} {stad}", "Postcode & plaats")
+
+        verrijkt["_match_score"] = beste_score
+        verrijkt["_match_order"] = order_id
+
+    except Exception as e:
+        verrijkt["_verrijking_fout"] = str(e)
+
+    return verrijkt
+
+
+def _genereer_edifact(order_data: dict, recept_data: dict = None) -> str:
+    """
+    Genereert een EDIFACT ORDERS D96A verstrekkingsverzoek.
+    Werkt voor alle drie werkstromen.
+    """
+    from datetime import datetime
+    nu = datetime.now()
+    datum = nu.strftime("%y%m%d")
+    tijd = nu.strftime("%H%M")
+    order_id = str(order_data.get("id") or order_data.get("order_id") or "0")
+    ctrl = order_id.zfill(5)
+
+    medicijn = order_data.get("medicijn", "ONBEKEND")
+    medicijn_code = medicijn.upper().replace(" ", "")[:20]
+    try:
+        hoev_raw = str(order_data.get("hoeveelheid", 30))
+        hoev_raw = hoev_raw.replace(",", ".").replace(" gram", "").replace("gram", "").replace(" g", "").replace("G", "").replace("g", "").strip()
+        # Neem alleen het eerste getal
+        import re as _re
+        hoev_match = _re.search(r"[\d.]+", hoev_raw)
+        hoeveelheid = int(float(hoev_match.group(0))) if hoev_match else 30
+    except Exception:
+        hoeveelheid = 30
+
+    naam = order_data.get("patient_naam") or order_data.get("klant_naam") or ""
+    voorschrijver = ""
+    recept_datum = ""
+    if recept_data:
+        voorschrijver = recept_data.get("voorschrijver") or ""
+        recept_datum = recept_data.get("recept_datum") or ""
+
+    if voorschrijver and recept_datum:
+        recept_ref = f"RECEPT-{voorschrijver[:12].upper().replace(' ','-')}-{recept_datum}"
+    else:
+        recept_ref = f"BESTELLING-{order_id}"
+
+    regels = [
+        f"UNB+UNOA:2+FARMAMED+GROOTHANDEL+{datum}:{tijd}+{ctrl}'",
+        f"UNH+1+ORDERS:D:96A:UN'",
+        f"BGM+220+{order_id}+9'",
+        f"DTM+137:{nu.strftime('%Y%m%d')}:102'",
+        f"NAD+BY+FARMAMED:::Farmamed BV'",
+        f"NAD+SU+GROOTHANDEL:::Groothandel Farma NL'",
+        f"NAD+DP+{naam[:35]}'",
+        f"LIN+1++{medicijn_code}:BP'",
+        f"IMD+F+++{medicijn[:35]}'",
+        f"QTY+21:{hoeveelheid}:GRM'",
+        f"RFF+PD:{recept_ref}'",
+        f"UNT+11+1'",
+        f"UNZ+1+{ctrl}'",
+    ]
+    return "\n".join(regels)
+
+
+def _normaliseer_hoeveelheid(tekst: str) -> str:
+    """
+    Normaliseert hoeveelheden voor betere vergelijking.
+    - g, G, gram, grammen → gram
+    - mg, milligram → milligram
+    - 1 stuk, 1 tube, 1x 30g → 30 gram
+    - 2 stuks, 2 tubes → 60 gram
+    - Verwijdert spaties tussen getal en eenheid
+    """
+    import re
+
+    tekst = tekst.lower().strip()
+
+    # Tubes/stuks omzetten naar gram (1 tube = 30 gram)
+    tube_match = re.search(r'(\d+)\s*(?:tube[s]?|stuk[s]?|stuks?|x)', tekst)
+    gram_match = re.search(r'(\d+)\s*(?:g|gram)', tekst)
+
+    if tube_match and gram_match:
+        # "3 tubes van 30 gram" → "90 gram"
+        aantal = int(tube_match.group(1))
+        gram = int(gram_match.group(1))
+        return f"{aantal * gram} gram"
+    elif tube_match and not gram_match:
+        # "2 tubes" → "60 gram" (1 tube = 30 gram)
+        aantal = int(tube_match.group(1))
+        return f"{aantal * 30} gram"
+    elif re.search(r'^\d+\s*(?:stuk[s]?|tube[s]?)$', tekst):
+        aantal = int(re.search(r'(\d+)', tekst).group(1))
+        return f"{aantal * 30} gram"
+
+    # Normaliseer eenheden
+    tekst = re.sub(r'(\d+)\s*(?:gram|grammen|gr|g)', r' gram', tekst)
+    tekst = re.sub(r'(\d+)\s*(?:milligram|mg)', r' milligram', tekst)
+
+    # Verwijder extra spaties
+    tekst = re.sub(r'\s+', ' ', tekst).strip()
+
+    return tekst
+
+
+def _normaliseer_naam(naam: str) -> str:
+    """
+    Normaliseert patiëntnamen voor betere vergelijking.
+    - Verwijdert tussenvoegsels (van, de, den, der, het, 't)
+    - Verwijdert voorletters (J. of J.M.)
+    - Verwijdert koppeltekens tussen dubbele namen
+    - Zet om naar lowercase
+    - Verwijdert mevrouw/dhr/de heer titels
+    """
+    import re
+
+    naam = naam.lower().strip()
+
+    # Verwijder titels
+    naam = re.sub(r'\b(mw\.?|dhr\.?|de heer|mevrouw|drs\.?|dr\.?|mr\.?)\s*', '', naam)
+
+    # Verwijder voorletters (bijv. "J." of "J.M.")
+    naam = re.sub(r'\b[a-z]\.(?:[a-z]\.)*\s*', '', naam)
+
+    # Vervang koppeltekens door spatie (meisjesnaam koppeling)
+    naam = naam.replace('-', ' ')
+
+    # Verwijder tussenvoegsels
+    tussenvoegsels = r'\b(van|de|den|der|het|ten|ter|\'t|d\'|von|van der|van den|van de)\b'
+    naam = re.sub(tussenvoegsels, '', naam)
+
+    # Verwijder extra spaties
+    naam = re.sub(r'\s+', ' ', naam).strip()
+
+    return naam
+
+
+def _normaliseer_medicijn(naam: str) -> str:
+    """
+    Verwijdert ruis uit medicijnnamen voor betere vergelijking.
+    - Verwijdert: FNA, SAW creme, tegen huidveroudering, (saw-creme), in saw creme
+    - Converteert mg/g naar % (bijv. 0.5 mg/g -> 0.05%)
+    - Verwijdert extra spaties
+    """
+    import re
+
+    naam = naam.lower().strip()
+
+    # Verwijder bekende suffixen en toevoegingen
+    te_verwijderen = [
+        r'fna',
+        r'\(saw[\s\-]?creme?\)',
+        r'in\s+saw[\s\-]?creme?',
+        r'saw[\s\-]?creme?',
+        r'tegen\s+huidveroudering',
+        r'tegen\s+acne',
+        r'\(?\d+\s*gram\)?',      # (30 gram) weglaten
+        r'crème',
+        r'creme',
+        r'zalf',
+        r'gel',
+        r'oplossing',
+    ]
+    for patroon in te_verwijderen:
+        naam = re.sub(patroon, '', naam, flags=re.IGNORECASE)
+
+    # Converteer mg/g naar % (0.5 mg/g = 0.05%)
+    def mgpg_naar_procent(match):
+        waarde = float(match.group(1).replace(',', '.'))
+        procent = waarde / 10
+        return f"{procent:g}%"
+
+    naam = re.sub(r'(\d+[.,]?\d*)\s*mg/g', mgpg_naar_procent, naam, flags=re.IGNORECASE)
+
+    # Normaliseer decimalen (0,02 en 0.02 zijn hetzelfde)
+    naam = naam.replace(',', '.')
+
+    # Verwijder extra spaties
+    naam = re.sub(r'\s+', ' ', naam).strip()
+
+    return naam
+
+
+def _nl_naar_amerikaans(datum: str) -> str:
+    """Converteert DD-MM-YYYY naar YYYY-MM-DD voor WooCommerce billing_birth."""
+    if not datum:
+        return ""
+    try:
+        from datetime import datetime
+        if len(datum) == 10 and datum[2] == '-':
+            dt = datetime.strptime(datum, "%d-%m-%Y")
+            return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+    return datum
+
+
+def _amerikaans_naar_nederlands(datum: str) -> str:
+    """Converteert YYYY-MM-DD naar DD-MM-YYYY."""
+    if not datum:
+        return ""
+    try:
+        from datetime import datetime
+        # Probeer YYYY-MM-DD formaat
+        if len(datum) == 10 and datum[4] == '-':
+            dt = datetime.strptime(datum, "%Y-%m-%d")
+            return dt.strftime("%d-%m-%Y")
+    except ValueError:
+        pass
+    return datum  # Geef origineel terug als conversie mislukt
+
+
+def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
+    """Vergelijkt WooCommerce besteldata met OCR-receptdata."""
+    from rapidfuzz import fuzz
+
+    billing = wc_order.get("billing", {})
+    meta = {m["key"]: m["value"] for m in wc_order.get("meta_data", [])}
+    items = wc_order.get("line_items", [])
+
+    wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+    wc_medicijn = items[0]["name"] if items else ""
+    wc_geboortedatum_raw = meta.get("billing_birth") or meta.get("_billing_birth", "")
+    wc_geboortedatum = _amerikaans_naar_nederlands(wc_geboortedatum_raw)
+    wc_aantal = int(items[0].get("quantity", 1)) if items else 1
+    wc_hoeveelheid_gram = wc_aantal * 30
+    wc_hoeveelheid = f"{wc_hoeveelheid_gram} gram ({wc_aantal}x 30g)" if wc_aantal > 1 else "30 gram"
+    wc_order["_hoeveelheid"] = wc_hoeveelheid_gram
+
+    velden = []
+    aandachtspunten = []
+
+    def vergelijk_veld(naam, wc_waarde, recept_waarde):
+        wc_str = str(wc_waarde or "").strip().lower()
+        rec_str = str(recept_waarde or "").strip().lower()
+        if not wc_str or not rec_str:
+            score = 40
+        else:
+            score = fuzz.token_sort_ratio(wc_str, rec_str)
+        return {"veld": naam, "wc_waarde": wc_waarde or "—", "recept_waarde": recept_waarde or "—", "score": score}
+
+    wc_naam_norm = _normaliseer_naam(wc_naam)
+    recept_naam_norm = _normaliseer_naam(recept.get("patient_naam") or "")
+    veld_naam = vergelijk_veld("Naam", wc_naam, recept.get("patient_naam"))
+    from rapidfuzz import fuzz as _fuzz2
+    veld_naam["score"] = _fuzz2.token_sort_ratio(wc_naam_norm, recept_naam_norm)
+    velden.append(veld_naam)
+    velden.append(vergelijk_veld("Geboortedatum", wc_geboortedatum, recept.get("geboortedatum")))
+    wc_medicijn_norm = _normaliseer_medicijn(wc_medicijn)
+    recept_medicijn_norm = _normaliseer_medicijn(recept.get("medicijn") or "")
+    veld = vergelijk_veld("Medicijn", wc_medicijn, recept.get("medicijn"))
+    # Herbereken score op genormaliseerde waarden
+    from rapidfuzz import fuzz as _fuzz
+    veld["score"] = _fuzz.token_sort_ratio(wc_medicijn_norm, recept_medicijn_norm)
+    velden.append(veld)
+    wc_hoev_norm = _normaliseer_hoeveelheid(wc_hoeveelheid)
+    recept_hoev_norm = _normaliseer_hoeveelheid(recept.get("hoeveelheid") or "")
+    veld_hoev = vergelijk_veld("Hoeveelheid", wc_hoeveelheid, recept.get("hoeveelheid"))
+    from rapidfuzz import fuzz as _fuzz3
+    veld_hoev["score"] = _fuzz3.token_sort_ratio(wc_hoev_norm, recept_hoev_norm)
+    velden.append(veld_hoev)
+
+    # Receptdatum geldigheid
+    recept_datum = recept.get("recept_datum", "")
+    geldig = recept.get("geldig", True)
+    if not geldig:
+        aandachtspunten.append("⛔ Recept mogelijk verlopen — ouder dan 1 jaar")
+        velden.append({"veld": "Receptdatum", "wc_waarde": "Geldig", "recept_waarde": recept_datum, "score": 0})
+    else:
+        velden.append({"veld": "Receptdatum", "wc_waarde": "Geldig", "recept_waarde": recept_datum, "score": 100})
+
+    scores = [v["score"] for v in velden]
+    totaal = round(sum(scores) / len(scores)) if scores else 0
+
+    if totaal < 60:
+        aandachtspunten.append("⚠ Lage overeenkomst tussen bestelling en recept")
+
+    return {"velden": velden, "totaal_score": totaal, "aandachtspunten": aandachtspunten}
+
+
+@app.post("/api/order-status")
+async def update_order_status(request: Request):
+    """Werkt WooCommerce orderstatus bij na beslissing apotheker."""
+    body = await request.json()
+    order_id = body.get("order_id")
+    status = body.get("status", "completed")
+
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    try:
+        resp = http_requests.put(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+            auth=(wc_key, wc_secret),
+            json={"status": status},
+            timeout=15,
+        )
+        return JSONResponse(content={"ok": resp.status_code == 200})
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)})
+
+
+# ------------------------------------------------------------------
+# E-mail pagina en IMAP endpoints
+# ------------------------------------------------------------------
+
+@app.get("/emails", response_class=HTMLResponse)
+async def emails_pagina():
+    html_path = BASE_DIR / "templates" / "emails.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+def _imap_verbinding():
+    """Maakt IMAP-verbinding met de geconfigureerde mailbox."""
+    import imaplib
+    imap_server = os.getenv("IMAP_SERVER", "")
+    imap_port = int(os.getenv("IMAP_PORT", "993"))
+    imap_user = os.getenv("IMAP_USER", "")
+    imap_pass = os.getenv("IMAP_PASS", "")
+
+    if not all([imap_server, imap_user, imap_pass]):
+        raise ValueError("IMAP niet geconfigureerd — voeg IMAP_SERVER, IMAP_USER en IMAP_PASS toe")
+
+    conn = imaplib.IMAP4_SSL(imap_server, imap_port)
+    conn.login(imap_user, imap_pass)
+    return conn
+
+
+def _classificeer_email(onderwerp: str, body: str) -> str:
+    """Classificeert het type e-mail op basis van onderwerp en inhoud."""
+    tekst = (onderwerp + " " + body).lower()
+    herhaal_termen = ["herhaalrecept", "herhaling", "iter", "verlenging", "opnieuw", "nogmaals", "herhaal"]
+    recept_termen = ["recept", "voorschrift", "medicijn", "medicatie", "bijlage", "zie bijlage"]
+
+    if any(t in tekst for t in herhaal_termen):
+        return "herhaalrecept"
+    elif any(t in tekst for t in recept_termen):
+        return "nieuw_recept"
+    return "overig"
+
+
+# SQLite persistente e-mailopslag
+import sqlite3 as _sqlite3
+
+_DB_PAD = "/app/data/emails.db"
+
+def _init_email_db():
+    """Maak database aan als die nog niet bestaat."""
+    import os
+    os.makedirs("/app/data", exist_ok=True)
+    conn = _sqlite3.connect(_DB_PAD)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS emails (
+            uid TEXT PRIMARY KEY,
+            data TEXT NOT NULL,
+            ontvangen TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def _sla_email_op(email_data: dict):
+    """Sla e-mail op in SQLite."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO emails (uid, data) VALUES (?, ?)",
+            (email_data["uid"], json.dumps(email_data))
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+def _haal_emails_op_db(limit: int = 50) -> list:
+    """Haal e-mails op uit SQLite, nieuwste eerst."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        rows = conn.execute(
+            "SELECT data FROM emails ORDER BY ontvangen DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [json.loads(r[0]) for r in rows]
+    finally:
+        conn.close()
+
+def _zoek_email_op_uid(uid: str) -> dict:
+    """Zoek één e-mail op uid."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        row = conn.execute("SELECT data FROM emails WHERE uid = ?", (uid,)).fetchone()
+        return json.loads(row[0]) if row else None
+    finally:
+        conn.close()
+
+# Backwards compat helper
+def _email_cache_get(uid: str):
+    return _zoek_email_op_uid(uid)
+
+
+@app.post("/api/email-inkomend")
+async def email_inkomend(request: Request):
+    """Ontvangt een e-mail van de lokale poller en slaat hem op in SQLite."""
+    data = await request.json()
+    if not data.get("uid"):
+        return JSONResponse(content={"fout": "Geen UID"})
+    _sla_email_op(data)
+    alle = _haal_emails_op_db()
+    return JSONResponse(content={"ok": True, "totaal": len(alle)})
+
+
+from fastapi.responses import StreamingResponse
+import io
+
+@app.post("/api/download-recept")
+async def download_recept(request: Request):
+    """
+    Haalt recept op via WordPress plugin endpoint en stuurt als download.
+    Gebruikt het beveiligde farmamed/v1/download-recept endpoint.
+    """
+    body = await request.json()
+    order_id = body.get("order_id")
+    bestandsnaam = body.get("bestandsnaam", "recept.pdf")
+
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not order_id or not wc_url:
+        return JSONResponse(content={"fout": "Onvoldoende gegevens"}, status_code=400)
+
+    try:
+        # Gebruik het WordPress plugin endpoint
+        download_url = f"{wc_url}/wp-json/farmamed/v1/download-recept"
+        resp = http_requests.get(
+            download_url,
+            params={"order_id": order_id, "bestandsnaam": bestandsnaam},
+            auth=(wc_key, wc_secret),
+            timeout=30,
+            stream=True,
+        )
+        resp.raise_for_status()
+        inhoud = resp.content
+
+        # Bepaal media type
+        ct = resp.headers.get("content-type", "application/pdf").split(";")[0]
+
+        return StreamingResponse(
+            io.BytesIO(inhoud),
+            media_type=ct,
+            headers={
+                "Content-Disposition": f'attachment; filename="{bestandsnaam}"',
+                "Content-Length": str(len(inhoud)),
+            }
+        )
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)}, status_code=500)
+
+
+@app.post("/api/download-bijlage")
+async def download_bijlage(request: Request):
+    """Haalt een e-mailbijlage op uit de cache en stuurt het terug als download."""
+    body = await request.json()
+    email_uid = body.get("email_uid", "")
+    bijlage_index = body.get("bijlage_index", 0)
+    bestandsnaam = body.get("bestandsnaam", "recept.pdf")
+
+    email = _zoek_email_op_uid(email_uid)
+    if not email:
+        return JSONResponse(content={"fout": "E-mail niet gevonden"}, status_code=404)
+
+    bijlagen = email.get("bijlagen", [])
+    if bijlage_index >= len(bijlagen):
+        return JSONResponse(content={"fout": "Bijlage niet gevonden"}, status_code=404)
+
+    bijlage = bijlagen[bijlage_index]
+    try:
+        data = bijlage.get("data", "")
+        if not data:
+            return JSONResponse(content={"fout": "Geen bijlagedata"}, status_code=404)
+        # Voeg padding toe als nodig
+        padding = 4 - len(data) % 4
+        if padding != 4:
+            data += "=" * padding
+        inhoud = base64.b64decode(data, validate=False)
+        ct = bijlage.get("type", "application/pdf")
+        return StreamingResponse(
+            io.BytesIO(inhoud),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{bestandsnaam}"'}
+        )
+    except Exception as e:
+        return JSONResponse(content={"fout": str(e)}, status_code=500)
+
+
+@app.delete("/api/emails-wissen")
+async def wis_emails():
+    """Leegmaken van de e-mailcache (SQLite)."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        conn.execute("DELETE FROM emails")
+        conn.commit()
+        return JSONResponse(content={"ok": True, "bericht": "Alle e-mails gewist"})
+    finally:
+        conn.close()
+
+
+@app.get("/api/emails")
+async def haal_emails_op(verwerkt: str = "nee"):
+    """Geeft opgeslagen e-mails terug vanuit SQLite. verwerkt=nee toont alleen onverwerkte."""
+    emails = _haal_emails_op_db()
+    if not emails:
+        return JSONResponse(content={"emails": [], "info": "Nog geen e-mails ontvangen — start de lokale email_poller.py"})
+    # Filter verwerkte e-mails tenzij expliciet gevraagd
+    if verwerkt == "nee":
+        emails = [e for e in emails if not e.get("verwerkt")]
+    emails_zonder_data = []
+    for e in emails:
+        email_slim = {k: v for k, v in e.items() if k != "bijlagen"}
+        email_slim["bijlagen"] = [{"naam": b["naam"], "type": b["type"]} for b in e.get("bijlagen", [])]
+        emails_zonder_data.append(email_slim)
+    return JSONResponse(content={"emails": emails_zonder_data})
+
+
+@app.post("/api/email-verwerkt")
+async def markeer_email_verwerkt(request: Request):
+    """Markeert een e-mail als verwerkt (order aangemaakt) in de database."""
+    body = await request.json()
+    email_uid = body.get("email_uid", "")
+    order_id = body.get("order_id")
+    email = _zoek_email_op_uid(email_uid)
+    if email:
+        email["verwerkt"] = True
+        email["order_id"] = order_id
+        _sla_email_op(email)
+    return JSONResponse(content={"ok": True})
+
+    try:
+        conn.select("INBOX")
+        # Haal alle e-mails op (ongelezen + gelezen, max 30 nieuwste)
+        _, berichten = conn.search(None, "ALL")
+        uids = berichten[0].split()
+        uids = uids[-30:]  # laatste 30
+
+        emails = []
+        for uid in reversed(uids):
+            try:
+                _, data = conn.fetch(uid, "(RFC822)")
+                msg = email_lib.message_from_bytes(data[0][1])
+
+                # Onderwerp decoderen
+                onderwerp_raw = msg.get("Subject", "")
+                onderwerp_parts = decode_header(onderwerp_raw)
+                onderwerp = ""
+                for part, enc in onderwerp_parts:
+                    if isinstance(part, bytes):
+                        onderwerp += part.decode(enc or "utf-8", errors="replace")
+                    else:
+                        onderwerp += str(part)
+
+                # Afzender
+                afzender = msg.get("From", "")
+                afzender_naam = ""
+                if "<" in afzender:
+                    afzender_naam = afzender.split("<")[0].strip().strip('"')
+                    afzender_email = afzender.split("<")[1].rstrip(">")
+                else:
+                    afzender_email = afzender
+
+                # Datum
+                datum = msg.get("Date", "")[:25]
+
+                # Body uitlezen
+                body = ""
+                bijlagen = []
+                for part in msg.walk():
+                    ct = part.get_content_type()
+                    cd = str(part.get("Content-Disposition", ""))
+
+                    if ct == "text/plain" and "attachment" not in cd:
+                        try:
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                        except Exception:
+                            body = ""
+                    elif "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png"):
+                        naam = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
+                        bijlagen.append({"naam": naam, "type": ct})
+
+                # Ongelezen check
+                _, flags_data = conn.fetch(uid, "(FLAGS)")
+                ongelezen = b"\\Seen" not in flags_data[0]
+
+                emails.append({
+                    "uid": uid.decode(),
+                    "onderwerp": onderwerp,
+                    "afzender": afzender_email,
+                    "afzender_naam": afzender_naam,
+                    "datum": datum,
+                    "body": body[:500],  # eerste 500 tekens
+                    "bijlagen": bijlagen,
+                    "heeft_bijlage": len(bijlagen) > 0,
+                    "ongelezen": ongelezen,
+                    "type": _classificeer_email(onderwerp, body),
+                })
+            except Exception:
+                continue
+
+        conn.logout()
+        return JSONResponse(content={"emails": emails})
+
+    except Exception as e:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+        return JSONResponse(content={"fout": str(e)})
+
+
+@app.post("/api/open-email")
+async def open_email(request: Request):
+    """Haalt volledige e-mailinhoud op uit de cache."""
+    body_req = await request.json()
+    email_uid = body_req.get("email_uid", "")
+
+    email = _zoek_email_op_uid(email_uid)
+    if not email:
+        return JSONResponse(content={"fout": "E-mail niet gevonden in cache"})
+
+    return JSONResponse(content={
+        "body": email.get("body", ""),
+        "bijlagen": [{"naam": b["naam"], "type": b["type"]} for b in email.get("bijlagen", [])],
+        "type": email.get("type", "overig"),
+    })
+
+
+@app.post("/api/lees-bijlage")
+async def lees_bijlage(request: Request):
+    """Haalt bijlage op uit e-mailcache, genereert preview en leest recept uit."""
+    body = await request.json()
+    email_uid = body.get("email_uid", "")
+    bijlage_index = body.get("bijlage_index", 0)
+
+    email = _zoek_email_op_uid(email_uid)
+    if not email:
+        return JSONResponse(content={"fout": "E-mail niet gevonden in cache"})
+
+    bijlagen = email.get("bijlagen", [])
+    if bijlage_index >= len(bijlagen):
+        return JSONResponse(content={"fout": "Bijlage niet gevonden"})
+
+    bijlage = bijlagen[bijlage_index]
+    try:
+        inhoud = base64.b64decode(bijlage["data"])
+    except Exception:
+        return JSONResponse(content={"fout": "Bijlagedata onleesbaar"})
+
+    ct = bijlage.get("type", "application/pdf")
+    naam = bijlage.get("naam", "recept")
+
+    # Preview genereren
+    preview = None
+    if ct == "application/pdf" or naam.lower().endswith(".pdf"):
+        try:
+            import fitz
+            doc = fitz.open(stream=inhoud, filetype="pdf")
+            pix = doc[0].get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+            preview = f"data:image/jpeg;base64,{base64.standard_b64encode(pix.tobytes('jpeg')).decode()}"
+        except Exception:
+            pass
+    else:
+        preview = f"data:{ct};base64,{base64.standard_b64encode(inhoud).decode()}"
+
+    # OCR via Claude
+    is_pdf = ct == "application/pdf" or naam.lower().endswith(".pdf")
+    b64 = base64.standard_b64encode(inhoud).decode()
+    document_blok = {
+        "type": "document" if is_pdf else "image",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf" if is_pdf else ct,
+            "data": b64
+        }
+    }
+
+    prompt = """Analyseer dit recept en extraheer de velden als JSON.
+Geef ALLEEN JSON terug, geen uitleg of markdown.
+
+BELANGRIJK: Lees het adresblok van de PATIËNT (niet van de arts).
+Volgorde: naam → straat + huisnummer → postcode + woonplaats.
+
+{
+  "recept_datum": "DD-MM-YYYY of null",
+  "medicijn": "volledige naam inclusief concentratie",
+  "hoeveelheid": "bijv. 30 gram",
+  "iter": "herhalingen of null",
+  "gebruiksaanwijzing": "instructie na S:",
+  "patient_naam": "voor- en achternaam patiënt",
+  "geboortedatum": "DD-MM-YYYY of null",
+  "bsn": "BSN-nummer of null",
+  "straat": "straat + huisnummer patiënt",
+  "postcode_plaats": "postcode + woonplaats patiënt",
+  "email": "email patiënt of null",
+  "telefoon": "telefoon patiënt of null",
+  "voorschrijver": "naam arts",
+  "agb_code": "AGB-code of null",
+  "big_nummer": "BIG-nummer of null",
+  "geldig": true,
+  "vertrouwen": 85
+}"""
+
+    try:
+        api_resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 1000,
+                "messages": [{"role": "user", "content": [document_blok, {"type": "text", "text": prompt}]}],
+            },
+            timeout=60,
+        )
+        api_resp.raise_for_status()
+        tekst = api_resp.json()["content"][0]["text"].strip().replace("```json", "").replace("```", "").strip()
+        recept_data = json.loads(tekst)
+
+        # BSN opschonen
+        if recept_data.get("bsn"):
+            import re as _re
+            bsn_clean = _re.sub(r"[^0-9]", "", str(recept_data["bsn"]))
+            recept_data["bsn"] = bsn_clean if len(bsn_clean) == 9 else ""
+            recept_data["bsn_fout"] = len(bsn_clean) != 9 and len(bsn_clean) > 0
+
+        # Verrijk met WooCommerce-data
+        wc_url = os.getenv("WC_URL", "")
+        wc_key = os.getenv("WC_KEY", "")
+        wc_secret = os.getenv("WC_SECRET", "")
+        if all([wc_url, wc_key, wc_secret]):
+            recept_data = await _verrijk_met_woocommerce(recept_data, wc_url, wc_key, wc_secret)
+
+        # Sla bijlagedata op in cache voor latere download
+        email_cached = _zoek_email_op_uid(email_uid)
+        if email_cached:
+            bijlagen_cache = email_cached.get("bijlagen", [])
+            if bijlage_index < len(bijlagen_cache):
+                bijlagen_cache[bijlage_index]["data"] = b64
+                email_cached["bijlagen"] = bijlagen_cache
+                _sla_email_op(email_cached)
+
+        return JSONResponse(content={"preview": preview, "recept": recept_data})
+    except Exception as e:
         return JSONResponse(content={"preview": preview, "fout": str(e)})
