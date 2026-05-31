@@ -344,9 +344,7 @@
                 : m.methode === 'naam+bedrag' ? '#3a6fd8'
                 : 'var(--muted)';
     if (checked && o) mt940Geselecteerd.add(o.id);
-    const match_tekst = o
-      ? `<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>`
-      : `<span style="color:var(--muted)">Geen match</span>`;
+
 
     // Extraheer REMI uit omschrijving als backend hem niet heeft gestuurd
     let remi_tekst = b.remi || '';
