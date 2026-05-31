@@ -339,7 +339,10 @@
 
   function rij(m, checked, bg) {
     const b = m.betaling, o = m.order;
-    const kleur = m.score >= 80 ? 'var(--success)' : m.score >= 50 ? 'var(--warn)' : 'var(--muted)';
+    const kleur = m.methode === 'ordernummer' && m.bedrag_klopt ? 'var(--success)' 
+                : m.methode === 'ordernummer' ? 'var(--warn)'
+                : m.methode === 'naam+bedrag' ? '#3a6fd8'
+                : 'var(--muted)';
     if (checked && o) mt940Geselecteerd.add(o.id);
     const match_tekst = o
       ? `<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>`
@@ -374,7 +377,7 @@
         <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${remi_tekst}">${oms_html}</div>
       </div>
       <div>${match_tekst}</div>
-      <span style="font-weight:600;color:${kleur}">${m.score > 0 ? m.score+'%' : '—'}</span>
+      <span style="font-weight:600;color:${kleur};font-size:10px;">${m.methode === 'ordernummer' ? (m.bedrag_klopt ? '✓ nr+€' : '⚠ nr') : m.methode === 'naam+bedrag' ? '~ naam+€' : m.methode === 'naam' ? '? naam' : '—'}</span>
     </div>`;
   }
 
