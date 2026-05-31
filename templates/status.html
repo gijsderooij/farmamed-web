@@ -345,10 +345,22 @@
       ? `<strong>#${o.id}</strong> ${o.klant_naam} <span style="color:var(--muted)">€${o.totaal}</span>`
       : `<span style="color:var(--muted)">Geen match</span>`;
 
-    // Toon omschrijving met gevonden ordernummer gemarkeerd
-    let oms_html = b.remi || b.omschrijving || b.naam || '—';
+    // Extraheer REMI uit omschrijving als backend hem niet heeft gestuurd
+    let remi_tekst = b.remi || '';
+    if (!remi_tekst && b.omschrijving) {
+      const remi_match = b.omschrijving.match(/\/REMI\/(.+?)(?:\/EREF\/|\/CSID\/|$)/);
+      remi_tekst = remi_match ? remi_match[1].trim() : b.omschrijving;
+    }
+    // Naam: extraheer uit /NAME/ als die er in zit
+    let naam_tekst = b.naam || '';
+    if (!naam_tekst && b.omschrijving) {
+      const naam_match = b.omschrijving.match(/\/NA\s*ME\/([^/]+)/);
+      naam_tekst = naam_match ? naam_match[1].trim() : '';
+    }
+
+    // Markeer het gevonden ordernummer in de omschrijving
+    let oms_html = remi_tekst || naam_tekst || '—';
     if (b.order_nr) {
-      // Markeer het gevonden ordernummer in de omschrijving
       const regex = new RegExp('(' + b.order_nr + ')', 'g');
       oms_html = oms_html.replace(regex, '<u style="color:var(--teal-dk);font-weight:600;">$1</u>');
     }
@@ -358,8 +370,8 @@
       <span>${b.datum}</span>
       <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
       <div style="overflow:hidden;">
-        <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.naam||'—'}</div>
-        <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${oms_html}</div>
+        <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${naam_tekst||'—'}</div>
+        <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${remi_tekst}">${oms_html}</div>
       </div>
       <div>${match_tekst}</div>
       <span style="font-weight:600;color:${kleur}">${m.score > 0 ? m.score+'%' : '—'}</span>
