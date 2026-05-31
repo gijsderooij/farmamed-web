@@ -2255,8 +2255,8 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
     except Exception:
         pass
 
-    # Maak lookup dict: ordernummer → order
-    order_lookup = {str(o["id"]): o for o in orders}
+    # Draai om: voor elke pending order zoek een betaling
+    # Dit voorkomt dat een betaling voor een oude order wordt gematcht aan een nieuwe order
 
     def order_info(o):
         billing = o.get("billing", {})
@@ -2268,87 +2268,97 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
             "datum": o.get("date_created", "")[:10],
         }
 
-    def datum_ok(betaling_datum, order_datum):
-        """Betaaldatum moet >= orderdatum zijn."""
-        return betaling_datum >= order_datum[:10] if order_datum else True
+    # Index betalingen op ordernummer voor snelle lookup
+    betalingen_op_nr = {}
+    for b in betalingen:
+        nr = b.get("order_nr", "")
+        if nr:
+            if nr not in betalingen_op_nr:
+                betalingen_op_nr[nr] = []
+            betalingen_op_nr[nr].append(b)
 
-    # STAP 1: Match op ordernummer
     matches = []
-    niet_gematcht = []  # betalingen zonder ordernummer match
+    gebruikte_betalingen = set()  # voorkom dubbele matches
 
-    for betaling in betalingen:
-        order_nr = betaling.get("order_nr", "")
-        order = order_lookup.get(order_nr) if order_nr else None
+    # STAP 1: voor elke pending order zoek betaling op ordernummer
+    orders_zonder_match = []
+    for order in orders:
+        wc_id = str(order["id"])
+        order_datum = order.get("date_created", "")[:10]
+        wc_bedrag = float(order.get("total", 0))
+        info = order_info(order)
 
-        if order and datum_ok(betaling["datum"], order.get("date_created", "")):
-            wc_bedrag = float(order.get("total", 0))
-            bedrag_klopt = abs(betaling["bedrag"] - wc_bedrag) < 0.02
+        # Zoek betaling met dit ordernummer, na de orderdatum
+        kandidaten = [b for b in betalingen_op_nr.get(wc_id, [])
+                      if b["datum"] >= order_datum
+                      and id(b) not in gebruikte_betalingen]
+
+        if kandidaten:
+            # Neem de beste kandidaat (bedrag klopt het best)
+            beste = min(kandidaten, key=lambda b: abs(b["bedrag"] - wc_bedrag))
+            bedrag_klopt = abs(beste["bedrag"] - wc_bedrag) < 0.02
+            gebruikte_betalingen.add(id(beste))
             matches.append({
-                "betaling": betaling,
-                "order": order_info(order),
+                "betaling": beste,
+                "order": info,
                 "score": 100 if bedrag_klopt else 85,
                 "gematcht": True,
                 "methode": "ordernummer",
                 "bedrag_klopt": bedrag_klopt,
             })
         else:
-            niet_gematcht.append(betaling)
+            orders_zonder_match.append(order)
 
-    # STAP 2: Naamsmatch voor betalingen zonder ordernummer
-    al_gematcht_order_ids = {m["order"]["id"] for m in matches if m["gematcht"]}
+    # STAP 2: voor orders zonder ordernummer match, zoek op naam + bedrag
+    for order in orders_zonder_match:
+        order_datum = order.get("date_created", "")[:10]
+        wc_bedrag = float(order.get("total", 0))
+        billing = order.get("billing", {})
+        wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+        info = order_info(order)
 
-    for betaling in niet_gematcht:
-        if not betaling.get("naam"):
-            matches.append({"betaling": betaling, "order": None, "score": 0, "gematcht": False, "methode": "geen"})
-            continue
-
-        beste_order = None
+        beste_betaling = None
         beste_score = 0
 
-        for order in orders:
-            # Skip al gematchte orders
-            if order["id"] in al_gematcht_order_ids:
+        for b in betalingen:
+            if id(b) in gebruikte_betalingen:
                 continue
-            # Datum check
-            if not datum_ok(betaling["datum"], order.get("date_created", "")):
+            if b["datum"] < order_datum:
+                continue
+            if not b.get("naam"):
+                continue
+            # Bedrag moet kloppen
+            if abs(b["bedrag"] - wc_bedrag) >= 0.02:
                 continue
 
-            billing = order.get("billing", {})
-            wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
             naam_score = fuzz.token_sort_ratio(
-                _normaliseer_naam(betaling["naam"]),
+                _normaliseer_naam(b["naam"]),
                 _normaliseer_naam(wc_naam)
             )
-
             if naam_score > beste_score and naam_score >= 70:
                 beste_score = naam_score
-                beste_order = order
+                beste_betaling = b
 
-        if beste_order:
-            wc_bedrag = float(beste_order.get("total", 0))
-            bedrag_klopt = abs(betaling["bedrag"] - wc_bedrag) < 0.02
-            # Alleen matchen als naam én bedrag kloppen
-            if bedrag_klopt:
-                matches.append({
-                    "betaling": betaling,
-                    "order": order_info(beste_order),
-                    "score": round(beste_score * 0.8),  # max 80% voor naam+bedrag
-                    "gematcht": True,
-                    "methode": "naam+bedrag",
-                    "bedrag_klopt": True,
-                })
-            else:
-                # Naam match maar bedrag klopt niet — tonen als onzeker
-                matches.append({
-                    "betaling": betaling,
-                    "order": order_info(beste_order),
-                    "score": round(beste_score * 0.5),  # max 50%
-                    "gematcht": False,
-                    "methode": "naam",
-                    "bedrag_klopt": False,
-                })
+        if beste_betaling:
+            gebruikte_betalingen.add(id(beste_betaling))
+            matches.append({
+                "betaling": beste_betaling,
+                "order": info,
+                "score": round(beste_score * 0.8),
+                "gematcht": True,
+                "methode": "naam+bedrag",
+                "bedrag_klopt": True,
+            })
         else:
-            matches.append({"betaling": betaling, "order": None, "score": 0, "gematcht": False, "methode": "geen"})
+            # Geen match gevonden voor deze order
+            matches.append({
+                "betaling": None,
+                "order": info,
+                "score": 0,
+                "gematcht": False,
+                "methode": "geen",
+                "bedrag_klopt": False,
+            })
 
     return JSONResponse(content={
         "betalingen": len(betalingen),
