@@ -714,6 +714,7 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
 
     return JSONResponse(content={
         "betalingen": len(betalingen),
+        "orders_totaal": len(orders),
         "gematcht": sum(1 for m in matches if m["gematcht"]),
         "matches": matches,
     })
@@ -2362,6 +2363,7 @@ Volgorde: naam → straat + huisnummer → postcode + woonplaats.
 
     return JSONResponse(content={
         "betalingen": len(betalingen),
+        "orders_totaal": len(orders),
         "gematcht": sum(1 for m in matches if m["gematcht"]),
         "matches": matches,
     })
