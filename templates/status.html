@@ -285,7 +285,7 @@
       const res = await fetch('/api/verwerk-mt940', { method:'POST', body:fd });
       const data = await res.json();
       if (data.fout) { status.textContent = '✕ '+data.fout; status.style.color='var(--danger)'; return; }
-      status.textContent = `✓ ${data.betalingen} betalingen, ${data.gematcht} gematcht`;
+      status.textContent = `✓ ${data.orders_totaal||data.betalingen} orders, ${data.gematcht} gematcht`;
       status.style.color = 'var(--success)';
       toonMT940Matches(data.matches);
     } catch(e) { status.textContent = '✕ '+e.message; status.style.color='var(--danger)'; }
