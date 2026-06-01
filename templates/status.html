@@ -388,13 +388,22 @@
   }
 
   async function bevestigBetalingen() {
-    if (!confirm(`${mt940Geselecteerd.size} order(s) als betaald markeren?`)) return;
+    if (!confirm(`${mt940Geselecteerd.size} order(s) verwerken?\nDe backend controleert per order of verstrekking en verzending aanwezig zijn.`)) return;
     const btn = document.getElementById('btnBevestig');
     btn.disabled=true; btn.textContent='⏳ Bezig…';
     try {
-      const res = await fetch('/api/betalingen-verwerken', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({order_ids:[...mt940Geselecteerd]}) });
+      const res = await fetch('/api/betalingen-verwerken', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ order_ids: [...mt940Geselecteerd] })
+      });
       const data = await res.json();
-      alert('✓ '+data.resultaten.filter(r=>r.ok).length+' orders als betaald gemarkeerd.');
+      const ok = data.resultaten.filter(r => r.ok);
+      const completed = ok.filter(r => r.nieuwe_status === 'completed');
+      const processing = ok.filter(r => r.nieuwe_status === 'processing');
+      alert(`✓ ${ok.length} orders verwerkt:
+• ${completed.length} afgerond (betaald + verstrekt + verzonden)
+• ${processing.length} in behandeling (betaald, wacht op verstrekking/verzending)`);
       document.getElementById('mt940Matches').style.display='none';
       document.getElementById('mt940Status').textContent='';
       document.getElementById('mt940Input').value='';
