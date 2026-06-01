@@ -617,13 +617,14 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
             order_nr = ""
             if remi:
                 remi_clean = remi.replace(FARMAMED_AGB, "")
+                # Match ordernummer - ook zonder spatie (ordenummer1625) en met spaties (order 202 5)
                 nr_match = _re.search(
-                    r"(?:ordernummer|ordernr\.?|order\s*(?:nr\.?|nummer)|factuur(?:nr)?\.?|bestelling)\s*[:\s#]*(\d{1,3}\s?\d{3,4}|\d{3,5})",
+                    r"(?:ordernummer|ordernr\.?|order\s*(?:nr\.?|nummer)|ord(?:e)?(?:r)?\.?\s*(?:nr\.?|num(?:mer)?)?|factuur(?:nr)?\.?|bestelling)\s*[:\s#]*(\d[\d\s]{2,6}\d)",
                     remi_clean, _re.IGNORECASE
                 )
                 if nr_match:
                     order_nr = _re.sub(r"\s", "", nr_match.group(1))
-                    if len(order_nr) > 5:
+                    if not (3 <= len(order_nr) <= 5):
                         order_nr = ""
                 if not order_nr:
                     for m in _re.finditer(r"(\d{4,5})", remi_clean):
