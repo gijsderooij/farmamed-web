@@ -119,7 +119,7 @@ async def _email_poller_loop():
                                 body = part.get_payload(decode=True).decode("utf-8", errors="replace")
                             except Exception:
                                 pass
-                        elif ("attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg")) and not cid:
+                        elif ("attachment" in cd or "inline" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg")) and not cid and ct != "text/plain" and ct != "text/html":
                             # Sla inline afbeeldingen (logo's etc.) over — die hebben een Content-ID
                             naam   = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
                             inhoud = part.get_payload(decode=True) or b""
