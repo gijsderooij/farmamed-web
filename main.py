@@ -180,7 +180,7 @@ def _verplaats_email_imap(uid_str: str) -> bool:
         conn.select("INBOX")
         uid_bytes = uid_str.encode() if isinstance(uid_str, str) else uid_str
         conn.uid("COPY", uid_bytes, afgehandeld_map)
-        conn.uid("STORE", uid_bytes, "+FLAGS", "\Deleted")
+        conn.uid("STORE", uid_bytes, "+FLAGS", "(\\Deleted)")
         conn.expunge()
         conn.logout()
         print(f"[Poller] E-mail {uid_str} → {afgehandeld_map}")
@@ -205,6 +205,109 @@ async def index():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/api/poll-emails")
+async def poll_emails_nu():
+    """Trigger directe e-mail poll zonder te wachten op interval."""
+    asyncio.create_task(_email_poller_loop_eenmalig())
+    return JSONResponse(content={"ok": True, "bericht": "Poll gestart"})
+
+
+async def _email_poller_loop_eenmalig():
+    """Voer één enkele poll cyclus uit."""
+    import base64 as _b64
+    imap_server = os.getenv("IMAP_SERVER", "")
+    imap_port   = int(os.getenv("IMAP_PORT", "993"))
+    imap_user   = os.getenv("IMAP_USER", "")
+    imap_pass   = os.getenv("IMAP_PASS", "")
+    afgehandeld_map = "INBOX/Afgehandeld"
+
+    if not all([imap_server, imap_user, imap_pass]):
+        return
+
+    try:
+        bestaande = _haal_emails_op_db(limit=500)
+        al_verstuurd = {e["uid"] for e in bestaande}
+
+        conn = _imaplib.IMAP4_SSL(imap_server, imap_port)
+        conn.login(imap_user, imap_pass)
+        conn.select("INBOX")
+
+        try:
+            status, _ = conn.select(afgehandeld_map)
+            if status != "OK":
+                conn.create(afgehandeld_map)
+            conn.select("INBOX")
+        except Exception:
+            pass
+
+        _, berichten = conn.search(None, "ALL")
+        uids = berichten[0].split()
+        nieuwe = [u for u in uids if u.decode() not in al_verstuurd]
+
+        print(f"[Poll] {len(nieuwe)} nieuwe e-mail(s)")
+
+        for uid in nieuwe:
+            uid_str = uid.decode()
+            try:
+                _, data = conn.fetch(uid, "(RFC822)")
+                msg = _email_lib.message_from_bytes(data[0][1])
+
+                onderwerp = "".join(
+                    part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else str(part)
+                    for part, enc in _decode_header(msg.get("Subject", ""))
+                )
+                afz_raw = "".join(
+                    part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else str(part)
+                    for part, enc in _decode_header(msg.get("From", ""))
+                )
+                if "<" in afz_raw:
+                    afz_naam  = afz_raw.split("<")[0].strip().strip('"')
+                    afz_email = afz_raw.split("<")[1].rstrip(">").strip()
+                else:
+                    afz_naam  = ""
+                    afz_email = afz_raw.strip()
+
+                body = ""
+                bijlagen = []
+                for part in msg.walk():
+                    ct = part.get_content_type()
+                    cd = str(part.get("Content-Disposition", ""))
+                    cid = part.get("Content-ID", "")
+                    if ct == "text/plain" and "attachment" not in cd:
+                        try:
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                        except Exception:
+                            pass
+                    elif ("attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg")) and not cid:
+                        naam   = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
+                        inhoud = part.get_payload(decode=True) or b""
+                        if inhoud:
+                            bijlagen.append({"naam": naam, "type": ct, "data": _b64.b64encode(inhoud).decode()})
+
+                tekst = (onderwerp + " " + body).lower()
+                if any(t in tekst for t in ["herhaalrecept", "herhaling", "iter"]):
+                    email_type = "herhaalrecept"
+                elif any(t in tekst for t in ["recept", "voorschrift", "medicijn", "bijlage"]) or bijlagen:
+                    email_type = "nieuw_recept"
+                else:
+                    email_type = "overig"
+
+                _sla_email_op({
+                    "uid": uid_str, "onderwerp": onderwerp or "(geen onderwerp)",
+                    "afzender": afz_email, "afzender_naam": afz_naam,
+                    "datum": msg.get("Date", "")[:25], "body": body[:2000],
+                    "bijlagen": bijlagen, "heeft_bijlage": bool(bijlagen),
+                    "ongelezen": True, "type": email_type,
+                })
+                print(f"[Poll] ✓ {onderwerp[:50]}")
+            except Exception as e:
+                print(f"[Poll] ✗ {uid_str}: {e}")
+
+        conn.logout()
+    except Exception as e:
+        print(f"[Poll] Fout: {e}")
 
 
 @app.post("/api/recept-preview")
