@@ -39,8 +39,14 @@ from email.header import decode_header as _decode_header
 async def _email_poller_loop():
     """Achtergrondtaak: haalt e-mails op via IMAP elke 60 seconden."""
     import base64 as _b64
-    al_verstuurd = set()
     interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+    # Laad al bekende UIDs uit database zodat we na herstart niet opnieuw sturen
+    try:
+        bestaande = _haal_emails_op_db(limit=500)
+        al_verstuurd = {e["uid"] for e in bestaande}
+        print(f"[Poller] {len(al_verstuurd)} al bekende e-mail UIDs geladen")
+    except Exception:
+        al_verstuurd = set()
     afgehandeld_map = "INBOX/Afgehandeld"
 
     imap_server = os.getenv("IMAP_SERVER", "")
@@ -106,12 +112,15 @@ async def _email_poller_loop():
                     for part in msg.walk():
                         ct = part.get_content_type()
                         cd = str(part.get("Content-Disposition", ""))
+                        cid = part.get("Content-ID", "")
+
                         if ct == "text/plain" and "attachment" not in cd:
                             try:
                                 body = part.get_payload(decode=True).decode("utf-8", errors="replace")
                             except Exception:
                                 pass
-                        elif "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg"):
+                        elif ("attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg")) and not cid:
+                            # Sla inline afbeeldingen (logo's etc.) over — die hebben een Content-ID
                             naam   = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
                             inhoud = part.get_payload(decode=True) or b""
                             if inhoud:
