@@ -30,6 +30,162 @@ BASE_DIR = Path(__file__).parent
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = "claude-sonnet-4-5"
 
+# --- Email poller als achtergrondtaak ---
+import asyncio
+import imaplib as _imaplib
+import email as _email_lib
+from email.header import decode_header as _decode_header
+
+async def _email_poller_loop():
+    """Achtergrondtaak: haalt e-mails op via IMAP elke 60 seconden."""
+    import base64 as _b64
+    al_verstuurd = set()
+    interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+    afgehandeld_map = "INBOX/Afgehandeld"
+
+    imap_server = os.getenv("IMAP_SERVER", "")
+    imap_port   = int(os.getenv("IMAP_PORT", "993"))
+    imap_user   = os.getenv("IMAP_USER", "")
+    imap_pass   = os.getenv("IMAP_PASS", "")
+
+    if not all([imap_server, imap_user, imap_pass]):
+        print("Email poller: IMAP niet geconfigureerd, overgeslagen.")
+        return
+
+    print(f"Email poller gestart: {imap_user}@{imap_server} (elke {interval}s)")
+
+    while True:
+        try:
+            conn = _imaplib.IMAP4_SSL(imap_server, imap_port)
+            conn.login(imap_user, imap_pass)
+            conn.select("INBOX")
+
+            # Maak Afgehandeld map aan als die niet bestaat
+            try:
+                status, _ = conn.select(afgehandeld_map)
+                if status != "OK":
+                    conn.create(afgehandeld_map)
+                conn.select("INBOX")
+            except Exception:
+                pass
+
+            _, berichten = conn.search(None, "ALL")
+            uids = berichten[0].split()
+            nieuwe = [u for u in uids if u.decode() not in al_verstuurd]
+
+            if nieuwe:
+                print(f"[Poller] {len(nieuwe)} nieuwe e-mail(s)")
+
+            for uid in nieuwe:
+                uid_str = uid.decode()
+                try:
+                    _, data = conn.fetch(uid, "(RFC822)")
+                    msg = _email_lib.message_from_bytes(data[0][1])
+
+                    # Onderwerp
+                    onderwerp = "".join(
+                        part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else str(part)
+                        for part, enc in _decode_header(msg.get("Subject", ""))
+                    )
+
+                    # Afzender
+                    afz_raw = "".join(
+                        part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else str(part)
+                        for part, enc in _decode_header(msg.get("From", ""))
+                    )
+                    if "<" in afz_raw:
+                        afz_naam  = afz_raw.split("<")[0].strip().strip('"')
+                        afz_email = afz_raw.split("<")[1].rstrip(">").strip()
+                    else:
+                        afz_naam  = ""
+                        afz_email = afz_raw.strip()
+
+                    # Body en bijlagen
+                    body = ""
+                    bijlagen = []
+                    for part in msg.walk():
+                        ct = part.get_content_type()
+                        cd = str(part.get("Content-Disposition", ""))
+                        if ct == "text/plain" and "attachment" not in cd:
+                            try:
+                                body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                            except Exception:
+                                pass
+                        elif "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg"):
+                            naam   = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
+                            inhoud = part.get_payload(decode=True) or b""
+                            if inhoud:
+                                bijlagen.append({"naam": naam, "type": ct, "data": _b64.b64encode(inhoud).decode()})
+
+                    # Type
+                    tekst = (onderwerp + " " + body).lower()
+                    if any(t in tekst for t in ["herhaalrecept", "herhaling", "iter"]):
+                        email_type = "herhaalrecept"
+                    elif any(t in tekst for t in ["recept", "voorschrift", "medicijn", "bijlage"]) or bijlagen:
+                        email_type = "nieuw_recept"
+                    else:
+                        email_type = "overig"
+
+                    email_data = {
+                        "uid": uid_str,
+                        "onderwerp": onderwerp or "(geen onderwerp)",
+                        "afzender": afz_email,
+                        "afzender_naam": afz_naam,
+                        "datum": msg.get("Date", "")[:25],
+                        "body": body[:2000],
+                        "bijlagen": bijlagen,
+                        "heeft_bijlage": bool(bijlagen),
+                        "ongelezen": True,
+                        "type": email_type,
+                    }
+
+                    # Sla op in SQLite
+                    _sla_email_op(email_data)
+                    al_verstuurd.add(uid_str)
+                    print(f"[Poller] ✓ {onderwerp[:50]}")
+
+                except Exception as e:
+                    print(f"[Poller] ✗ UID {uid_str}: {e}")
+
+            conn.logout()
+
+        except Exception as e:
+            print(f"[Poller] IMAP fout: {e}")
+
+        await asyncio.sleep(interval)
+
+
+def _verplaats_email_imap(uid_str: str) -> bool:
+    """Verplaats e-mail naar INBOX/Afgehandeld via IMAP."""
+    imap_server = os.getenv("IMAP_SERVER", "")
+    imap_port   = int(os.getenv("IMAP_PORT", "993"))
+    imap_user   = os.getenv("IMAP_USER", "")
+    imap_pass   = os.getenv("IMAP_PASS", "")
+    afgehandeld_map = "INBOX/Afgehandeld"
+
+    if not all([imap_server, imap_user, imap_pass]):
+        return False
+    try:
+        conn = _imaplib.IMAP4_SSL(imap_server, imap_port)
+        conn.login(imap_user, imap_pass)
+        conn.select("INBOX")
+        uid_bytes = uid_str.encode() if isinstance(uid_str, str) else uid_str
+        conn.uid("COPY", uid_bytes, afgehandeld_map)
+        conn.uid("STORE", uid_bytes, "+FLAGS", "\Deleted")
+        conn.expunge()
+        conn.logout()
+        print(f"[Poller] E-mail {uid_str} → {afgehandeld_map}")
+        return True
+    except Exception as e:
+        print(f"[Poller] Verplaatsen mislukt: {e}")
+        return False
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start email poller als achtergrondtaak."""
+    asyncio.create_task(_email_poller_loop())
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -1933,16 +2089,8 @@ async def markeer_email_verwerkt(request: Request):
         email["order_id"] = order_id
         _sla_email_op(email)
 
-    # Vraag poller om e-mail te verplaatsen naar INBOX/Afgehandeld
-    poller_url = os.getenv("POLLER_URL", "http://localhost:8081")
-    try:
-        http_requests.post(
-            f"{poller_url}/verplaats-email",
-            json={"uid": email_uid},
-            timeout=10,
-        )
-    except Exception:
-        pass  # Poller niet beschikbaar — e-mail blijft in INBOX
+    # Verplaats e-mail naar INBOX/Afgehandeld
+    _verplaats_email_imap(email_uid)
 
     return JSONResponse(content={"ok": True})
 
