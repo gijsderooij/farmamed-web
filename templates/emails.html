@@ -144,7 +144,7 @@
   <div class="email-lijst-paneel">
     <div class="paneel-header">
       <span class="paneel-titel">Inbox — recepten</span>
-      <button class="vernieuwen-btn" onclick="vernieuwEmails()" id="btnVernieuwen">↻ Vernieuwen</button>
+      <button class="vernieuwen-btn" onclick="laadEmails()">↻ Vernieuwen</button>
     </div>
     <div class="email-lijst" id="emailLijst">
       <div class="laden-tekst"><span class="spinner-klein"></span>E-mails laden…</div>
@@ -332,18 +332,6 @@
   let huidigeBijlageIndex = null;
 
   // --- E-mails laden ---
-  async function vernieuwEmails() {
-    const btn = document.getElementById('btnVernieuwen');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Polling…'; }
-    try {
-      await fetch('/api/poll-emails', { method: 'POST' });
-      await new Promise(r => setTimeout(r, 2000));  // wacht 2s op poller
-      await laadEmails();
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '↻ Vernieuwen'; }
-    }
-  }
-
   async function laadEmails() {
     const lijst = document.getElementById('emailLijst');
     lijst.innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>E-mails laden…</div>';
@@ -805,11 +793,15 @@
     if (btn5) { btn5.disabled = true; btn5.textContent = '⏳ Bezig…'; }
 
     try {
-      await fetch('/api/email-verwerkt', {
+      const resp = await fetch('/api/email-verwerkt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email_uid: huidigeEmail.uid, order_id: window._emailOrderId })
       });
+      const data = await resp.json();
+      if (data.verplaatst) {
+        console.log('E-mail verplaatst naar Afgehandeld');
+      }
       // Alle stappen groen
       zetStapVoltooid();
       if (btn5) { btn5.style.display = 'none'; }
