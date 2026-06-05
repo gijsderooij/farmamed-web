@@ -169,7 +169,7 @@
             <span id="onr3" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">3</span>
             <div><div style="font-size:12px;font-weight:500;">Controleren</div><div style="font-size:10px;color:var(--muted);">Vergelijking + bewerken</div></div>
           </div>
-
+          <button id="obtn3" onclick="toonTab('vergelijking')" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:white;color:var(--text);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✏ Bekijken</button>
         </div>
         <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
         <div id="ostap4" style="flex:1;padding:10px 14px;border-right:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
@@ -177,15 +177,15 @@
             <span id="onr4" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">4</span>
             <div><div style="font-size:12px;font-weight:500;">Verstrekking</div><div style="font-size:10px;color:var(--muted);">EDIFACT + recept</div></div>
           </div>
-
+          <button id="obtn4" onclick="toonTab('edifact')" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--teal);background:var(--teal-lt);color:var(--teal-dk);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">📤 Verstrekking</button>
         </div>
         <div style="padding:0 4px;color:var(--muted);font-size:14px;display:flex;align-items:center;">›</div>
         <div id="ostap5" style="flex:1;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
           <div style="display:flex;align-items:center;gap:8px;">
             <span id="onr5" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">5</span>
-            <div><div style="font-size:12px;font-weight:500;">Verstrekkingsverzoek</div><div style="font-size:10px;color:var(--muted);">Ingediend</div></div>
+            <div><div style="font-size:12px;font-weight:500;">Afronden</div><div style="font-size:10px;color:var(--muted);">Order completed</div></div>
           </div>
-          <button id="obtn5" onclick="orderAfronden()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Verstrekking ingediend</button>
+          <button id="obtn5" onclick="orderAfronden()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Afronden</button>
           <div id="ostap5-info" style="font-size:10px;color:var(--muted);display:none;margin-top:2px;"></div>
         </div>
       </div>
@@ -197,12 +197,6 @@
           <button class="btn" onclick="downloadEdifact()" id="edifactDownloadBtn2" style="font-size:12px;padding:6px 12px;">📤 EDIFACT downloaden</button>
         </div>
       </div>
-      <!-- Goedkeuren/Afwijzen knoppen onder stap 3 -->
-      <div id="order-beslis" style="display:none;padding:8px 14px;border-top:0.5px solid var(--border);background:white;gap:8px;align-items:center;flex-wrap:wrap;">
-        <button class="btn btn-rood" onclick="beslis('afwijzen')" id="btnAfwijzen2" style="font-size:12px;padding:6px 14px;">✕ Afwijzen</button>
-        <button class="btn btn-groen" onclick="beslis('goedkeuren')" id="btnGoedkeuren2" style="font-size:12px;padding:6px 14px;">✓ Goedkeuren</button>
-        <span class="status-tekst" id="statusTekst2"></span>
-      </div>
     </div>
 
     <div class="detail-split" id="detailSplit" style="display:none">
@@ -211,7 +205,7 @@
       <div class="detail-links">
         <div class="paneel-header">
           <span class="paneel-titel">📄 Recept</span>
-          <!-- Opslaan knop zit in stap 4 actiebalk -->
+          <button class="vernieuwen-btn" id="downloadReceptBtn" onclick="downloadRecept()" style="display:none">⬇ Opslaan</button>
         </div>
         <div class="recept-viewer" id="receptViewer">
           <div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">Recept laden…</div>
@@ -251,10 +245,9 @@
           </div>
         </div>
 
-        <!-- Knoppen verplaatst naar stappenbalk -->
-        <div class="actiebalk" style="display:none;">
-          <button id="btnAfwijzen" style="display:none;"></button>
-          <button id="btnGoedkeuren" style="display:none;"></button>
+        <div class="actiebalk">
+          <button class="btn btn-rood" onclick="beslis('afwijzen')" id="btnAfwijzen" disabled>✕ Afwijzen</button>
+          <button class="btn btn-groen" onclick="beslis('goedkeuren')" id="btnGoedkeuren" disabled>✓ Goedkeuren & exporteren</button>
           <span class="status-tekst" id="statusTekst"></span>
         </div>
       </div>
@@ -337,8 +330,6 @@
     // Reset actiebalk
     const oa = document.getElementById('order-acties');
     if (oa) oa.style.display = 'none';
-    const ob = document.getElementById('order-beslis');
-    if (ob) ob.style.display = 'none';
 
     // Reset — leegmaken alle tabs voor nieuwe order
     document.getElementById('btnGoedkeuren').disabled = true;
@@ -415,12 +406,6 @@
 
         // Stap 3 actief
         zetOrderStap(3);
-      const beslisEl = document.getElementById('order-beslis');
-      if (beslisEl) beslisEl.style.display = 'flex';
-      const btn2 = document.getElementById('btnGoedkeuren2');
-      const btn3 = document.getElementById('btnAfwijzen2');
-      if (btn2) btn2.disabled = false;
-      if (btn3) btn3.disabled = false;
         document.getElementById('btnGoedkeuren').disabled = false;
         document.getElementById('btnAfwijzen').disabled = false;
 
@@ -431,24 +416,12 @@
             <div style="font-size:12px;color:var(--muted);">Controleer handmatig of er een recept aanwezig is bij de apotheek.</div>
           </div>`;
         zetOrderStap(3);
-      const beslisEl = document.getElementById('order-beslis');
-      if (beslisEl) beslisEl.style.display = 'flex';
-      const btn2 = document.getElementById('btnGoedkeuren2');
-      const btn3 = document.getElementById('btnAfwijzen2');
-      if (btn2) btn2.disabled = false;
-      if (btn3) btn3.disabled = false;
         document.getElementById('btnGoedkeuren').disabled = false;
         document.getElementById('btnAfwijzen').disabled = false;
       }
     } catch(e) {
       document.getElementById('vergelijkingInhoud').innerHTML = `<div style="color:var(--danger);font-size:13px;padding:16px;">Fout: ${e.message}</div>`;
       zetOrderStap(3);
-      const beslisEl = document.getElementById('order-beslis');
-      if (beslisEl) beslisEl.style.display = 'flex';
-      const btn2 = document.getElementById('btnGoedkeuren2');
-      const btn3 = document.getElementById('btnAfwijzen2');
-      if (btn2) btn2.disabled = false;
-      if (btn3) btn3.disabled = false;
     }
   }
 
@@ -458,22 +431,28 @@
     viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;"><span class="spinner-klein"></span>Recept laden…</div>';
 
     try {
-      const res = await fetch('/api/recept-preview-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: receptUrl })
-      });
-      const data = await res.json();
-      if (data.preview) {
-        viewer.innerHTML = '<img src="' + data.preview + '" alt="Recept" style="max-width:100%;border-radius:4px;box-shadow:0 2px 12px rgba(0,0,0,0.15);">';
-        // downloadReceptBtn zit nu in stap 4 actiebalk
-        const dlBtn = document.getElementById('downloadReceptBtn');
-        if (dlBtn) { dlBtn.style.display = 'block'; dlBtn.dataset.url = receptUrl; }
+      // Direct embedden vanuit WordPress URL - geen Railway proxy nodig
+      const isPdf = receptUrl.toLowerCase().includes('.pdf');
+      if (isPdf) {
+        // PDF: toon als embedded object
+        viewer.innerHTML = `<object data="${receptUrl}" type="application/pdf" style="width:100%;height:500px;border-radius:4px;">
+          <div style="padding:20px;text-align:center;">
+            <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">PDF kan niet worden weergegeven in de browser.</p>
+            <a href="${receptUrl}" target="_blank" style="padding:8px 16px;background:var(--teal);color:white;border-radius:6px;text-decoration:none;font-size:13px;">↗ Recept openen</a>
+          </div>
+        </object>`;
       } else {
-        viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">Voorvertoning niet beschikbaar</div>';
+        // Afbeelding: direct tonen
+        viewer.innerHTML = `<img src="${receptUrl}" alt="Recept" style="max-width:100%;border-radius:4px;box-shadow:0 2px 12px rgba(0,0,0,0.15);" onerror="this.parentNode.innerHTML='<div style=\'padding:20px;text-align:center;\'><p style=\'font-size:13px;color:var(--muted);margin-bottom:12px;\'>Afbeelding kan niet worden geladen.</p><a href=\'${receptUrl}\' target=\'_blank\' style=\'padding:8px 16px;background:var(--teal);color:white;border-radius:6px;text-decoration:none;font-size:13px;\'>↗ Recept openen</a></div>'">`;
       }
+      // Toon download knop
+      const dlBtn = document.getElementById('downloadReceptBtn');
+      if (dlBtn) { dlBtn.style.display = 'block'; dlBtn.dataset.url = receptUrl; }
     } catch(e) {
-      viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;">Kon recept niet laden</div>';
+      viewer.innerHTML = `<div style="padding:20px;text-align:center;">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Kon recept niet laden.</p>
+        <a href="${receptUrl}" target="_blank" style="padding:8px 16px;background:var(--teal);color:white;border-radius:6px;text-decoration:none;font-size:13px;">↗ Recept openen</a>
+      </div>`;
     }
   }
 
@@ -500,12 +479,6 @@
       document.getElementById('btnGoedkeuren').disabled = false;
       document.getElementById('btnAfwijzen').disabled = false;
       zetOrderStap(3);
-      const beslisEl = document.getElementById('order-beslis');
-      if (beslisEl) beslisEl.style.display = 'flex';
-      const btn2 = document.getElementById('btnGoedkeuren2');
-      const btn3 = document.getElementById('btnAfwijzen2');
-      if (btn2) btn2.disabled = false;
-      if (btn3) btn3.disabled = false;
 
     } catch(e) {
       document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--danger);font-size:13px;padding:16px;">Analysefout: ' + e.message + '</div>';
@@ -640,7 +613,9 @@
     document.getElementById('edifactInhoud').innerHTML = `
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Preview — definitief na goedkeuring</p>
       <div class="edifact-box">${edifactTekst}</div>
-      <span id="edifactDownloadBtn" style="display:none;"></span>`;
+      <button class="download-btn" onclick="downloadEdifact()" disabled id="edifactDownloadBtn">
+        ⬇ Download EDIFACT
+      </button>`;
   }
 
   // --- Download functies ---
@@ -702,21 +677,32 @@
   // --- Beslissing ---
   async function beslis(beslissing) {
     if (!huidigeOrder) return;
-    const statusEl2 = document.getElementById('statusTekst2');
-    const beslisEl = document.getElementById('order-beslis');
+    document.getElementById('btnGoedkeuren').disabled = true;
+    document.getElementById('btnAfwijzen').disabled = true;
+    const statusEl = document.getElementById('statusTekst');
 
     if (beslissing === 'goedkeuren') {
-      if (statusEl2) { statusEl2.style.color = 'var(--success)'; statusEl2.textContent = '✓ Goedgekeurd'; }
-      if (beslisEl) beslisEl.style.display = 'none';
-      // Stap 4 actief + actiebalk tonen
+      statusEl.style.color = 'var(--success)';
+      statusEl.textContent = '✓ Goedgekeurd';
+      toonTab('edifact');
+      const dlBtn = document.getElementById('edifactDownloadBtn');
+      if (dlBtn) dlBtn.disabled = false;
+      // Stap 4 actief
       zetOrderStap(4);
+      // Toon actiebalk
       const oa = document.getElementById('order-acties');
       if (oa) oa.style.display = 'flex';
+      // Stap 5 na EDIFACT download
       const melding = document.getElementById('order-actie-melding');
       if (melding) melding.textContent = 'Download EDIFACT en sla recept op, dan afronden';
     } else {
-      if (statusEl2) { statusEl2.style.color = 'var(--danger)'; statusEl2.textContent = '✕ Afgewezen'; }
-      if (beslisEl) beslisEl.style.display = 'none';
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = '✕ Afgewezen';
+      await fetch('/api/order-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id, status: 'cancelled' })
+      });
     }
   }
 
@@ -746,7 +732,7 @@
 
   function orderAfronden() {
     if (!huidigeOrder) return;
-    // Alle stappen groen
+    // Alle stappen groen - wij zijn klaar, WooCommerce status blijft ongewijzigd
     for (let n = 1; n <= 5; n++) {
       const nr_el = document.getElementById('onr' + n);
       const stap = document.getElementById('ostap' + n);
@@ -756,21 +742,20 @@
       if (b) b.style.display = 'none';
     }
     const melding = document.getElementById('order-actie-melding');
-    if (melding) melding.textContent = '✓ Verstrekking ingediend voor order #' + huidigeOrder.id;
-    // Markeer in de linker lijst
+    if (melding) melding.textContent = '✓ Verwerking order #' + huidigeOrder.id + ' afgerond';
+    // Markeer als afgerond in sessie zodat hij niet terugkomt bij vernieuwen
+    if (huidigeOrder) markeerAfgerond(huidigeOrder.id);
+    // Verwijder uit wachtrij
     document.querySelectorAll('.order-item').forEach(item => {
-      if (item.classList.contains('actief')) {
-        // Voeg label toe onder de ordernaam
-        let label = item.querySelector('.verstrekking-label');
-        if (!label) {
-          label = document.createElement('div');
-          label.className = 'verstrekking-label';
-          label.style.cssText = 'font-size:10px;color:var(--success);margin-top:2px;';
-          item.appendChild(label);
-        }
-        label.textContent = '✓ Verstrekking ingediend';
-      }
+      if (item.classList.contains('actief')) item.remove();
     });
+    // Reset detail
+    setTimeout(() => {
+      document.getElementById('detailSplit').style.display = 'none';
+      document.getElementById('order-stappen').style.display = 'none';
+      document.getElementById('detailLeeg').style.display = 'flex';
+      huidigeOrder = null;
+    }, 1500);
   }
 
   function toonTab(naam) {
