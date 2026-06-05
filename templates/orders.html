@@ -730,8 +730,16 @@
     }
   }
 
-  function orderAfronden() {
+  async function orderAfronden() {
     if (!huidigeOrder) return;
+    // Sla verstrekking op in WooCommerce
+    try {
+      await fetch('/api/order-verstrekking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id })
+      });
+    } catch(e) { console.log('Verstrekking opslaan mislukt:', e); }
     // Alle stappen groen - wij zijn klaar, WooCommerce status blijft ongewijzigd
     for (let n = 1; n <= 5; n++) {
       const nr_el = document.getElementById('onr' + n);
