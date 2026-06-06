@@ -530,9 +530,6 @@ async def haal_bestellingen_op():
             betaal_status = "Niet betaald"
             betaal_type = "onbetaald"
 
-        # Verstrekking uit WooCommerce meta
-        heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
-
         # Verzendstatus: haal ordernotities op voor SendCloud tracking
         zending = sendcloud_zendingen.get(order_id) or sendcloud_zendingen.get(f"#{order_id}")
         verzend_status = "Niet verzonden"
@@ -543,9 +540,6 @@ async def haal_bestellingen_op():
             verzend_status = zending["status"]
             tracking_url = zending["tracking_url"]
             tracking_nr = zending["tracking"]
-            # Verzonden via SendCloud = ook verstrekking gedaan
-            if not heeft_verstrekking:
-                heeft_verstrekking = True
         else:
             pass  # Ordernotities worden niet opgehaald voor snelheid
             
@@ -570,7 +564,6 @@ async def haal_bestellingen_op():
             "verzend_status": verzend_status,
             "tracking_url": tracking_url,
             "tracking_nr": tracking_nr,
-            "heeft_verstrekking": heeft_verstrekking,
             "oorsprong": oorsprong,
         })
 
@@ -1846,13 +1839,28 @@ async def download_recept(request: Request):
         )
         resp.raise_for_status()
         inhoud = resp.content
-
-        # Bepaal media type
         ct = resp.headers.get("content-type", "application/pdf").split(";")[0]
+
+        # Converteer JPG/PNG naar PDF
+        if ct in ("image/jpeg", "image/jpg", "image/png"):
+            try:
+                import fitz
+                img_doc = fitz.open(stream=inhoud, filetype="jpeg" if "jpeg" in ct or "jpg" in ct else "png")
+                pdf_doc = fitz.open()
+                rect = img_doc[0].rect
+                pdf_pagina = pdf_doc.new_page(width=rect.width, height=rect.height)
+                pdf_pagina.insert_image(rect, stream=inhoud)
+                inhoud = pdf_doc.tobytes()
+                ct = "application/pdf"
+            except Exception:
+                pass  # Als conversie mislukt, stuur origineel
+
+        if not bestandsnaam.endswith(".pdf"):
+            bestandsnaam = bestandsnaam.rsplit(".", 1)[0] + ".pdf"
 
         return StreamingResponse(
             io.BytesIO(inhoud),
-            media_type=ct,
+            media_type="application/pdf",
             headers={
                 "Content-Disposition": f'attachment; filename="{bestandsnaam}"',
                 "Content-Length": str(len(inhoud)),
