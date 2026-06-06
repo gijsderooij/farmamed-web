@@ -268,11 +268,14 @@
         const receptBadge = order.heeft_recept
           ? '<span class="badge badge-ok">📄 Recept</span>'
           : '<span class="badge badge-warn">⚠ Geen recept</span>';
+        const verstrekkingBadge = order.heeft_verstrekking
+          ? '<span class="badge badge-ok">✓ Verstrekking</span>'
+          : '';
         div.innerHTML = `
           <div class="order-nr">#${order.id} — ${order.datum}</div>
           <div class="order-naam">${order.klant_naam}</div>
           <div class="order-medicijn">${order.medicijn}</div>
-          <div class="order-badges">${receptBadge}</div>`;
+          <div class="order-badges">${receptBadge}${verstrekkingBadge}</div>`;
         lijst.appendChild(div);
       });
     } catch(e) {
