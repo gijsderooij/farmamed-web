@@ -472,21 +472,33 @@
 
   async function downloadRecept() {
     if (!huidigeOrder) return;
-    // FIX A: direct downloaden via WordPress URL
-    if (huidigeOrder.recept_url) {
-      window.open(huidigeOrder.recept_url, '_blank');
-      return;
-    }
     const achternaam = (huidigeOrder.klant_naam||'onbekend').split(' ').pop();
+    const bestandsnaam = `${huidigeOrder.id}_Farmamed_${achternaam}.pdf`;
+
+    // Altijd via Railway endpoint — zorgt voor PDF conversie (ook van JPG)
     try {
-      const res = await fetch('/api/download-recept', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ order_id: huidigeOrder.id, bestandsnaam: `${huidigeOrder.id}_farmamed_${achternaam}.pdf` }) });
+      const res = await fetch('/api/download-recept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id, bestandsnaam: bestandsnaam })
+      });
       if (!res.ok) throw new Error('Download mislukt');
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${huidigeOrder.id}_farmamed_${achternaam}.pdf`;
+      a.download = bestandsnaam;
+      document.body.appendChild(a);
       a.click();
-    } catch(e) { alert('Fout bij downloaden: ' + e.message); }
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch(e) {
+      // Fallback: open direct in browser
+      if (huidigeOrder.recept_url) {
+        window.open(huidigeOrder.recept_url, '_blank');
+      } else {
+        alert('Fout bij downloaden: ' + e.message);
+      }
+    }
   }
 
   function downloadEdifact() {
