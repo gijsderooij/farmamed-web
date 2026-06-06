@@ -1101,8 +1101,8 @@ async def verwerk_edifact_bijlage(request: Request):
 
 
 @app.get("/api/orders")
-async def haal_orders_op():
-    """Haalt openstaande WooCommerce orders op."""
+async def haal_orders_op(toon_alle: bool = False):
+    """Haalt openstaande WooCommerce orders op. toon_alle=true toont ook admin-orders."""
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
@@ -1147,6 +1147,13 @@ async def haal_orders_op():
                 o["order_notes"] = []
 
             heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
+            via_farmamed = bool(meta.get("_created_via_farmamed", ""))
+            created_via = o.get("created_via", "")
+
+            # Verberg orders handmatig aangemaakt in WooCommerce admin
+            # Toon: webshop (checkout), onze app (farmamed), REST API
+            if created_via == "admin" and not toon_alle:
+                continue
 
             orders.append({
                 "id": o["id"],
@@ -1164,6 +1171,7 @@ async def haal_orders_op():
                 "heeft_recept": bool(recept_url),
                 "recept_url": recept_url,
                 "heeft_verstrekking": heeft_verstrekking,
+                "via_farmamed": via_farmamed,
             })
 
         return JSONResponse(content={"orders": orders})
