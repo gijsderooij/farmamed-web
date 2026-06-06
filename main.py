@@ -1146,6 +1146,8 @@ async def haal_orders_op():
             except Exception:
                 o["order_notes"] = []
 
+            heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
+
             orders.append({
                 "id": o["id"],
                 "status": o.get("status", ""),
@@ -1161,6 +1163,7 @@ async def haal_orders_op():
                 "totaal": o.get("total", "0"),
                 "heeft_recept": bool(recept_url),
                 "recept_url": recept_url,
+                "heeft_verstrekking": heeft_verstrekking,
             })
 
         return JSONResponse(content={"orders": orders})
@@ -1672,6 +1675,30 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
         aandachtspunten.append("⚠ Lage overeenkomst tussen bestelling en recept")
 
     return {"velden": velden, "totaal_score": totaal, "aandachtspunten": aandachtspunten}
+
+
+@app.post("/api/order-verstrekking")
+async def order_verstrekking(request: Request):
+    """Slaat verstrekkingsverzoek op als WooCommerce meta veld."""
+    body = await request.json()
+    order_id = body.get("order_id")
+    wc_url = os.getenv("WC_URL", "")
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+
+    if not order_id or not wc_url:
+        return JSONResponse(content={"ok": False, "fout": "Onvoldoende gegevens"})
+
+    try:
+        resp = http_requests.put(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+            auth=(wc_key, wc_secret),
+            json={"meta_data": [{"key": "_farmamed_verstrekking", "value": "1"}]},
+            timeout=10,
+        )
+        return JSONResponse(content={"ok": resp.status_code == 200})
+    except Exception as e:
+        return JSONResponse(content={"ok": False, "fout": str(e)})
 
 
 @app.post("/api/order-status")
