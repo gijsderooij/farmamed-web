@@ -762,11 +762,20 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                 "gematcht": False, "methode": "geen", "bedrag_klopt": False,
             })
 
+    # Bepaal welke betalingen niet zijn gematcht (0-400 euro, geen Pay.nl)
+    gematchte_betalingen = {id(m["betaling"]) for m in matches if m.get("betaling")}
+    ongematchte_betalingen = [
+        b for b in betalingen
+        if id(b) not in gematchte_betalingen
+        and 0 < b["bedrag"] <= 400
+    ]
+
     return JSONResponse(content={
         "betalingen": len(betalingen),
         "orders_totaal": len(orders),
         "gematcht": sum(1 for m in matches if m["gematcht"]),
         "matches": matches,
+        "ongematchte_betalingen": ongematchte_betalingen,
     })
 @app.post("/api/betalingen-verwerken")
 async def betalingen_verwerken(request: Request):
