@@ -798,6 +798,12 @@ async def order_afronden(request: Request):
     return JSONResponse(content={"resultaten": resultaten})
 
 
+@app.get("/bank", response_class=HTMLResponse)
+async def bank_pagina():
+    html_path = BASE_DIR / "templates" / "bank.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
 @app.get("/status", response_class=HTMLResponse)
 async def status_pagina():
     html_path = BASE_DIR / "templates" / "status.html"
