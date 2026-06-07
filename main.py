@@ -574,8 +574,8 @@ async def haal_bestellingen_op():
 async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None):
     """
     Parseert MT940 en matcht per pending order een betaling.
-    Stap 1: ordernummer in REMI omschrijving
-    Stap 2: achternaam fuzzy + bedrag exact (alleen als geen ordernummer gevonden)
+    Stap 1: ordernummer in REMI omschrijving (spaties/variaties gefilterd)
+    Stap 2: achternaam fuzzy + bedrag exact (alleen zonder ordernummer)
     """
     import re as _re
     from rapidfuzz import fuzz
@@ -596,6 +596,10 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
             datum = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
             bedrag = float(f"{header.group(4)}.{header.group(5) or '00'}")
 
+            # Alleen betalingen 0-400 euro
+            if bedrag <= 0 or bedrag > 400:
+                continue
+
             oms_match = _re.search(r":86:(.*?)(?=:6[12]:|:62|$)", blok, _re.DOTALL)
             if not oms_match:
                 continue
@@ -609,7 +613,6 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
             if nm:
                 naam = _re.sub(r"\s+", " ", nm.group(1)).strip()
                 naam = _re.sub(r"^(De heer|Mevr?\.?|Dhr\.?|Mw\.?)\s+", "", naam, flags=_re.IGNORECASE).strip()
-                # Verwijder bank-codes achteraan (CJ, eo, e/o)
                 naam = _re.sub(r"\s+(cj|eo|e/o)\s*$", "", naam, flags=_re.IGNORECASE).strip()
 
             # REMI = klantomschrijving
@@ -622,10 +625,7 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
             order_nr = ""
             if remi:
                 rc = remi.replace(FARMAMED_AGB, "")
-                # Verwijder spaties en zoek keyword+cijfers
                 rc_nospace = _re.sub(r"\s+", "", rc)
-
-                # 1. Keyword direct gevolgd door cijfers (spaties verwijderd)
                 nm2 = _re.search(
                     r"(?:ordernummer|ordernr|ordenummer|order|fact(?:uur)?|bestelling)"
                     r"[nr\.#]*(\d{3,5})",
@@ -635,8 +635,6 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                     order_nr = nm2.group(1)
                     if not (3 <= len(order_nr) <= 5):
                         order_nr = ""
-
-                # 2. Losse 4-5 cijfers in originele tekst
                 if not order_nr:
                     for m in _re.finditer(r"(\d{4,5})", rc):
                         c = m.group(1)
@@ -654,7 +652,7 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
     if not betalingen:
         return JSONResponse(content={"fout": "Geen betalingen gevonden in MT940 bestand"})
 
-    # ── Haal ALLE pending orders op ───────────────────────────────
+    # ── Haal ALLE pending orders op (meerdere pagina's) ───────────
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
@@ -722,7 +720,7 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
         else:
             orders_zonder.append(order)
 
-    # ── STAP 2: achternaam + bedrag (alleen betalingen zonder ordernummer) ──
+    # ── STAP 2: achternaam + bedrag exact ─────────────────────────
     betalingen_zonder_nr = [b for b in betalingen if not b.get("order_nr") and id(b) not in gebruikt]
 
     for order in orders_zonder:
@@ -762,12 +760,10 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                 "gematcht": False, "methode": "geen", "bedrag_klopt": False,
             })
 
-    # Bepaal welke betalingen niet zijn gematcht (0-400 euro, geen Pay.nl)
-    gematchte_betalingen = {id(m["betaling"]) for m in matches if m.get("betaling")}
+    # Ongematchte betalingen (voor weergave onderaan)
+    gematchte_ids = {id(m["betaling"]) for m in matches if m.get("betaling")}
     ongematchte_betalingen = [
-        b for b in betalingen
-        if id(b) not in gematchte_betalingen
-        and 0 < b["bedrag"] <= 400
+        b for b in betalingen if id(b) not in gematchte_ids
     ]
 
     return JSONResponse(content={
@@ -866,12 +862,6 @@ async def order_afronden(request: Request):
             resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
 
     return JSONResponse(content={"resultaten": resultaten})
-
-
-@app.get("/bank", response_class=HTMLResponse)
-async def bank_pagina():
-    html_path = BASE_DIR / "templates" / "bank.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
 @app.get("/status", response_class=HTMLResponse)
@@ -1177,8 +1167,8 @@ async def verwerk_edifact_bijlage(request: Request):
 
 
 @app.get("/api/orders")
-async def haal_orders_op(toon_alle: bool = False):
-    """Haalt openstaande WooCommerce orders op. toon_alle=true toont ook admin-orders."""
+async def haal_orders_op():
+    """Haalt openstaande WooCommerce orders op."""
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
@@ -1222,15 +1212,6 @@ async def haal_orders_op(toon_alle: bool = False):
             except Exception:
                 o["order_notes"] = []
 
-            heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
-            via_farmamed = bool(meta.get("_created_via_farmamed", ""))
-            created_via = o.get("created_via", "")
-
-            # Verberg orders handmatig aangemaakt in WooCommerce admin
-            # Toon: webshop (checkout), onze app (farmamed), REST API
-            if created_via == "admin" and not toon_alle:
-                continue
-
             orders.append({
                 "id": o["id"],
                 "status": o.get("status", ""),
@@ -1246,8 +1227,6 @@ async def haal_orders_op(toon_alle: bool = False):
                 "totaal": o.get("total", "0"),
                 "heeft_recept": bool(recept_url),
                 "recept_url": recept_url,
-                "heeft_verstrekking": heeft_verstrekking,
-                "via_farmamed": via_farmamed,
             })
 
         return JSONResponse(content={"orders": orders})
@@ -1761,30 +1740,6 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
     return {"velden": velden, "totaal_score": totaal, "aandachtspunten": aandachtspunten}
 
 
-@app.post("/api/order-verstrekking")
-async def order_verstrekking(request: Request):
-    """Slaat verstrekkingsverzoek op als WooCommerce meta veld."""
-    body = await request.json()
-    order_id = body.get("order_id")
-    wc_url = os.getenv("WC_URL", "")
-    wc_key = os.getenv("WC_KEY", "")
-    wc_secret = os.getenv("WC_SECRET", "")
-
-    if not order_id or not wc_url:
-        return JSONResponse(content={"ok": False, "fout": "Onvoldoende gegevens"})
-
-    try:
-        resp = http_requests.put(
-            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
-            auth=(wc_key, wc_secret),
-            json={"meta_data": [{"key": "_farmamed_verstrekking", "value": "1"}]},
-            timeout=10,
-        )
-        return JSONResponse(content={"ok": resp.status_code == 200})
-    except Exception as e:
-        return JSONResponse(content={"ok": False, "fout": str(e)})
-
-
 @app.post("/api/order-status")
 async def update_order_status(request: Request):
     """Werkt WooCommerce orderstatus bij na beslissing apotheker."""
@@ -1950,28 +1905,13 @@ async def download_recept(request: Request):
         )
         resp.raise_for_status()
         inhoud = resp.content
+
+        # Bepaal media type
         ct = resp.headers.get("content-type", "application/pdf").split(";")[0]
-
-        # Converteer JPG/PNG naar PDF
-        if ct in ("image/jpeg", "image/jpg", "image/png"):
-            try:
-                import fitz
-                img_doc = fitz.open(stream=inhoud, filetype="jpeg" if "jpeg" in ct or "jpg" in ct else "png")
-                pdf_doc = fitz.open()
-                rect = img_doc[0].rect
-                pdf_pagina = pdf_doc.new_page(width=rect.width, height=rect.height)
-                pdf_pagina.insert_image(rect, stream=inhoud)
-                inhoud = pdf_doc.tobytes()
-                ct = "application/pdf"
-            except Exception:
-                pass  # Als conversie mislukt, stuur origineel
-
-        if not bestandsnaam.endswith(".pdf"):
-            bestandsnaam = bestandsnaam.rsplit(".", 1)[0] + ".pdf"
 
         return StreamingResponse(
             io.BytesIO(inhoud),
-            media_type="application/pdf",
+            media_type=ct,
             headers={
                 "Content-Disposition": f'attachment; filename="{bestandsnaam}"',
                 "Content-Length": str(len(inhoud)),
