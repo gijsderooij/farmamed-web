@@ -622,21 +622,25 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
             order_nr = ""
             if remi:
                 rc = remi.replace(FARMAMED_AGB, "")
-                # Explicit keyword match (ook zonder spatie: "ordernummer1625")
+                # Verwijder spaties en zoek keyword+cijfers
+                rc_nospace = _re.sub(r"\s+", "", rc)
+
+                # 1. Keyword direct gevolgd door cijfers (spaties verwijderd)
                 nm2 = _re.search(
-                    r"(?:ordernummer|ordernr\.?|order\s*(?:nr\.?|nummer)|factuur(?:nr)?\.?|bestelling)"
-                    r"\s*[:\s#]*(\d[\d\s]{1,6}\d)",
-                    rc, _re.IGNORECASE
+                    r"(?:ordernummer|ordernr|ordenummer|order|fact(?:uur)?|bestelling)"
+                    r"[nr\.#]*(\d{3,5})",
+                    rc_nospace, _re.IGNORECASE
                 )
                 if nm2:
-                    order_nr = _re.sub(r"\s", "", nm2.group(1))
+                    order_nr = nm2.group(1)
                     if not (3 <= len(order_nr) <= 5):
                         order_nr = ""
-                # Losse 4-5 cijfers
+
+                # 2. Losse 4-5 cijfers in originele tekst
                 if not order_nr:
                     for m in _re.finditer(r"(\d{4,5})", rc):
                         c = m.group(1)
-                        if c != FARMAMED_AGB and not c.startswith("020"):
+                        if c != FARMAMED_AGB and not c.startswith("020") and not c.startswith("022"):
                             order_nr = c
                             break
 
