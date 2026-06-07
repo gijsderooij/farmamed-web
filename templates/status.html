@@ -25,9 +25,6 @@
     .filterbalk { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
     .filter-btn { padding:5px 12px; border:1px solid var(--border); border-radius:6px; background:white; cursor:pointer; font-size:12px; font-family:'DM Sans',sans-serif; color:var(--muted); }
     .filter-btn.actief { background:var(--teal-lt); border-color:var(--teal); color:var(--teal-dk); font-weight:500; }
-    .mt940-balk { background:white; border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; margin-bottom:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-    .mt940-matches { background:white; border:1px solid var(--border); border-radius:var(--radius); margin-bottom:14px; overflow:hidden; display:none; }
-    .mt940-header { padding:10px 16px; background:var(--cream); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
     .tabel { background:white; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
     .tabel-header { display:grid; grid-template-columns:32px 130px 160px 110px 1fr 1fr 1fr 1fr; gap:8px; padding:10px 16px; background:var(--cream); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); border-bottom:1px solid var(--border); }
     .tabel-rij { display:grid; grid-template-columns:32px 130px 160px 110px 1fr 1fr 1fr 1fr; gap:8px; padding:11px 16px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; transition:background 0.1s; }
@@ -291,127 +288,6 @@
     } catch(e) { status.textContent = '✕ '+e.message; status.style.color='var(--danger)'; }
   }
 
-  let mt940VerzondIds = new Set();
-
-  function toonMT940Matches(matches) {
-    mt940Geselecteerd.clear();
-    mt940VerzondIds.clear();
-    document.getElementById('mt940Matches').style.display = 'block';
-
-    // Splits in categorieën op basis van methode
-    const ordernr_zeker = matches.filter(m => m.gematcht && m.methode === 'ordernummer' && m.bedrag_klopt);
-    const ordernr_afwijkt = matches.filter(m => m.methode === 'ordernummer' && !m.bedrag_klopt);
-    const naam_bedrag = matches.filter(m => m.gematcht && m.methode === 'naam+bedrag');
-    const geen = matches.filter(m => !m.gematcht);
-
-    // Automatisch aanvinken
-    ordernr_zeker.forEach(m => { if (m.order) mt940Geselecteerd.add(m.order.id); });
-    naam_bedrag.forEach(m => { if (m.order) mt940Geselecteerd.add(m.order.id); });
-
-    document.getElementById('mt940Titel').textContent =
-      `${matches.length} orders — ${ordernr_zeker.length} zeker, ${ordernr_afwijkt.length+naam_bedrag.length} controleren, ${geen.length} geen match`;
-
-    const header = `<div style="display:grid;grid-template-columns:32px 1fr 1fr 60px;gap:8px;padding:9px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);">
-      <span></span><span>Pending Order</span><span>Gevonden Betaling</span><span>Match</span></div>`;
-
-    let html = header;
-
-    if (ordernr_zeker.length > 0) {
-      html += `<div style="padding:6px 16px;background:#e8f8ee;font-size:11px;font-weight:600;color:var(--success);border-bottom:1px solid var(--border);">✓ Ordernummer + bedrag kloppen (${ordernr_zeker.length}) — automatisch aangevinkt</div>`;
-      ordernr_zeker.forEach(m => { html += rij(m, true, '#e8f8ee'); });
-    }
-    if (ordernr_afwijkt.length > 0) {
-      html += `<div style="padding:6px 16px;background:#fef3e2;font-size:11px;font-weight:600;color:var(--warn);border-bottom:1px solid var(--border);">⚠ Ordernummer klopt, bedrag wijkt af (${ordernr_afwijkt.length}) — controleer</div>`;
-      ordernr_afwijkt.forEach(m => { html += rij(m, false, '#fef3e2'); });
-    }
-    if (naam_bedrag.length > 0) {
-      html += `<div style="padding:6px 16px;background:#e8f0ff;font-size:11px;font-weight:600;color:#3a6fd8;border-bottom:1px solid var(--border);">~ Naam + bedrag kloppen (${naam_bedrag.length}) — controleer</div>`;
-      naam_bedrag.forEach(m => { html += rij(m, true, '#e8f0ff'); });
-    }
-    if (geen.length > 0) {
-      html += `<div style="padding:6px 16px;background:#fafafa;font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);">○ Geen betaling gevonden (${geen.length})</div>`;
-      geen.forEach(m => { html += rij(m, false, 'white'); });
-    }
-
-    document.getElementById('mt940Lijst').innerHTML = html;
-    updateMT940Knop();
-  }
-
-  function rij(m, checked, bg) {
-    const b = m.betaling, o = m.order;
-    const kleur = m.methode === 'ordernummer' && m.bedrag_klopt ? 'var(--success)' 
-                : m.methode === 'ordernummer' ? 'var(--warn)'
-                : m.methode === 'naam+bedrag' ? '#3a6fd8'
-                : 'var(--muted)';
-    if (checked && o) mt940Geselecteerd.add(o.id);
-
-    // Order (links - primair)
-    const order_tekst = o 
-      ? `<div style="font-weight:500;">#${o.id} ${o.klant_naam}</div><div style="font-size:11px;color:var(--muted);">€${parseFloat(o.totaal).toFixed(2)} · aangemaakt ${o.datum||''}</div>`
-      : '<span style="color:var(--muted)">—</span>';
-
-    // Betaling (rechts - secundair)
-    let betaling_tekst = '<span style="color:var(--muted);font-size:11px;">Geen betaling gevonden</span>';
-    if (b) {
-      let remi = b.remi || '';
-      if (b.order_nr) {
-        const regex = new RegExp('(' + b.order_nr + ')', 'g');
-        remi = remi.replace(regex, '<u style="color:var(--teal-dk);font-weight:600;">$1</u>');
-      }
-      betaling_tekst = `<div style="font-size:11px;color:var(--muted);">${b.naam||'—'}</div>
-        <div style="font-size:11px;">${b.datum} · €${b.bedrag.toFixed(2)} · ${remi||'geen omschrijving'}</div>`;
-    }
-
-    const methode_label = m.methode === 'ordernummer' ? (m.bedrag_klopt ? '✓ nr+€' : '⚠ nr')
-                        : m.methode === 'naam+bedrag' ? '~ nm+€' : '○';
-
-    return `<div style="display:grid;grid-template-columns:32px 1fr 1fr 60px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;font-size:12px;background:${bg};">
-      <input type="checkbox" ${checked?'checked':''} ${!o?'disabled':''} onchange="toggleMT940(${o?o.id:'null'},this)" style="cursor:${o?'pointer':'not-allowed'};">
-      <div>${order_tekst}</div>
-      <div>${betaling_tekst}</div>
-      <span style="font-weight:600;color:${kleur};font-size:11px;">${methode_label}</span>
-    </div>`;
-  }
-
-  function toggleMT940(id, cb) {
-    if (id===null) return;
-    if (cb.checked) mt940Geselecteerd.add(id); else mt940Geselecteerd.delete(id);
-    cb.closest('div').style.background = cb.checked?'var(--teal-lt)':'';
-    updateMT940Knop();
-  }
-
-  function updateMT940Knop() {
-    const btn = document.getElementById('btnBevestig');
-    btn.style.display = mt940Geselecteerd.size>0?'inline-flex':'none';
-    const zeker_count = [...mt940Geselecteerd].length;
-    btn.textContent = `✓ ${zeker_count} betaling(en) verwerken`;
-  }
-
-  async function bevestigBetalingen() {
-    if (!confirm(`${mt940Geselecteerd.size} order(s) verwerken?\nDe backend controleert per order of verstrekking en verzending aanwezig zijn.`)) return;
-    const btn = document.getElementById('btnBevestig');
-    btn.disabled=true; btn.textContent='⏳ Bezig…';
-    try {
-      const res = await fetch('/api/betalingen-verwerken', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ order_ids: [...mt940Geselecteerd] })
-      });
-      const data = await res.json();
-      const ok = data.resultaten.filter(r => r.ok);
-      const completed = ok.filter(r => r.nieuwe_status === 'completed');
-      const processing = ok.filter(r => r.nieuwe_status === 'processing');
-      alert(`✓ ${ok.length} orders verwerkt:
-• ${completed.length} afgerond (betaald + verstrekt + verzonden)
-• ${processing.length} in behandeling (betaald, wacht op verstrekking/verzending)`);
-      document.getElementById('mt940Matches').style.display='none';
-      document.getElementById('mt940Status').textContent='';
-      document.getElementById('mt940Input').value='';
-      mt940Geselecteerd.clear();
-      await laadOrders();
-    } catch(e) { alert('Fout: '+e.message); }
-    finally { btn.disabled=false; updateMT940Knop(); }
-  }
 
   laadOrders();
 </script>
