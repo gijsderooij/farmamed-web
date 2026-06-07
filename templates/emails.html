@@ -134,6 +134,7 @@
     <a href="/orders">Orders</a>
     <a href="/emails" class="actief">E-mails</a>
     <a href="/status">Werklijst</a>
+    <a href="/bank">Bank</a>
   </nav>
   <div style="display:flex;justify-content:flex-end"><span style="font-size:12px;color:rgba(255,255,255,0.6)">Apothekersdashboard</span></div>
 </header>
@@ -793,15 +794,11 @@
     if (btn5) { btn5.disabled = true; btn5.textContent = '⏳ Bezig…'; }
 
     try {
-      const resp = await fetch('/api/email-verwerkt', {
+      await fetch('/api/email-verwerkt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email_uid: huidigeEmail.uid, order_id: window._emailOrderId })
       });
-      const data = await resp.json();
-      if (data.verplaatst) {
-        console.log('E-mail verplaatst naar Afgehandeld');
-      }
       // Alle stappen groen
       zetStapVoltooid();
       if (btn5) { btn5.style.display = 'none'; }
