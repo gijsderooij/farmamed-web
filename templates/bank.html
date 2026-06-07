@@ -198,14 +198,13 @@
     const id = o ? o.id : null;
     if (checked && id) geselecteerd.add(id);
 
-    // Order kolom
+    // Order kolom (links - primair)
     const orderHtml = o
-      ? `<div class="order-id">#${o.id}</div>
-         <div class="order-sub">${o.klant_naam}</div>
-         <div class="order-sub">€${parseFloat(o.totaal).toFixed(2)} · ${o.datum}</div>`
+      ? `<div class="order-id">#${o.id} — ${o.klant_naam}</div>
+         <div class="order-sub">€${parseFloat(o.totaal).toFixed(2)} · aangemaakt ${o.datum}</div>`
       : '<span style="color:var(--muted)">—</span>';
 
-    // Betaling kolom
+    // Betaling kolom (rechts - gevonden match)
     let betHtml = '<div class="geen-bet">Geen betaling gevonden</div>';
     if (b) {
       let remi = b.remi || '';
@@ -213,7 +212,7 @@
         remi = remi.replace(new RegExp('(' + b.order_nr + ')', 'g'), '<u class="nr">$1</u>');
       }
       betHtml = `<div class="bet-naam">${b.naam || '—'}</div>
-                 <div class="bet-remi">${remi || '—'}</div>
+                 <div class="bet-remi">${remi || 'geen omschrijving'}</div>
                  <div class="bet-sub">${b.datum} · €${b.bedrag.toFixed(2)}</div>`;
     }
 
