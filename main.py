@@ -848,30 +848,40 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
     gematchte_ids = {id(m["betaling"]) for m in matches if m.get("betaling")}
     ongematchte_betalingen_raw = [b for b in betalingen if id(b) not in gematchte_ids]
 
-    # Zoek ordernummers uit ongematchte betalingen op in WooCommerce (alle statussen)
+    # Zoek ordernummers uit ongematchte betalingen op in WooCommerce (bulk, alle statussen)
+    # Verzamel unieke ordernummers
+    te_zoeken = list({b["order_nr"] for b in ongematchte_betalingen_raw if b.get("order_nr")})
+    order_cache = {}
+    if te_zoeken:
+        try:
+            # Haal in bulk op (max 100 per keer)
+            for i in range(0, len(te_zoeken), 100):
+                bulk = te_zoeken[i:i+100]
+                resp_bulk = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders",
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
+                    params={"include": ",".join(bulk), "per_page": 100},
+                    timeout=15,
+                )
+                if resp_bulk.status_code == 200:
+                    for o in resp_bulk.json():
+                        billing = o.get("billing", {})
+                        order_cache[str(o["id"])] = {
+                            "id": o["id"],
+                            "status": o.get("status", ""),
+                            "klant_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
+                            "totaal": o.get("total", ""),
+                            "datum": o.get("date_created", "")[:10],
+                        }
+        except Exception:
+            pass
+
     ongematchte_betalingen = []
     for b in ongematchte_betalingen_raw:
         item = dict(b)
-        if b.get("order_nr"):
-            try:
-                resp_order = http_requests.get(
-                    f"{wc_url}/wp-json/wc/v3/orders/{b['order_nr']}",
-                    auth=(wc_key, wc_secret),
-                    headers={"Accept": "application/json"},
-                    timeout=5,
-                )
-                if resp_order.status_code == 200:
-                    o = resp_order.json()
-                    billing = o.get("billing", {})
-                    item["gevonden_order"] = {
-                        "id": o["id"],
-                        "status": o.get("status", ""),
-                        "klant_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
-                        "totaal": o.get("total", ""),
-                        "datum": o.get("date_created", "")[:10],
-                    }
-            except Exception:
-                pass
+        if b.get("order_nr") and b["order_nr"] in order_cache:
+            item["gevonden_order"] = order_cache[b["order_nr"]]
         ongematchte_betalingen.append(item)
 
     return JSONResponse(content={
