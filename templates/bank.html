@@ -169,7 +169,10 @@
         html += `<div style="display:grid;grid-template-columns:100px 80px 1fr 1fr 1fr;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;align-items:start;">
           <span style="color:var(--muted);">${b.datum}</span>
           <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
-          <div><div>${b.naam||'—'}</div><div style="margin-top:3px;">${order_html}</div></div>
+          <div>
+            <div style="font-weight:500;">${b.naam||'—'}</div>
+            ${order_html ? `<div style="margin-top:3px;">${order_html}</div>` : ''}
+          </div>
           <span style="color:var(--teal-dk);">${remi||'<span style="color:var(--muted)">geen omschrijving</span>'}</span>
           <div>${naam_match_html}</div>
         </div>`;
