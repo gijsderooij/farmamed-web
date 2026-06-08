@@ -143,11 +143,20 @@
       .sort((a, b) => b.bedrag - a.bedrag)
       .forEach(b => {
         let remi = b.remi || '';
+        if (b.order_nr) {
+          remi = remi.replace(new RegExp('(' + b.order_nr + ')', 'g'), '<u class="nr">$1</u>');
+        }
+        const g = b.gevonden_order;
+        const status_kleur = g ? (g.status==='completed' ? '#27ae60' : g.status==='processing' ? 'var(--teal-dk)' : 'var(--warn)') : '';
+        const status_bg = g ? (g.status==='completed' ? '#e8f8ee' : g.status==='processing' ? 'var(--teal-lt)' : '#fef3e2') : '';
+        const order_html = g
+          ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;background:${status_bg};color:${status_kleur};">#${g.id} ${g.klant_naam} €${g.totaal} · ${g.status}</span>`
+          : (b.order_nr ? `<span style="font-size:10px;color:var(--muted);">#${b.order_nr} niet gevonden</span>` : '');
         html += `<div style="display:grid;grid-template-columns:100px 80px 1fr 1fr;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;align-items:start;">
           <span style="color:var(--muted);">${b.datum}</span>
           <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
-          <span>${b.naam || '<span style="color:var(--border)">—</span>'}</span>
-          <span style="color:var(--teal-dk);">${remi || '<span style="color:var(--border)">geen omschrijving</span>'}</span>
+          <div><div>${b.naam||'—'}</div><div style="margin-top:3px;">${order_html}</div></div>
+          <span style="color:var(--teal-dk);">${remi||'<span style="color:var(--muted)">geen omschrijving</span>'}</span>
         </div>`;
       });
     lijst.innerHTML = html;
