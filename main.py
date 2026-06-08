@@ -737,7 +737,9 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
             if any(w in oms_raw for w in ["Pay.nl", "CLEARING", "Stichting Pay"]):
                 continue
             naam = ""
-            nm = _re.search(r"/NAME/([^/]+)", oms_raw) or _re.search(r"/NA ME/([^/]+)", oms_raw)
+            # /NAME/ kan afgebroken zijn als /NA\r\nME/ of /NA\nME/
+            oms_naam = oms_raw.replace("\x2fNA\r\nME\x2f", "/NAME/").replace("\x2fNA\nME\x2f", "/NAME/")
+            nm = _re.search(r"/NAME/([^/]+)", oms_naam)
             if nm:
                 naam = _re.sub(r"\s+", " ", nm.group(1)).strip()
                 naam = _re.sub(r"^(De heer|Mevr?\.?|Dhr\.?|Mw\.?)\s+", "", naam, flags=_re.IGNORECASE).strip()
