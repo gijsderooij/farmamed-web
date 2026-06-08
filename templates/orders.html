@@ -137,6 +137,7 @@
     <div class="wachtrij-header">
       <span class="wachtrij-titel">Wachtrij</span>
       <button class="vernieuwen-btn" onclick="laadOrders()">↻ Vernieuwen</button>
+      <button class="vernieuwen-btn" id="btnToonAlle" onclick="toggleAlleOrders()" style="font-size:11px;">Alle orders</button>
     </div>
     <div class="order-lijst" id="orderLijst">
       <div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>
@@ -274,11 +275,20 @@
   }
 
   // --- Orders laden ---
+  let toonAlle = false;
+  function toggleAlleOrders() {
+    toonAlle = !toonAlle;
+    const btn = document.getElementById('btnToonAlle');
+    btn.textContent = toonAlle ? '← Mijn orders' : 'Alle orders';
+    btn.style.background = toonAlle ? 'var(--teal-lt)' : 'white';
+    laadOrders();
+  }
+
   async function laadOrders() {
     const lijst = document.getElementById('orderLijst');
     lijst.innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>';
     try {
-      const res = await fetch('/api/orders');
+      const res = await fetch('/api/orders' + (toonAlle ? '?toon_alle=true' : ''));
       const data = await res.json();
       if (data.fout) {
         lijst.innerHTML = '<div class="laden-tekst" style="color:var(--danger)">Fout: ' + data.fout + '</div>';
@@ -301,6 +311,9 @@
         const receptBadge = order.heeft_recept
           ? '<span class="badge badge-ok">📄 Recept</span>'
           : '<span class="badge badge-warn">⚠ Geen recept</span>';
+        const verstrekkingBadge = order.heeft_verstrekking
+          ? '<span class="badge badge-ok">✓ Verstrekking</span>'
+          : '';
 
         div.innerHTML = `
           <div class="order-nr">#${order.id} — ${order.datum}</div>
@@ -477,9 +490,15 @@
       toonPatientData(order, data.recept);  // bijwerken met OCR-data
       genereerEdifact(order, data.recept);
 
-      document.getElementById('btnGoedkeuren').disabled = false;
-      document.getElementById('btnAfwijzen').disabled = false;
+      document.getElementById('btnGoedkeuren') && (document.getElementById('btnGoedkeuren').disabled = false);
+      document.getElementById('btnAfwijzen') && (document.getElementById('btnAfwijzen').disabled = false);
       zetOrderStap(3);
+      const beslisEl = document.getElementById('order-beslis');
+      if (beslisEl) beslisEl.style.display = 'flex';
+      const btn2g = document.getElementById('btnGoedkeuren2');
+      const btn2a = document.getElementById('btnAfwijzen2');
+      if (btn2g) btn2g.disabled = false;
+      if (btn2a) btn2a.disabled = false;
 
     } catch(e) {
       document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--danger);font-size:13px;padding:16px;">Analysefout: ' + e.message + '</div>';
@@ -623,8 +642,7 @@
   async function downloadRecept() {
     if (!huidigeOrder) return;
     const achternaam = (huidigeOrder.klant_naam || 'onbekend').split(' ').pop();
-    const bestandsnaam = `${huidigeOrder.id}_farmamed_${achternaam}.pdf`;
-
+    const bestandsnaam = `${huidigeOrder.id}_Farmamed_${achternaam}.pdf`;
     try {
       const res = await fetch('/api/download-recept', {
         method: 'POST',
@@ -633,16 +651,15 @@
       });
       if (!res.ok) throw new Error('Download mislukt');
       const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = blobUrl;
+      a.href = URL.createObjectURL(blob);
       a.download = bestandsnaam;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch(e) {
-      alert('Fout bij downloaden: ' + e.message);
+      if (huidigeOrder.recept_url) window.open(huidigeOrder.recept_url, '_blank');
+      else alert('Fout bij downloaden: ' + e.message);
     }
   }
 
@@ -731,8 +748,15 @@
     }
   }
 
-  function orderAfronden() {
+  async function orderAfronden() {
     if (!huidigeOrder) return;
+    try {
+      await fetch('/api/order-verstrekking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id })
+      });
+    } catch(e) { console.log('Verstrekking opslaan mislukt:', e); }
     // Alle stappen groen - wij zijn klaar, WooCommerce status blijft ongewijzigd
     for (let n = 1; n <= 5; n++) {
       const nr_el = document.getElementById('onr' + n);
