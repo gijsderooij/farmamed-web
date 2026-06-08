@@ -120,11 +120,11 @@
 
   <!-- Ongematchte betalingen -->
   <div id="ongematchTabel" style="display:none;margin-top:24px;">
-    <h2 style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:400;margin-bottom:12px;">Betalingen zonder match</h2>
+    <h2 id="ongematchTitel" style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:400;margin-bottom:12px;">Betalingen zonder match</h2>
     <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Betalingen van €0-400 die niet zijn gematcht aan een pending order. Mogelijk via een andere naam, of al betaald via Pay.nl.</p>
     <div class="tabel">
-      <div style="display:grid;grid-template-columns:100px 80px 1fr 1fr;gap:12px;padding:10px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);border-bottom:1px solid var(--border);">
-        <span>Datum</span><span>Bedrag</span><span>Naam</span><span>Omschrijving</span>
+      <div style="display:grid;grid-template-columns:100px 80px 1fr 1fr 1fr;gap:12px;padding:10px 16px;background:var(--cream);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);border-bottom:1px solid var(--border);">
+        <span>Datum</span><span>Bedrag</span><span>Rekeninghouder</span><span>Omschrijving</span><span>Mogelijke order</span>
       </div>
       <div id="ongematchLijst"></div>
     </div>
@@ -138,8 +138,17 @@
     if (!betalingen || betalingen.length === 0) return;
     document.getElementById('ongematchTabel').style.display = 'block';
     const lijst = document.getElementById('ongematchLijst');
+    // Filter: verberg betalingen die al zijn gematcht aan een afgeronde order
+    const te_tonen = betalingen.filter(b => {
+      const g = b.gevonden_order;
+      return !g || g.status !== 'completed';
+    });
+    const verborgen = betalingen.length - te_tonen.length;
+    document.getElementById('ongematchTitel').textContent =
+      `Betalingen zonder match (${te_tonen.length} getoond, ${verborgen} al afgerond verborgen)`;
+
     let html = '';
-    betalingen
+    te_tonen
       .sort((a, b) => b.bedrag - a.bedrag)
       .forEach(b => {
         let remi = b.remi || '';
@@ -152,11 +161,17 @@
         const order_html = g
           ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;background:${status_bg};color:${status_kleur};">#${g.id} ${g.klant_naam} €${g.totaal} · ${g.status}</span>`
           : (b.order_nr ? `<span style="font-size:10px;color:var(--muted);">#${b.order_nr} niet gevonden</span>` : '');
-        html += `<div style="display:grid;grid-template-columns:100px 80px 1fr 1fr;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;align-items:start;">
+        // Fuzzy naam match met pending orders
+        const naam_match_html = b.naam_match
+          ? `<div style="font-size:11px;"><span style="background:#e8f0ff;color:#3a6fd8;padding:1px 6px;border-radius:8px;font-weight:600;">~ #${b.naam_match.id} ${b.naam_match.naam}</span><div style="font-size:10px;color:var(--muted);">€${b.naam_match.totaal} · ${b.naam_match.score}% naam</div></div>`
+          : '<span style="color:var(--muted);font-size:11px;">—</span>';
+
+        html += `<div style="display:grid;grid-template-columns:100px 80px 1fr 1fr 1fr;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);font-size:12px;align-items:start;">
           <span style="color:var(--muted);">${b.datum}</span>
           <span style="font-weight:600;">€${b.bedrag.toFixed(2)}</span>
           <div><div>${b.naam||'—'}</div><div style="margin-top:3px;">${order_html}</div></div>
           <span style="color:var(--teal-dk);">${remi||'<span style="color:var(--muted)">geen omschrijving</span>'}</span>
+          <div>${naam_match_html}</div>
         </div>`;
       });
     lijst.innerHTML = html;
