@@ -759,6 +759,12 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
                     if not (3 <= len(order_nr) <= 5):
                         order_nr = ""
                 if not order_nr:
+                    # Zoek ook 4-cijferig nummer gevolgd door spatie + ander cijfer
+                    # bijv. "3672 5" of "order 3672 5" → ordernummer 3672
+                    m_spatie = _re.search(r"(\d{4})\s+\d", rc)
+                    if m_spatie:
+                        order_nr = m_spatie.group(1)
+                if not order_nr:
                     for m in _re.finditer(r"(\d{4,5})", rc):
                         c = m.group(1)
                         if c != FARMAMED_AGB and not c.startswith("020") and not c.startswith("022"):
@@ -877,11 +883,35 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
         except Exception:
             pass
 
+    # Fuzzy naam match van ongematchte betalingen tegen pending orders
     ongematchte_betalingen = []
     for b in ongematchte_betalingen_raw:
         item = dict(b)
         if b.get("order_nr") and b["order_nr"] in order_cache:
             item["gevonden_order"] = order_cache[b["order_nr"]]
+
+        # Probeer naam te matchen met pending orders
+        if b.get("naam") and not item.get("gevonden_order"):
+            beste_score = 0
+            beste_order = None
+            b_naam = _normaliseer_naam(b["naam"])
+            for order in orders:
+                billing = order.get("billing", {})
+                wc_naam = _normaliseer_naam(billing.get("last_name", ""))
+                if not wc_naam:
+                    continue
+                score = fuzz.token_sort_ratio(b_naam, wc_naam)
+                if score > beste_score and score >= 65:
+                    beste_score = score
+                    beste_order = order
+            if beste_order:
+                billing = beste_order.get("billing", {})
+                item["naam_match"] = {
+                    "id": beste_order["id"],
+                    "naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
+                    "totaal": beste_order.get("total", ""),
+                    "score": beste_score,
+                }
         ongematchte_betalingen.append(item)
 
     return JSONResponse(content={
