@@ -846,7 +846,33 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
             matches.append({"betaling": None, "order": order_info(order), "gematcht": False, "methode": "geen", "bedrag_klopt": False})
 
     gematchte_ids = {id(m["betaling"]) for m in matches if m.get("betaling")}
-    ongematchte_betalingen = [b for b in betalingen if id(b) not in gematchte_ids]
+    ongematchte_betalingen_raw = [b for b in betalingen if id(b) not in gematchte_ids]
+
+    # Zoek ordernummers uit ongematchte betalingen op in WooCommerce (alle statussen)
+    ongematchte_betalingen = []
+    for b in ongematchte_betalingen_raw:
+        item = dict(b)
+        if b.get("order_nr"):
+            try:
+                resp_order = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders/{b['order_nr']}",
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
+                    timeout=5,
+                )
+                if resp_order.status_code == 200:
+                    o = resp_order.json()
+                    billing = o.get("billing", {})
+                    item["gevonden_order"] = {
+                        "id": o["id"],
+                        "status": o.get("status", ""),
+                        "klant_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
+                        "totaal": o.get("total", ""),
+                        "datum": o.get("date_created", "")[:10],
+                    }
+            except Exception:
+                pass
+        ongematchte_betalingen.append(item)
 
     return JSONResponse(content={
         "betalingen": len(betalingen),
