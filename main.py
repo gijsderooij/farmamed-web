@@ -711,141 +711,150 @@ async def haal_bestellingen_op():
 
 @app.post("/api/verwerk-mt940")
 async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None):
-    """
-    Parseert een MT940 bankbestand en matcht betalingen aan openstaande WooCommerce orders.
-    """
+    """MT940 parser: matcht per pending order een betaling op ordernummer of naam+bedrag."""
     import re as _re
     from rapidfuzz import fuzz
 
     inhoud = await bestand.read()
     tekst = inhoud.decode("utf-8", errors="replace")
+    FARMAMED_AGB = "02009907"
 
-    # MT940 parser
     betalingen = []
-    transacties = _re.split(r':61:', tekst)
-
-    for i, blok in enumerate(transacties[1:], 1):
+    for blok in _re.split(r":61:", tekst)[1:]:
         try:
-            # Datum (YYMMDD)
-            datum_match = _re.match(r'(\d{6})', blok)
-            datum = ""
-            if datum_match:
-                d = datum_match.group(1)
-                datum = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
-
-            # Bedrag (C=credit/inkomend, D=debet/uitgaand)
-            bedrag_match = _re.search(r'[CD](\d+),(\d*)', blok)
-            if not bedrag_match:
+            header = _re.match(r"(\d{6})(\d{4})?([CD])(\d+),(\d*)", blok)
+            if not header or header.group(3) == "D":
                 continue
-            richting = 'C' if 'C' in blok[:20] else 'D'
-            if richting != 'C':
-                continue  # Alleen inkomende betalingen
-            bedrag = float(f"{bedrag_match.group(1)}.{bedrag_match.group(2) or '00'}")
-
-            # Omschrijving uit :86: tag
-            omschrijving = ""
+            d = header.group(1)
+            datum = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
+            bedrag = float(f"{header.group(4)}.{header.group(5) or '00'}")
+            if bedrag <= 0 or bedrag > 400:
+                continue
+            oms_match = _re.search(r":86:(.*?)(?=:6[12]:|:62|$)", blok, _re.DOTALL)
+            if not oms_match:
+                continue
+            oms_raw = oms_match.group(1)
+            if any(w in oms_raw for w in ["Pay.nl", "CLEARING", "Stichting Pay"]):
+                continue
             naam = ""
-            iban = ""
-            omschrijving_match = _re.search(r':86:(.*?)(?=:6[12]:|$)', blok, _re.DOTALL)
-            if omschrijving_match:
-                omschrijving_raw = omschrijving_match.group(1).strip()
-                omschrijving = omschrijving_raw.replace('\n', ' ').replace('\r', '')
-
-                # Naam tegenhanger
-                naam_match = _re.search(r'/NAME/([^/]+)', omschrijving_raw) or _re.search(r'(?:naam|name)[:\s]+([^/]+)', omschrijving_raw, _re.IGNORECASE)
-                if naam_match:
-                    naam = naam_match.group(1).strip()
-
-                # IBAN
-                iban_match = _re.search(r'[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,}', omschrijving_raw)
-                if iban_match:
-                    iban = iban_match.group(0)
-
-            betalingen.append({
-                "datum": datum,
-                "bedrag": bedrag,
-                "naam": naam,
-                "iban": iban,
-                "omschrijving": omschrijving[:200],
-            })
+            nm = _re.search(r"/NAME/([^/]+)", oms_raw) or _re.search(r"/NA ME/([^/]+)", oms_raw)
+            if nm:
+                naam = _re.sub(r"\s+", " ", nm.group(1)).strip()
+                naam = _re.sub(r"^(De heer|Mevr?\.?|Dhr\.?|Mw\.?)\s+", "", naam, flags=_re.IGNORECASE).strip()
+                naam = _re.sub(r"\s+(cj|eo|e/o)\s*$", "", naam, flags=_re.IGNORECASE).strip()
+            remi = ""
+            rm = _re.search(r"/REMI/(.+?)(?=/EREF/|/CSID/|$)", oms_raw, _re.DOTALL)
+            if rm:
+                remi = _re.sub(r"\s+", " ", rm.group(1)).strip()
+            order_nr = ""
+            if remi:
+                rc = remi.replace(FARMAMED_AGB, "")
+                rc_nospace = _re.sub(r"\s+", "", rc)
+                nm2 = _re.search(
+                    r"(?:ordernummer|ordernr|ordenummer|order|fact(?:uur)?|bestelling)[nr\.#]*(\d{3,5})",
+                    rc_nospace, _re.IGNORECASE
+                )
+                if nm2:
+                    order_nr = nm2.group(1)
+                    if not (3 <= len(order_nr) <= 5):
+                        order_nr = ""
+                if not order_nr:
+                    for m in _re.finditer(r"(\d{4,5})", rc):
+                        c = m.group(1)
+                        if c != FARMAMED_AGB and not c.startswith("020") and not c.startswith("022"):
+                            order_nr = c
+                            break
+            betalingen.append({"datum": datum, "bedrag": bedrag, "naam": naam, "remi": remi[:80], "order_nr": order_nr})
         except Exception:
             continue
 
     if not betalingen:
         return JSONResponse(content={"fout": "Geen betalingen gevonden in MT940 bestand"})
 
-    # Haal openstaande orders op
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
-
+    orders = []
     try:
-        resp = http_requests.get(
-            f"{wc_url}/wp-json/wc/v3/orders",
-            auth=(wc_key, wc_secret),
-            headers={"Accept": "application/json"},
-            params={"status": "pending", "per_page": 50},
-            timeout=15,
-        )
-        orders = resp.json() if resp.status_code == 200 else []
+        pagina = 1
+        while True:
+            resp = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
+                params={"status": "pending", "per_page": 100, "page": pagina},
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            orders.extend(batch)
+            if len(batch) < 100:
+                break
+            pagina += 1
     except Exception:
-        orders = []
+        pass
 
-    # Match betalingen aan orders
+    def order_info(o):
+        billing = o.get("billing", {})
+        return {"id": o["id"], "klant_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(), "totaal": o.get("total"), "datum": o.get("date_created", "")[:10]}
+
+    bet_op_nr: dict = {}
+    for b in betalingen:
+        nr = b.get("order_nr", "")
+        if nr:
+            bet_op_nr.setdefault(nr, []).append(b)
+
+    gebruikt: set = set()
     matches = []
-    for betaling in betalingen:
-        beste_match = None
+    orders_zonder = []
+
+    for order in orders:
+        wc_id = str(order["id"])
+        order_datum = order.get("date_created", "")[:10]
+        wc_bedrag = float(order.get("total", 0))
+        kandidaten = [b for b in bet_op_nr.get(wc_id, []) if b["datum"] >= order_datum and id(b) not in gebruikt]
+        if kandidaten:
+            beste = min(kandidaten, key=lambda b: abs(b["bedrag"] - wc_bedrag))
+            bedrag_klopt = abs(beste["bedrag"] - wc_bedrag) < 0.02
+            gebruikt.add(id(beste))
+            matches.append({"betaling": beste, "order": order_info(order), "gematcht": True, "methode": "ordernummer", "bedrag_klopt": bedrag_klopt})
+        else:
+            orders_zonder.append(order)
+
+    betalingen_zonder_nr = [b for b in betalingen if not b.get("order_nr") and id(b) not in gebruikt]
+    for order in orders_zonder:
+        order_datum = order.get("date_created", "")[:10]
+        wc_bedrag = float(order.get("total", 0))
+        billing = order.get("billing", {})
+        wc_achternaam = _normaliseer_naam(billing.get("last_name", ""))
+        beste_b = None
         beste_score = 0
-
-        for order in orders:
-            billing = order.get("billing", {})
-            wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
-            wc_bedrag = float(order.get("total", 0))
-            wc_id = str(order["id"])
-
-            score = 0
-
-            # Bedrag match (zwaarst gewogen)
-            if abs(betaling["bedrag"] - wc_bedrag) < 0.02:
-                score += 50
-
-            # Naam match
-            if betaling["naam"]:
-                naam_score = fuzz.token_sort_ratio(
-                    _normaliseer_naam(betaling["naam"]),
-                    _normaliseer_naam(wc_naam)
-                )
-                score += int(naam_score * 0.4)
-
-            # Ordernummer directe match (zwaarste gewicht)
-            if betaling.get("order_nr") == wc_id:
-                score += 60
-            elif wc_id in betaling["omschrijving"]:
-                score += 30
-
-            if score > beste_score and score >= 50:
+        for b in betalingen_zonder_nr:
+            if id(b) in gebruikt or b["datum"] < order_datum or abs(b["bedrag"] - wc_bedrag) >= 0.02 or not b.get("naam"):
+                continue
+            score = fuzz.token_sort_ratio(_normaliseer_naam(b["naam"]), wc_achternaam)
+            if score > beste_score and score >= 70:
                 beste_score = score
-                beste_match = order
+                beste_b = b
+        if beste_b:
+            gebruikt.add(id(beste_b))
+            matches.append({"betaling": beste_b, "order": order_info(order), "gematcht": True, "methode": "naam+bedrag", "bedrag_klopt": True})
+        else:
+            matches.append({"betaling": None, "order": order_info(order), "gematcht": False, "methode": "geen", "bedrag_klopt": False})
 
-        matches.append({
-            "betaling": betaling,
-            "order": {
-                "id": beste_match["id"],
-                "klant_naam": f"{beste_match['billing']['first_name']} {beste_match['billing']['last_name']}".strip(),
-                "totaal": beste_match.get("total"),
-                "status": beste_match.get("status"),
-            } if beste_match else None,
-            "score": beste_score,
-            "gematcht": beste_match is not None and beste_score >= 50,
-        })
+    gematchte_ids = {id(m["betaling"]) for m in matches if m.get("betaling")}
+    ongematchte_betalingen = [b for b in betalingen if id(b) not in gematchte_ids]
 
     return JSONResponse(content={
         "betalingen": len(betalingen),
+        "orders_totaal": len(orders),
         "gematcht": sum(1 for m in matches if m["gematcht"]),
         "matches": matches,
+        "ongematchte_betalingen": ongematchte_betalingen,
     })
-
-
 @app.post("/api/betalingen-verwerken")
 async def betalingen_verwerken(request: Request):
     """Markeert geselecteerde orders als betaald in WooCommerce."""
