@@ -134,7 +134,6 @@
     <a href="/orders">Orders</a>
     <a href="/emails" class="actief">E-mails</a>
     <a href="/status">Werklijst</a>
-    <a href="/bank">Bank</a>
   </nav>
   <div style="display:flex;justify-content:flex-end"><span style="font-size:12px;color:rgba(255,255,255,0.6)">Apothekersdashboard</span></div>
 </header>
@@ -145,7 +144,7 @@
   <div class="email-lijst-paneel">
     <div class="paneel-header">
       <span class="paneel-titel">Inbox — recepten</span>
-      <button class="vernieuwen-btn" onclick="laadEmails()">↻ Vernieuwen</button>
+      <button class="vernieuwen-btn" id="btnVernieuwen" onclick="vernieuwEmails()">↻ Vernieuwen</button>
     </div>
     <div class="email-lijst" id="emailLijst">
       <div class="laden-tekst"><span class="spinner-klein"></span>E-mails laden…</div>
@@ -198,7 +197,7 @@
               <span class="stap-nr" id="nr5" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">5</span>
               <div><div style="font-size:12px;font-weight:500;">Afronden</div><div style="font-size:10px;color:var(--muted);">E-mail verwerkt</div></div>
             </div>
-            <button id="stapBtn5" onclick="markeerEmailVerwerkt()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Verwerkt</button>
+            <button id="stapBtn5" onclick="markeerEmailVerwerkt()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">✓ Bestelling aangemaakt en verwerkt</button>
           </div>
         </div>
         <!-- Acties verschijnen na order aanmaken -->
@@ -333,6 +332,18 @@
   let huidigeBijlageIndex = null;
 
   // --- E-mails laden ---
+  async function vernieuwEmails() {
+    const btn = document.getElementById('btnVernieuwen');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Ophalen…'; }
+    try {
+      await fetch('/api/poll-emails', { method: 'POST' });
+      await new Promise(r => setTimeout(r, 2000));
+      await laadEmails();
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Vernieuwen'; }
+    }
+  }
+
   async function laadEmails() {
     const lijst = document.getElementById('emailLijst');
     lijst.innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>E-mails laden…</div>';
