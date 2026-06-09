@@ -2024,7 +2024,7 @@ def _haal_emails_op_db(limit: int = 50) -> list:
     conn = _sqlite3.connect(_DB_PAD)
     try:
         rows = conn.execute(
-            "SELECT data FROM emails ORDER BY ontvangen DESC LIMIT ?", (limit,)
+            "SELECT data FROM emails ORDER BY ontvangen ASC LIMIT ?", (limit,)
         ).fetchall()
         return [json.loads(r[0]) for r in rows]
     finally:
