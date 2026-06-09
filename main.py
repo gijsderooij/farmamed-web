@@ -167,13 +167,20 @@ def _verplaats_email_imap(uid_str: str) -> bool:
         except Exception:
             pass
         uid_bytes = uid_str.encode() if isinstance(uid_str, str) else uid_str
-        result, _ = conn.uid("COPY", uid_bytes, afgehandeld_map)
+        print(f"[IMAP] Probeer COPY uid={uid_str} naar {afgehandeld_map}")
+        result, data = conn.uid("COPY", uid_bytes, afgehandeld_map)
+        print(f"[IMAP] COPY resultaat: {result} {data}")
         if result == "OK":
             conn.uid("STORE", uid_bytes, "+FLAGS", "(\\Deleted)")
             conn.expunge()
             conn.logout()
             print(f"[IMAP] OK: {uid_str} → {afgehandeld_map}")
             return True
+        # Probeer op sequentienummer als UID niet werkt
+        print(f"[IMAP] UID COPY mislukt, probeer via search...")
+        _, msgs = conn.search(None, "ALL")
+        all_uids_resp = conn.uid("SEARCH", "ALL")
+        print(f"[IMAP] Beschikbare UIDs: {all_uids_resp}")
         conn.logout()
         return False
     except Exception as e:
