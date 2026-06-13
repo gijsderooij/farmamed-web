@@ -657,21 +657,20 @@ async def haal_bestellingen_op():
         medicijn = items[0]["name"] if items else "—"
         order_id = str(o["id"])
 
-        # Betaalstatus
+        # Betaalstatus: Pay, Bank, Anders of Niet betaald
         betaal_methode = o.get("payment_method", "")
-        betaal_titel = o.get("payment_method_title", "")
         datum_betaald = o.get("date_paid")
+        bank_betaald = meta.get("_farmamed_bank_betaald", "") == "1"
 
-        if datum_betaald and o.get("transaction_id"):
-            if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower():
-                betaal_status = "Pay ✓"
-                betaal_type = "pay"
-            elif "bank" in betaal_methode.lower() or "transfer" in betaal_methode.lower() or "bacs" in betaal_methode.lower():
-                betaal_status = "Bank ✓"
-                betaal_type = "bank"
-            else:
-                betaal_status = f"Betaald ({betaal_titel or betaal_methode})"
-                betaal_type = "anders"
+        if datum_betaald and o.get("transaction_id") and ("pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower()):
+            betaal_status = "Pay"
+            betaal_type = "pay"
+        elif bank_betaald:
+            betaal_status = "Bank"
+            betaal_type = "bank"
+        elif datum_betaald:
+            betaal_status = "Anders"
+            betaal_type = "anders"
         else:
             betaal_status = "Niet betaald"
             betaal_type = "onbetaald"
