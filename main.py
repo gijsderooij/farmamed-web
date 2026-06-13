@@ -662,18 +662,22 @@ async def haal_bestellingen_op():
         datum_betaald = o.get("date_paid")
         bank_betaald = meta.get("_farmamed_bank_betaald", "") == "1"
 
-        if datum_betaald and o.get("transaction_id") and ("pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower()):
+        order_status = o.get("status", "")
+
+        if order_status == "pending":
+            # Pending = altijd niet betaald
+            betaal_status = "Niet betaald"
+            betaal_type = "onbetaald"
+        elif datum_betaald and o.get("transaction_id") and ("pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower()):
             betaal_status = "Pay"
             betaal_type = "pay"
         elif bank_betaald:
             betaal_status = "Bank"
             betaal_type = "bank"
-        elif datum_betaald:
+        else:
+            # processing/completed zonder Pay of Bank: alternatieve/handmatige afronding
             betaal_status = "Anders"
             betaal_type = "anders"
-        else:
-            betaal_status = "Niet betaald"
-            betaal_type = "onbetaald"
 
         # Verzendstatus: haal ordernotities op voor SendCloud tracking
         zending = sendcloud_zendingen.get(order_id) or sendcloud_zendingen.get(f"#{order_id}")
