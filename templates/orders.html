@@ -134,6 +134,7 @@
     <div class="wachtrij-header">
       <span class="wachtrij-titel">Wachtrij</span>
       <button class="vernieuwen-btn" onclick="laadOrders()">↻ Vernieuwen</button>
+      <button class="vernieuwen-btn" id="btnToonAlle" onclick="toggleAlleOrders()" style="font-size:11px;">Alle orders</button>
     </div>
     <div class="order-lijst" id="orderLijst">
       <div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>
@@ -261,6 +262,15 @@
 
 <script>
   let huidigeOrder = null;
+  let toonAlle = false;
+
+  function toggleAlleOrders() {
+    toonAlle = !toonAlle;
+    const btn = document.getElementById('btnToonAlle');
+    btn.textContent = toonAlle ? '← Mijn orders' : 'Alle orders';
+    btn.style.background = toonAlle ? 'var(--teal-lt)' : 'white';
+    laadOrders();
+  }
   let huidigeReceptData = null;
   let edifactTekst = '';
 
@@ -281,7 +291,7 @@
     const lijst = document.getElementById('orderLijst');
     lijst.innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>';
     try {
-      const res = await fetch('/api/orders');
+      const res = await fetch('/api/orders' + (toonAlle ? '?toon_alle=true' : ''));
       const data = await res.json();
       if (data.fout) {
         lijst.innerHTML = '<div class="laden-tekst" style="color:var(--danger)">Fout: ' + data.fout + '</div>';
