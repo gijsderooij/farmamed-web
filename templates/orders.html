@@ -108,8 +108,6 @@
 
     /* EDIFACT */
     .edifact-box { background: #1a1a2e; color: #a8d8d8; font-family: 'Courier New', monospace; font-size: 11px; padding: 14px; border-radius: var(--radius); line-height: 1.7; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
-    .download-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 16px; background: var(--teal); color: white; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
-    .download-btn:hover { background: var(--teal-dk); }
 
     @media (max-width: 900px) { .detail-split { grid-template-columns: 1fr; } .detail-links { display: none; } }
   </style>
@@ -300,12 +298,15 @@
         const receptBadge = order.heeft_recept
           ? '<span class="badge badge-ok">📄 Recept</span>'
           : '<span class="badge badge-warn">⚠ Geen recept</span>';
+        const verstrekkingBadge = order.heeft_verstrekking
+          ? '<span class="badge badge-ok verstrekking-badge">✓ Verstrekking</span>'
+          : '';
 
         div.innerHTML = `
           <div class="order-nr">#${order.id} — ${order.datum}</div>
           <div class="order-naam">${order.klant_naam}</div>
           <div class="order-medicijn">${order.medicijn}</div>
-          <div class="order-badges">${receptBadge}</div>
+          <div class="order-badges">${receptBadge}${verstrekkingBadge}</div>
         `;
         lijst.appendChild(div);
       });
@@ -614,9 +615,7 @@
     document.getElementById('edifactInhoud').innerHTML = `
       <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Preview — definitief na goedkeuring</p>
       <div class="edifact-box">${edifactTekst}</div>
-      <button class="download-btn" onclick="downloadEdifact()" disabled id="edifactDownloadBtn">
-        ⬇ Download EDIFACT
-      </button>`;
+      <span id="edifactDownloadBtn" style="display:none;"></span>\`;
   }
 
   // --- Download functies ---
@@ -731,9 +730,19 @@
     }
   }
 
-  function orderAfronden() {
+  async function orderAfronden() {
     if (!huidigeOrder) return;
-    // Alle stappen groen - wij zijn klaar, WooCommerce status blijft ongewijzigd
+
+    // Sla verstrekking op in WooCommerce (_farmamed_verstrekking = 1)
+    try {
+      await fetch('/api/order-verstrekking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id })
+      });
+    } catch(e) { console.log('Verstrekking opslaan mislukt:', e); }
+
+    // Alle stappen groen
     for (let n = 1; n <= 5; n++) {
       const nr_el = document.getElementById('onr' + n);
       const stap = document.getElementById('ostap' + n);
@@ -743,20 +752,20 @@
       if (b) b.style.display = 'none';
     }
     const melding = document.getElementById('order-actie-melding');
-    if (melding) melding.textContent = '✓ Verwerking order #' + huidigeOrder.id + ' afgerond';
-    // Markeer als afgerond in sessie zodat hij niet terugkomt bij vernieuwen
-    if (huidigeOrder) markeerAfgerond(huidigeOrder.id);
-    // Verwijder uit wachtrij
+    if (melding) melding.textContent = '✓ Verstrekking ingediend voor order #' + huidigeOrder.id;
+
+    // Toon ✓ Verstrekking badge in linkerkolom — order blijft in lijst staan
     document.querySelectorAll('.order-item').forEach(item => {
-      if (item.classList.contains('actief')) item.remove();
+      if (item.classList.contains('actief')) {
+        let badges = item.querySelector('.order-badges');
+        if (badges && !badges.querySelector('.verstrekking-badge')) {
+          const badge = document.createElement('span');
+          badge.className = 'badge badge-ok verstrekking-badge';
+          badge.textContent = '✓ Verstrekking';
+          badges.appendChild(badge);
+        }
+      }
     });
-    // Reset detail
-    setTimeout(() => {
-      document.getElementById('detailSplit').style.display = 'none';
-      document.getElementById('order-stappen').style.display = 'none';
-      document.getElementById('detailLeeg').style.display = 'flex';
-      huidigeOrder = null;
-    }, 1500);
   }
 
   function toonTab(naam) {
