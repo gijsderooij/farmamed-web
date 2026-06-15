@@ -125,7 +125,6 @@
     <a href="/orders" class="actief">Orders</a>
     <a href="/emails">E-mails</a>
     <a href="/status">Werklijst</a>
-    <a href="/bank">Bank</a>
   </nav>
   <div style="display:flex;justify-content:flex-end"><span style="font-size:12px;color:rgba(255,255,255,0.6)">Apothekersdashboard</span></div>
 </header>
@@ -137,7 +136,6 @@
     <div class="wachtrij-header">
       <span class="wachtrij-titel">Wachtrij</span>
       <button class="vernieuwen-btn" onclick="laadOrders()">↻ Vernieuwen</button>
-      <button class="vernieuwen-btn" id="btnToonAlle" onclick="toggleAlleOrders()" style="font-size:11px;">Alle orders</button>
     </div>
     <div class="order-lijst" id="orderLijst">
       <div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>
@@ -275,20 +273,11 @@
   }
 
   // --- Orders laden ---
-  let toonAlle = false;
-  function toggleAlleOrders() {
-    toonAlle = !toonAlle;
-    const btn = document.getElementById('btnToonAlle');
-    btn.textContent = toonAlle ? '← Mijn orders' : 'Alle orders';
-    btn.style.background = toonAlle ? 'var(--teal-lt)' : 'white';
-    laadOrders();
-  }
-
   async function laadOrders() {
     const lijst = document.getElementById('orderLijst');
     lijst.innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>';
     try {
-      const res = await fetch('/api/orders' + (toonAlle ? '?toon_alle=true' : ''));
+      const res = await fetch('/api/orders');
       const data = await res.json();
       if (data.fout) {
         lijst.innerHTML = '<div class="laden-tekst" style="color:var(--danger)">Fout: ' + data.fout + '</div>';
@@ -311,9 +300,6 @@
         const receptBadge = order.heeft_recept
           ? '<span class="badge badge-ok">📄 Recept</span>'
           : '<span class="badge badge-warn">⚠ Geen recept</span>';
-        const verstrekkingBadge = order.heeft_verstrekking
-          ? '<span class="badge badge-ok">✓ Verstrekking</span>'
-          : '';
 
         div.innerHTML = `
           <div class="order-nr">#${order.id} — ${order.datum}</div>
@@ -445,23 +431,24 @@
     viewer.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;"><span class="spinner-klein"></span>Recept laden…</div>';
 
     try {
-      // Direct embedden vanuit WordPress URL - geen Railway proxy nodig
-      const isPdf = receptUrl.toLowerCase().includes('.pdf');
-      if (isPdf) {
-        // PDF: toon als embedded object
-        viewer.innerHTML = `<object data="${receptUrl}" type="application/pdf" style="width:100%;height:500px;border-radius:4px;">
-          <div style="padding:20px;text-align:center;">
-            <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">PDF kan niet worden weergegeven in de browser.</p>
-            <a href="${receptUrl}" target="_blank" style="padding:8px 16px;background:var(--teal);color:white;border-radius:6px;text-decoration:none;font-size:13px;">↗ Recept openen</a>
-          </div>
-        </object>`;
+      // Via Railway proxy: converteert PDF naar afbeelding (PyMuPDF), werkt ook voor JPG/PNG
+      const res = await fetch('/api/recept-preview-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: receptUrl })
+      });
+      const data = await res.json();
+      if (data.preview) {
+        viewer.innerHTML = `<img src="${data.preview}" alt="Recept" style="max-width:100%;border-radius:4px;box-shadow:0 2px 12px rgba(0,0,0,0.15);">`;
+        const dlBtn = document.getElementById('downloadReceptBtn');
+        if (dlBtn) { dlBtn.style.display = 'block'; dlBtn.dataset.url = receptUrl; }
       } else {
-        // Afbeelding: direct tonen
-        viewer.innerHTML = `<img src="${receptUrl}" alt="Recept" style="max-width:100%;border-radius:4px;box-shadow:0 2px 12px rgba(0,0,0,0.15);" onerror="this.parentNode.innerHTML='<div style=\'padding:20px;text-align:center;\'><p style=\'font-size:13px;color:var(--muted);margin-bottom:12px;\'>Afbeelding kan niet worden geladen.</p><a href=\'${receptUrl}\' target=\'_blank\' style=\'padding:8px 16px;background:var(--teal);color:white;border-radius:6px;text-decoration:none;font-size:13px;\'>↗ Recept openen</a></div>'">`;
+        // Fallback: direct openen
+        viewer.innerHTML = `<div style="padding:20px;text-align:center;">
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Voorvertoning niet beschikbaar.</p>
+          <a href="${receptUrl}" target="_blank" style="padding:8px 16px;background:var(--teal);color:white;border-radius:6px;text-decoration:none;font-size:13px;">↗ Recept openen in nieuw tabblad</a>
+        </div>`;
       }
-      // Toon download knop
-      const dlBtn = document.getElementById('downloadReceptBtn');
-      if (dlBtn) { dlBtn.style.display = 'block'; dlBtn.dataset.url = receptUrl; }
     } catch(e) {
       viewer.innerHTML = `<div style="padding:20px;text-align:center;">
         <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">Kon recept niet laden.</p>
@@ -490,15 +477,9 @@
       toonPatientData(order, data.recept);  // bijwerken met OCR-data
       genereerEdifact(order, data.recept);
 
-      document.getElementById('btnGoedkeuren') && (document.getElementById('btnGoedkeuren').disabled = false);
-      document.getElementById('btnAfwijzen') && (document.getElementById('btnAfwijzen').disabled = false);
+      document.getElementById('btnGoedkeuren').disabled = false;
+      document.getElementById('btnAfwijzen').disabled = false;
       zetOrderStap(3);
-      const beslisEl = document.getElementById('order-beslis');
-      if (beslisEl) beslisEl.style.display = 'flex';
-      const btn2g = document.getElementById('btnGoedkeuren2');
-      const btn2a = document.getElementById('btnAfwijzen2');
-      if (btn2g) btn2g.disabled = false;
-      if (btn2a) btn2a.disabled = false;
 
     } catch(e) {
       document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--danger);font-size:13px;padding:16px;">Analysefout: ' + e.message + '</div>';
@@ -642,7 +623,8 @@
   async function downloadRecept() {
     if (!huidigeOrder) return;
     const achternaam = (huidigeOrder.klant_naam || 'onbekend').split(' ').pop();
-    const bestandsnaam = `${huidigeOrder.id}_Farmamed_${achternaam}.pdf`;
+    const bestandsnaam = `${huidigeOrder.id}_farmamed_${achternaam}.pdf`;
+
     try {
       const res = await fetch('/api/download-recept', {
         method: 'POST',
@@ -651,15 +633,16 @@
       });
       if (!res.ok) throw new Error('Download mislukt');
       const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = blobUrl;
       a.download = bestandsnaam;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch(e) {
-      if (huidigeOrder.recept_url) window.open(huidigeOrder.recept_url, '_blank');
-      else alert('Fout bij downloaden: ' + e.message);
+      alert('Fout bij downloaden: ' + e.message);
     }
   }
 
@@ -748,15 +731,8 @@
     }
   }
 
-  async function orderAfronden() {
+  function orderAfronden() {
     if (!huidigeOrder) return;
-    try {
-      await fetch('/api/order-verstrekking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: huidigeOrder.id })
-      });
-    } catch(e) { console.log('Verstrekking opslaan mislukt:', e); }
     // Alle stappen groen - wij zijn klaar, WooCommerce status blijft ongewijzigd
     for (let n = 1; n <= 5; n++) {
       const nr_el = document.getElementById('onr' + n);
