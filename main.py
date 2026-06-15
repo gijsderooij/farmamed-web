@@ -692,6 +692,12 @@ async def haal_bestellingen_op():
         else:
             pass  # Ordernotities worden niet opgehaald voor snelheid
             
+        # Verstrekking uit WooCommerce meta
+        heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
+        # Verzonden via SendCloud = ook verstrekking gedaan
+        if zending and not heeft_verstrekking:
+            heeft_verstrekking = True
+
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
         if not oorsprong:
@@ -713,6 +719,7 @@ async def haal_bestellingen_op():
             "verzend_status": verzend_status,
             "tracking_url": tracking_url,
             "tracking_nr": tracking_nr,
+            "heeft_verstrekking": heeft_verstrekking,
             "oorsprong": oorsprong,
         })
 
