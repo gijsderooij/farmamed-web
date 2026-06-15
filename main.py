@@ -1161,6 +1161,8 @@ Instructies:
     beste_order = None
     beste_score = 0
 
+    huidige_order_id = str(body.get("huidige_order_id", ""))
+
     try:
         # Zoek op e-mailadres van de originele afzender
         if zoek_email and "@" in zoek_email:
@@ -1173,6 +1175,9 @@ Instructies:
             )
             orders = resp.json() if resp.status_code == 200 else []
             for order in (orders if isinstance(orders, list) else []):
+                # Sla huidige order over
+                if str(order.get("id")) == huidige_order_id:
+                    continue
                 billing = order.get("billing", {})
                 if billing.get("email", "").lower() == zoek_email.lower():
                     beste_order = order
