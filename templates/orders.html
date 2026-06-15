@@ -187,6 +187,12 @@
           <div id="ostap5-info" style="font-size:10px;color:var(--muted);display:none;margin-top:2px;"></div>
         </div>
       </div>
+      <!-- Goedkeuren/Afwijzen direct onder stappenbalk -->
+      <div id="order-beslis" style="display:none;padding:8px 14px;border-top:0.5px solid var(--border);background:white;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-rood" onclick="beslis('afwijzen')" id="btnAfwijzen2" style="font-size:12px;padding:6px 14px;">✕ Afwijzen</button>
+        <button class="btn btn-groen" onclick="beslis('goedkeuren')" id="btnGoedkeuren2" style="font-size:12px;padding:6px 14px;">✓ Goedkeuren</button>
+        <span id="statusTekst2" style="font-size:12px;margin-left:8px;"></span>
+      </div>
       <!-- Actiebalk na EDIFACT -->
       <div id="order-acties" style="display:none;padding:8px 14px;border-top:0.5px solid var(--border);background:var(--teal-lt);gap:8px;align-items:center;flex-wrap:wrap;">
         <div id="order-actie-melding" style="font-size:12px;color:var(--success);"></div>
@@ -243,9 +249,9 @@
           </div>
         </div>
 
-        <div class="actiebalk">
-          <button class="btn btn-rood" onclick="beslis('afwijzen')" id="btnAfwijzen" disabled>✕ Afwijzen</button>
-          <button class="btn btn-groen" onclick="beslis('goedkeuren')" id="btnGoedkeuren" disabled>✓ Goedkeuren & exporteren</button>
+        <div class="actiebalk" style="display:none;">
+          <button id="btnAfwijzen" style="display:none;"></button>
+          <button id="btnGoedkeuren" style="display:none;"></button>
           <span class="status-tekst" id="statusTekst"></span>
         </div>
       </div>
@@ -478,9 +484,17 @@
       toonPatientData(order, data.recept);  // bijwerken met OCR-data
       genereerEdifact(order, data.recept);
 
-      document.getElementById('btnGoedkeuren').disabled = false;
-      document.getElementById('btnAfwijzen').disabled = false;
+      const _bg = document.getElementById('btnGoedkeuren');
+      const _ba = document.getElementById('btnAfwijzen');
+      if (_bg) _bg.disabled = false;
+      if (_ba) _ba.disabled = false;
       zetOrderStap(3);
+      const _beslis = document.getElementById('order-beslis');
+      if (_beslis) _beslis.style.display = 'flex';
+      const _bg2 = document.getElementById('btnGoedkeuren2');
+      const _ba2 = document.getElementById('btnAfwijzen2');
+      if (_bg2) _bg2.disabled = false;
+      if (_ba2) _ba2.disabled = false;
 
     } catch(e) {
       document.getElementById('vergelijkingInhoud').innerHTML = '<div style="color:var(--danger);font-size:13px;padding:16px;">Analysefout: ' + e.message + '</div>';
