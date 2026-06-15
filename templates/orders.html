@@ -417,6 +417,9 @@
 
         // Stap 3 actief
         zetOrderStap(3);
+      const _bd = document.getElementById('order-beslis'); if (_bd) _bd.style.display = 'flex';
+      const _bg2d = document.getElementById('btnGoedkeuren2'); if (_bg2d) _bg2d.disabled = false;
+      const _ba2d = document.getElementById('btnAfwijzen2'); if (_ba2d) _ba2d.disabled = false;
         document.getElementById('btnGoedkeuren').disabled = false;
         document.getElementById('btnAfwijzen').disabled = false;
 
@@ -427,12 +430,18 @@
             <div style="font-size:12px;color:var(--muted);">Controleer handmatig of er een recept aanwezig is bij de apotheek.</div>
           </div>`;
         zetOrderStap(3);
+      const _bd = document.getElementById('order-beslis'); if (_bd) _bd.style.display = 'flex';
+      const _bg2d = document.getElementById('btnGoedkeuren2'); if (_bg2d) _bg2d.disabled = false;
+      const _ba2d = document.getElementById('btnAfwijzen2'); if (_ba2d) _ba2d.disabled = false;
         document.getElementById('btnGoedkeuren').disabled = false;
         document.getElementById('btnAfwijzen').disabled = false;
       }
     } catch(e) {
       document.getElementById('vergelijkingInhoud').innerHTML = `<div style="color:var(--danger);font-size:13px;padding:16px;">Fout: ${e.message}</div>`;
       zetOrderStap(3);
+      const _bd = document.getElementById('order-beslis'); if (_bd) _bd.style.display = 'flex';
+      const _bg2d = document.getElementById('btnGoedkeuren2'); if (_bg2d) _bg2d.disabled = false;
+      const _ba2d = document.getElementById('btnAfwijzen2'); if (_ba2d) _ba2d.disabled = false;
     }
   }
 
@@ -493,6 +502,9 @@
       if (_bg) _bg.disabled = false;
       if (_ba) _ba.disabled = false;
       zetOrderStap(3);
+      const _bd = document.getElementById('order-beslis'); if (_bd) _bd.style.display = 'flex';
+      const _bg2d = document.getElementById('btnGoedkeuren2'); if (_bg2d) _bg2d.disabled = false;
+      const _ba2d = document.getElementById('btnAfwijzen2'); if (_ba2d) _ba2d.disabled = false;
       const _beslis = document.getElementById('order-beslis');
       if (_beslis) _beslis.style.display = 'flex';
       const _bg2 = document.getElementById('btnGoedkeuren2');
