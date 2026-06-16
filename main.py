@@ -697,6 +697,9 @@ async def haal_bestellingen_op():
         # Verzonden via SendCloud = ook verstrekking gedaan
         if zending and not heeft_verstrekking:
             heeft_verstrekking = True
+        # Admin-orders zijn altijd al verstrekt
+        if o.get("created_via", "") == "admin":
+            heeft_verstrekking = True
 
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
@@ -1392,6 +1395,9 @@ async def haal_orders_op(toon_alle: bool = False):
 
             heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
             created_via = o.get("created_via", "")
+            # Admin-orders zijn altijd al verstrekt
+            if created_via == "admin":
+                heeft_verstrekking = True
             if created_via == "admin" and not toon_alle:
                 continue
 
