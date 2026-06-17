@@ -208,6 +208,12 @@
             <button class="btn" onclick="downloadEdifactEmail()" style="font-size:12px;padding:6px 12px;">📤 EDIFACT downloaden</button>
           </div>
         </div>
+
+        <!-- Altijd beschikbaar: e-mail afhandelen zonder (nieuwe) bestelling -->
+        <div style="padding:8px 14px;border-top:0.5px solid var(--border);background:white;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--muted);">Geen nieuwe bestelling nodig?</span>
+          <button class="btn" onclick="markeerAfgehandeldZonderOrder()" id="btnAfhandelenZonder" style="font-size:12px;padding:6px 12px;margin-left:auto;">✓ Markeer als afgehandeld (geen bestelling)</button>
+        </div>
       </div>
 
       <div class="detail-split">
@@ -797,6 +803,33 @@
     const idx = huidigeEmail.bijlagen.findIndex(b => !isEdifactBijlage(b));
     if (idx >= 0) openBijlage(idx);
     else if (huidigeEmail.bijlagen.length > 0) openBijlage(0);
+  }
+
+  async function markeerAfgehandeldZonderOrder() {
+    if (!huidigeEmail) return;
+    if (!confirm('Deze e-mail markeren als afgehandeld zonder een (nieuwe) bestelling aan te maken?')) return;
+    const btn = document.getElementById('btnAfhandelenZonder');
+    btn.disabled = true; btn.textContent = '⏳ Bezig…';
+    try {
+      const res = await fetch('/api/email-verwerkt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_uid: huidigeEmail.uid, order_id: null })
+      });
+      const data = await res.json();
+      btn.textContent = data.verplaatst ? '✓ Afgehandeld' : '✓ Gemarkeerd (verplaatsen mislukt)';
+      setTimeout(() => {
+        document.querySelectorAll('.email-item').forEach(item => {
+          if (item.classList.contains('actief')) item.remove();
+        });
+        document.getElementById('detailInhoud').style.display = 'none';
+        document.getElementById('detailLeeg').style.display = 'flex';
+        huidigeEmail = null;
+      }, 1000);
+    } catch(e) {
+      btn.disabled = false; btn.textContent = '✓ Markeer als afgehandeld (geen bestelling)';
+      alert('Fout: ' + e.message);
+    }
   }
 
   async function markeerEmailVerwerkt() {
