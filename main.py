@@ -79,14 +79,17 @@ async def _poll_eenmalig():
             conn.select("INBOX")
         except Exception:
             pass
-        _, berichten = conn.search(None, "ALL")
+        # BELANGRIJK: gebruik UID SEARCH (niet gewoon SEARCH) zodat de
+        # identifiers consistent zijn met _verplaats_email_imap (die UID COPY gebruikt).
+        # Gewone SEARCH geeft sequentienummers terug die niet stabiel zijn.
+        status_uid, berichten = conn.uid("SEARCH", None, "ALL")
         uids = berichten[0].split()
         nieuwe = [u for u in uids if u.decode() not in al_verstuurd]
-        print(f"[Poll] {len(nieuwe)} nieuwe e-mail(s)")
+        print(f"[Poll] {len(nieuwe)} nieuwe e-mail(s) (totaal in inbox: {len(uids)})")
         for uid in nieuwe:
             uid_str = uid.decode()
             try:
-                _, data = conn.fetch(uid, "(RFC822)")
+                _, data = conn.uid("FETCH", uid, "(RFC822)")
                 msg = _email_lib.message_from_bytes(data[0][1])
                 onderwerp = "".join(
                     part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else str(part)
@@ -167,20 +170,17 @@ def _verplaats_email_imap(uid_str: str) -> bool:
         except Exception:
             pass
         uid_bytes = uid_str.encode() if isinstance(uid_str, str) else uid_str
-        print(f"[IMAP] Probeer COPY uid={uid_str} naar {afgehandeld_map}")
         result, data = conn.uid("COPY", uid_bytes, afgehandeld_map)
-        print(f"[IMAP] COPY resultaat: {result} {data}")
+        print(f"[IMAP] COPY uid={uid_str} -> {afgehandeld_map}: {result}")
         if result == "OK":
             conn.uid("STORE", uid_bytes, "+FLAGS", "(\\Deleted)")
             conn.expunge()
             conn.logout()
-            print(f"[IMAP] OK: {uid_str} → {afgehandeld_map}")
+            print(f"[IMAP] Verplaatst: {uid_str}")
             return True
-        # Probeer op sequentienummer als UID niet werkt
-        print(f"[IMAP] UID COPY mislukt, probeer via search...")
-        _, msgs = conn.search(None, "ALL")
-        all_uids_resp = conn.uid("SEARCH", "ALL")
-        print(f"[IMAP] Beschikbare UIDs: {all_uids_resp}")
+        # Diagnostiek: bestaat deze UID nog in INBOX?
+        _, check = conn.uid("SEARCH", None, f"UID {uid_str}")
+        print(f"[IMAP] COPY mislukt. UID {uid_str} nog in INBOX: {check[0] if check else 'onbekend'}")
         conn.logout()
         return False
     except Exception as e:
@@ -2052,7 +2052,7 @@ def _haal_emails_op_db(limit: int = 50) -> list:
     conn = _sqlite3.connect(_DB_PAD)
     try:
         rows = conn.execute(
-            "SELECT data FROM emails ORDER BY ontvangen ASC LIMIT ?", (limit,)
+            "SELECT data FROM emails ORDER BY CAST(uid AS INTEGER) ASC LIMIT ?", (limit,)
         ).fetchall()
         return [json.loads(r[0]) for r in rows]
     finally:
