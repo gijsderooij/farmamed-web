@@ -1150,6 +1150,7 @@ Instructies:
 {{
   "patient_naam": "naam van de originele patient/arts",
   "patient_email": "e-mailadres van de originele afzender",
+  "geboortedatum": "geboortedatum van de patiënt in DD-MM-YYYY formaat, of null als niet genoemd",
   "medicijn": "gevraagd medicijn of null",
   "hoeveelheid": "hoeveelheid of null",
   "is_herhaalverzoek": true of false,
@@ -1209,9 +1210,12 @@ Instructies:
                     beste_score = 100
                     break
 
-        # Fallback: zoek op naam
+        # Fallback: zoek op naam (+ geboortedatum indien beschikbaar)
+        # Naam + geboortedatum is betrouwbaarder dan naam alleen — vaak ontbreekt
+        # het patiënt-e-mailadres omdat de apotheek zelf het verzoek stuurt.
         if not beste_order:
             naam = zoek_naam
+            zoek_geboortedatum = email_data.get("geboortedatum") or ""
             achternaam = naam.split()[-1] if naam.split() else ""
             if achternaam and len(achternaam) >= 3:
                 from rapidfuzz import fuzz
@@ -1224,9 +1228,27 @@ Instructies:
                 )
                 orders = resp.json() if resp.status_code == 200 else []
                 for order in (orders if isinstance(orders, list) else []):
+                    if str(order.get("id")) == huidige_order_id:
+                        continue
                     billing = order.get("billing", {})
+                    meta = {m["key"]: m["value"] for m in order.get("meta_data", [])}
                     wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
-                    score = fuzz.token_sort_ratio(_normaliseer_naam(naam), _normaliseer_naam(wc_naam))
+                    naam_score = fuzz.token_sort_ratio(_normaliseer_naam(naam), _normaliseer_naam(wc_naam))
+
+                    # Geboortedatum vergelijken indien beide beschikbaar — sterke extra bevestiging
+                    wc_geboortedatum = _amerikaans_naar_nederlands(
+                        meta.get("billing_birth") or meta.get("_billing_birth") or ""
+                    )
+                    geboortedatum_klopt = bool(
+                        zoek_geboortedatum and wc_geboortedatum and zoek_geboortedatum == wc_geboortedatum
+                    )
+
+                    if geboortedatum_klopt and naam_score >= 70:
+                        # Naam fuzzy match + exacte geboortedatum match = zeer betrouwbaar
+                        score = max(naam_score, 95)
+                    else:
+                        score = naam_score
+
                     if score > beste_score:
                         beste_score = score
                         beste_order = order
