@@ -145,6 +145,7 @@
     <div class="paneel-header">
       <span class="paneel-titel">Inbox — recepten</span>
       <button class="vernieuwen-btn" id="btnVernieuwen" onclick="vernieuwEmails()">↻ Vernieuwen</button>
+      <button class="vernieuwen-btn" id="btnHerladen" onclick="herladenInbox()" style="font-size:11px;" title="Wist lokale cache en haalt de hele inbox opnieuw op">⟳ Inbox opnieuw downloaden</button>
     </div>
     <div class="email-lijst" id="emailLijst">
       <div class="laden-tekst"><span class="spinner-klein"></span>E-mails laden…</div>
@@ -338,6 +339,22 @@
   let huidigeBijlageIndex = null;
 
   // --- E-mails laden ---
+  async function herladenInbox() {
+    if (!confirm('Lokale e-mailcache wissen en de hele inbox opnieuw downloaden?\n\nDit kan even duren.')) return;
+    const btn = document.getElementById('btnHerladen');
+    btn.disabled = true; btn.textContent = '⏳ Downloaden…';
+    try {
+      const res = await fetch('/api/emails-volledig-herladen', { method: 'POST' });
+      const data = await res.json();
+      btn.textContent = `✓ ${data.aantal} e-mails geladen`;
+      await laadEmails();
+      setTimeout(() => { btn.disabled = false; btn.textContent = '⟳ Inbox opnieuw downloaden'; }, 2000);
+    } catch(e) {
+      btn.disabled = false; btn.textContent = '⟳ Inbox opnieuw downloaden';
+      alert('Fout: ' + e.message);
+    }
+  }
+
   async function vernieuwEmails() {
     const btn = document.getElementById('btnVernieuwen');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Ophalen…'; }
