@@ -67,8 +67,11 @@ async def _poll_eenmalig():
     if not all([imap_server, imap_user, imap_pass]):
         return
     try:
-        bestaande = _haal_emails_op_db(limit=500)
-        al_verstuurd = {e["uid"] for e in bestaande}
+        # Onthoud welke UIDs al als 'verwerkt' gemarkeerd waren, zodat die status
+        # behouden blijft ook al wordt de cache opnieuw opgebouwd.
+        bestaande = _haal_emails_op_db(limit=1000)
+        verwerkt_status = {e["uid"]: e for e in bestaande if e.get("verwerkt")}
+
         conn = _imaplib.IMAP4_SSL(imap_server, imap_port)
         conn.login(imap_user, imap_pass)
         conn.select("INBOX")
@@ -79,15 +82,23 @@ async def _poll_eenmalig():
             conn.select("INBOX")
         except Exception:
             pass
-        # BELANGRIJK: gebruik UID SEARCH (niet gewoon SEARCH) zodat de
-        # identifiers consistent zijn met _verplaats_email_imap (die UID COPY gebruikt).
-        # Gewone SEARCH geeft sequentienummers terug die niet stabiel zijn.
+
+        # Exacte kopie van de inbox: UID SEARCH geeft de huidige, stabiele set
+        # UIDs in INBOX terug, in oplopende (= ontvangst-)volgorde.
         status_uid, berichten = conn.uid("SEARCH", None, "ALL")
         uids = berichten[0].split()
-        nieuwe = [u for u in uids if u.decode() not in al_verstuurd]
-        print(f"[Poll] {len(nieuwe)} nieuwe e-mail(s) (totaal in inbox: {len(uids)})")
-        for uid in nieuwe:
+        print(f"[Poll] Inbox bevat {len(uids)} e-mail(s), cache wordt gesynchroniseerd")
+
+        # Verwijder lokale records van e-mails die niet meer in INBOX staan
+        # (bijv. al verplaatst naar Afgehandeld via een andere weg)
+        huidige_uids = {u.decode() for u in uids}
+        _verwijder_emails_niet_in(huidige_uids)
+
+        for uid in uids:
             uid_str = uid.decode()
+            # Als deze e-mail al lokaal bekend staat als verwerkt, niet opnieuw ophalen
+            if uid_str in verwerkt_status:
+                continue
             try:
                 _, data = conn.uid("FETCH", uid, "(RFC822)")
                 msg = _email_lib.message_from_bytes(data[0][1])
@@ -2068,6 +2079,24 @@ def _zoek_email_op_uid(uid: str) -> dict:
     finally:
         conn.close()
 
+
+def _verwijder_emails_niet_in(huidige_uids: set):
+    """Verwijdert lokale e-mailrecords waarvan de UID niet meer in de huidige
+    INBOX-set zit (bijv. extern verplaatst/verwijderd) — houdt de cache exact
+    gesynchroniseerd met de daadwerkelijke inbox."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        rows = conn.execute("SELECT uid FROM emails").fetchall()
+        te_verwijderen = [r[0] for r in rows if r[0] not in huidige_uids]
+        for uid in te_verwijderen:
+            conn.execute("DELETE FROM emails WHERE uid = ?", (uid,))
+        if te_verwijderen:
+            conn.commit()
+            print(f"[Poll] {len(te_verwijderen)} verouderde e-mail(s) uit cache verwijderd")
+    finally:
+        conn.close()
+
 # Backwards compat helper
 def _email_cache_get(uid: str):
     return _zoek_email_op_uid(uid)
@@ -2179,6 +2208,21 @@ async def wis_emails():
         return JSONResponse(content={"ok": True, "bericht": "Alle e-mails gewist"})
     finally:
         conn.close()
+
+
+@app.post("/api/emails-volledig-herladen")
+async def emails_volledig_herladen():
+    """Wist de cache en haalt de volledige INBOX opnieuw op (synchroon, voor directe feedback)."""
+    _init_email_db()
+    conn = _sqlite3.connect(_DB_PAD)
+    try:
+        conn.execute("DELETE FROM emails")
+        conn.commit()
+    finally:
+        conn.close()
+    await _poll_eenmalig()
+    aantal = len(_haal_emails_op_db(limit=1000))
+    return JSONResponse(content={"ok": True, "aantal": aantal})
 
 
 @app.get("/api/emails")
