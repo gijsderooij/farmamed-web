@@ -63,7 +63,7 @@ async def _poll_eenmalig():
     imap_port   = int(os.getenv("IMAP_PORT", "993"))
     imap_user   = os.getenv("IMAP_USER", "")
     imap_pass   = os.getenv("IMAP_PASS", "")
-    afgehandeld_map = "INBOX/Afgehandeld"
+    afgehandeld_map = "INBOX.Afgehandeld"
     if not all([imap_server, imap_user, imap_pass]):
         return
     try:
@@ -168,7 +168,7 @@ def _verplaats_email_imap(uid_str: str) -> bool:
     imap_port   = int(os.getenv("IMAP_PORT", "993"))
     imap_user   = os.getenv("IMAP_USER", "")
     imap_pass   = os.getenv("IMAP_PASS", "")
-    afgehandeld_map = "INBOX/Afgehandeld"
+    afgehandeld_map = "INBOX.Afgehandeld"
     if not all([imap_server, imap_user, imap_pass]):
         return False
     try:
