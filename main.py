@@ -76,12 +76,14 @@ async def _poll_eenmalig():
         conn.login(imap_user, imap_pass)
         conn.select("INBOX")
         try:
-            status, _ = conn.select(afgehandeld_map)
+            status, sel_data = conn.select(afgehandeld_map)
+            print(f"[IMAP] Map '{afgehandeld_map}' select: {status} {sel_data}")
             if status != "OK":
-                conn.create(afgehandeld_map)
+                create_result = conn.create(afgehandeld_map)
+                print(f"[IMAP] Map '{afgehandeld_map}' aanmaken: {create_result}")
             conn.select("INBOX")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[IMAP] Fout bij map check/aanmaken: {e}")
 
         # Exacte kopie van de inbox: UID SEARCH geeft de huidige, stabiele set
         # UIDs in INBOX terug, in oplopende (= ontvangst-)volgorde.
@@ -174,15 +176,17 @@ def _verplaats_email_imap(uid_str: str) -> bool:
         conn.login(imap_user, imap_pass)
         conn.select("INBOX")
         try:
-            status, _ = conn.select(afgehandeld_map)
+            status, sel_data = conn.select(afgehandeld_map)
+            print(f"[IMAP] Map '{afgehandeld_map}' select: {status} {sel_data}")
             if status != "OK":
-                conn.create(afgehandeld_map)
+                create_result = conn.create(afgehandeld_map)
+                print(f"[IMAP] Map '{afgehandeld_map}' aanmaken: {create_result}")
             conn.select("INBOX")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[IMAP] Fout bij map check/aanmaken: {e}")
         uid_bytes = uid_str.encode() if isinstance(uid_str, str) else uid_str
         result, data = conn.uid("COPY", uid_bytes, afgehandeld_map)
-        print(f"[IMAP] COPY uid={uid_str} -> {afgehandeld_map}: {result}")
+        print(f"[IMAP] COPY uid={uid_str} -> {afgehandeld_map}: {result} | server-respons: {data}")
         if result == "OK":
             conn.uid("STORE", uid_bytes, "+FLAGS", "(\\Deleted)")
             conn.expunge()
