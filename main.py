@@ -1108,8 +1108,8 @@ async def verwerk_edifact_bijlage(request: Request):
 
 
 @app.get("/api/orders")
-async def haal_orders_op():
-    """Haalt openstaande WooCommerce orders op."""
+async def haal_orders_op(toon_alle: bool = False):
+    """Haalt openstaande WooCommerce orders op (pending + processing)."""
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
@@ -1118,16 +1118,24 @@ async def haal_orders_op():
         return JSONResponse(content={"fout": "WooCommerce niet geconfigureerd"})
 
     try:
-        response = http_requests.get(
-            f"{wc_url}/wp-json/wc/v3/orders",
-            auth=(wc_key, wc_secret),
-            params={"status": "processing", "per_page": 50, "orderby": "date", "order": "desc"},
-            headers={"Accept": "application/json"},
-            timeout=15,
-        )
-        response.raise_for_status()
-        orders_raw = response.json()
-        print(f"DEBUG orders: {len(orders_raw)} opgehaald, status codes: {[o.get('id') for o in orders_raw[:5]]}")
+        orders_raw = []
+        pagina = 1
+        while True:
+            response = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                params={"status": "pending,processing", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
+                headers={"Accept": "application/json"},
+                timeout=20,
+            )
+            response.raise_for_status()
+            batch = response.json()
+            if not batch:
+                break
+            orders_raw.extend(batch)
+            if len(batch) < 100:
+                break
+            pagina += 1
 
         orders = []
         for o in orders_raw:
@@ -1137,21 +1145,17 @@ async def haal_orders_op():
             medicijn = items[0]["name"] if items else "Onbekend"
             naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
             geboortedatum = meta.get("billing_birth") or meta.get("_billing_birth", "")
-
-            # Recept URL via plugin
             recept_url = o.get("recept_url") or meta.get("recept_url", "")
+            heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
+            created_via = o.get("created_via", "")
 
-            # Haal ordernotities op
-            try:
-                notes_resp = http_requests.get(
-                    f"{wc_url}/wp-json/wc/v3/orders/{o['id']}/notes",
-                    auth=(wc_key, wc_secret),
-                    headers={"Accept": "application/json"},
-                    timeout=5,
-                )
-                o["order_notes"] = notes_resp.json() if notes_resp.status_code == 200 else []
-            except Exception:
-                o["order_notes"] = []
+            # Admin-orders altijd als verstrekt markeren
+            if created_via == "admin":
+                heeft_verstrekking = True
+
+            # Filter admin-orders tenzij toon_alle
+            if created_via == "admin" and not toon_alle:
+                continue
 
             orders.append({
                 "id": o["id"],
@@ -1168,6 +1172,7 @@ async def haal_orders_op():
                 "totaal": o.get("total", "0"),
                 "heeft_recept": bool(recept_url),
                 "recept_url": recept_url,
+                "heeft_verstrekking": heeft_verstrekking,
             })
 
         return JSONResponse(content={"orders": orders})
