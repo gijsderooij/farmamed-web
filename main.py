@@ -1119,24 +1119,26 @@ async def haal_orders_op(toon_alle: bool = False):
 
     try:
         orders_raw = []
-        for status in ["pending", "processing"]:
-            pagina = 1
-            while True:
-                response = http_requests.get(
-                    f"{wc_url}/wp-json/wc/v3/orders",
-                    auth=(wc_key, wc_secret),
-                    params={"status": status, "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
-                    headers={"Accept": "application/json"},
-                    timeout=20,
-                )
-                response.raise_for_status()
-                batch = response.json()
-                if not batch:
-                    break
-                orders_raw.extend(batch)
-                if len(batch) < 100:
-                    break
-                pagina += 1
+        pagina = 1
+        while True:
+            response = http_requests.get(
+                f"{wc_url}/wp-json/wc/v3/orders",
+                auth=(wc_key, wc_secret),
+                params={"status": "pending,processing", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
+                headers={"Accept": "application/json"},
+                timeout=20,
+            )
+            if response.status_code != 200:
+                fout_tekst = response.text[:500]
+                print(f"[ORDERS] HTTP {response.status_code}: {fout_tekst}")
+                return JSONResponse(content={"fout": f"WooCommerce fout {response.status_code}: {fout_tekst}"})
+            batch = response.json()
+            if not batch:
+                break
+            orders_raw.extend(batch)
+            if len(batch) < 100:
+                break
+            pagina += 1
 
         orders = []
         for o in orders_raw:
