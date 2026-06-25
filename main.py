@@ -14,10 +14,6 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from dotenv import load_dotenv
 import requests as http_requests
-import asyncio
-import imaplib as _imaplib
-import email as _email_lib
-from email.header import decode_header as _decode_header
 
 load_dotenv()
 
@@ -43,164 +39,14 @@ async def index():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
-
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(_email_poller_loop())
-
-
-@app.post("/api/poll-emails")
-async def poll_emails_nu():
-    asyncio.create_task(_poll_eenmalig())
-    return JSONResponse(content={"ok": True})
-
-
-async def _poll_eenmalig():
-    import base64 as _b64
-    imap_server = os.getenv("IMAP_SERVER", "")
-    imap_port   = int(os.getenv("IMAP_PORT", "993"))
-    imap_user   = os.getenv("IMAP_USER", "")
-    imap_pass   = os.getenv("IMAP_PASS", "")
-    afgehandeld_map = "INBOX.Afgehandeld"
-    if not all([imap_server, imap_user, imap_pass]):
-        return
-    try:
-        # Onthoud welke UIDs al als 'verwerkt' gemarkeerd waren, zodat die status
-        # behouden blijft ook al wordt de cache opnieuw opgebouwd.
-        bestaande = _haal_emails_op_db(limit=1000)
-        verwerkt_status = {e["uid"]: e for e in bestaande if e.get("verwerkt")}
-
-        conn = _imaplib.IMAP4_SSL(imap_server, imap_port)
-        conn.login(imap_user, imap_pass)
-        conn.select("INBOX")
-        try:
-            status, sel_data = conn.select(afgehandeld_map)
-            print(f"[IMAP] Map '{afgehandeld_map}' select: {status} {sel_data}")
-            if status != "OK":
-                create_result = conn.create(afgehandeld_map)
-                print(f"[IMAP] Map '{afgehandeld_map}' aanmaken: {create_result}")
-            conn.select("INBOX")
-        except Exception as e:
-            print(f"[IMAP] Fout bij map check/aanmaken: {e}")
-
-        # Exacte kopie van de inbox: UID SEARCH geeft de huidige, stabiele set
-        # UIDs in INBOX terug, in oplopende (= ontvangst-)volgorde.
-        status_uid, berichten = conn.uid("SEARCH", None, "ALL")
-        uids = berichten[0].split()
-        print(f"[Poll] Inbox bevat {len(uids)} e-mail(s), cache wordt gesynchroniseerd")
-
-        # Verwijder lokale records van e-mails die niet meer in INBOX staan
-        # (bijv. al verplaatst naar Afgehandeld via een andere weg)
-        huidige_uids = {u.decode() for u in uids}
-        _verwijder_emails_niet_in(huidige_uids)
-
-        for uid in uids:
-            uid_str = uid.decode()
-            # Als deze e-mail al lokaal bekend staat als verwerkt, niet opnieuw ophalen
-            if uid_str in verwerkt_status:
-                continue
-            try:
-                _, data = conn.uid("FETCH", uid, "(RFC822)")
-                msg = _email_lib.message_from_bytes(data[0][1])
-                onderwerp = "".join(
-                    part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else str(part)
-                    for part, enc in _decode_header(msg.get("Subject", ""))
-                )
-                afz_raw = "".join(
-                    part.decode(enc or "utf-8", errors="replace") if isinstance(part, bytes) else str(part)
-                    for part, enc in _decode_header(msg.get("From", ""))
-                )
-                if "<" in afz_raw:
-                    afz_naam = afz_raw.split("<")[0].strip().strip('"')
-                    afz_email = afz_raw.split("<")[1].rstrip(">").strip()
-                else:
-                    afz_naam, afz_email = "", afz_raw.strip()
-                body = ""
-                bijlagen = []
-                for part in msg.walk():
-                    ct = part.get_content_type()
-                    cd = str(part.get("Content-Disposition", ""))
-                    cid = part.get("Content-ID", "")
-                    if ct == "text/plain" and "attachment" not in cd:
-                        try:
-                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
-                        except Exception:
-                            pass
-                    elif ("attachment" in cd or "inline" in cd or ct in ("application/pdf", "image/jpeg", "image/png", "image/jpg")) and not cid and ct not in ("text/plain", "text/html"):
-                        naam = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
-                        inhoud = part.get_payload(decode=True) or b""
-                        if inhoud:
-                            bijlagen.append({"naam": naam, "type": ct, "data": _b64.b64encode(inhoud).decode()})
-                tekst = (onderwerp + " " + body).lower()
-                if any(t in tekst for t in ["herhaalrecept", "herhaling", "iter"]):
-                    email_type = "herhaalrecept"
-                elif any(t in tekst for t in ["recept", "voorschrift", "medicijn", "bijlage"]) or bijlagen:
-                    email_type = "nieuw_recept"
-                else:
-                    email_type = "overig"
-                _sla_email_op({
-                    "uid": uid_str, "onderwerp": onderwerp or "(geen onderwerp)",
-                    "afzender": afz_email, "afzender_naam": afz_naam,
-                    "datum": msg.get("Date", "")[:25], "body": body[:2000],
-                    "bijlagen": bijlagen, "heeft_bijlage": bool(bijlagen),
-                    "ongelezen": True, "type": email_type,
-                })
-                print(f"[Poll] OK: {onderwerp[:50]}")
-            except Exception as e:
-                print(f"[Poll] Fout {uid_str}: {e}")
-        conn.logout()
-    except Exception as e:
-        print(f"[Poll] IMAP fout: {e}")
-
-
-async def _email_poller_loop():
-    interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
-    print(f"[Poller] Gestart, interval: {interval}s")
-    while True:
-        await _poll_eenmalig()
-        await asyncio.sleep(interval)
-
-
-def _verplaats_email_imap(uid_str: str) -> bool:
-    imap_server = os.getenv("IMAP_SERVER", "")
-    imap_port   = int(os.getenv("IMAP_PORT", "993"))
-    imap_user   = os.getenv("IMAP_USER", "")
-    imap_pass   = os.getenv("IMAP_PASS", "")
-    afgehandeld_map = "INBOX.Afgehandeld"
-    if not all([imap_server, imap_user, imap_pass]):
-        return False
-    try:
-        conn = _imaplib.IMAP4_SSL(imap_server, imap_port)
-        conn.login(imap_user, imap_pass)
-        conn.select("INBOX")
-        try:
-            status, sel_data = conn.select(afgehandeld_map)
-            print(f"[IMAP] Map '{afgehandeld_map}' select: {status} {sel_data}")
-            if status != "OK":
-                create_result = conn.create(afgehandeld_map)
-                print(f"[IMAP] Map '{afgehandeld_map}' aanmaken: {create_result}")
-            conn.select("INBOX")
-        except Exception as e:
-            print(f"[IMAP] Fout bij map check/aanmaken: {e}")
-        uid_bytes = uid_str.encode() if isinstance(uid_str, str) else uid_str
-        result, data = conn.uid("COPY", uid_bytes, afgehandeld_map)
-        print(f"[IMAP] COPY uid={uid_str} -> {afgehandeld_map}: {result} | server-respons: {data}")
-        if result == "OK":
-            conn.uid("STORE", uid_bytes, "+FLAGS", "(\\Deleted)")
-            conn.expunge()
-            conn.logout()
-            print(f"[IMAP] Verplaatst: {uid_str}")
-            return True
-        # Diagnostiek: bestaat deze UID nog in INBOX?
-        _, check = conn.uid("SEARCH", None, f"UID {uid_str}")
-        print(f"[IMAP] COPY mislukt. UID {uid_str} nog in INBOX: {check[0] if check else 'onbekend'}")
-        conn.logout()
-        return False
-    except Exception as e:
-        print(f"[IMAP] Fout: {e}")
-        return False
+    wc_key = os.getenv("WC_KEY", "")
+    wc_secret = os.getenv("WC_SECRET", "")
+    return {
+        "status": "ok",
+        "wc_key_prefix": wc_key[:8] + "..." if wc_key else "LEEG",
+        "wc_secret_prefix": wc_secret[:8] + "..." if wc_secret else "LEEG",
+        "wc_url": os.getenv("WC_URL", "LEEG"),
+    }
 
 
 @app.post("/api/recept-preview")
@@ -672,27 +518,24 @@ async def haal_bestellingen_op():
         medicijn = items[0]["name"] if items else "—"
         order_id = str(o["id"])
 
-        # Betaalstatus: Pay, Bank, Anders of Niet betaald
+        # Betaalstatus
         betaal_methode = o.get("payment_method", "")
+        betaal_titel = o.get("payment_method_title", "")
         datum_betaald = o.get("date_paid")
-        bank_betaald = meta.get("_farmamed_bank_betaald", "") == "1"
 
-        order_status = o.get("status", "")
-
-        if order_status == "pending":
-            # Pending = altijd niet betaald
+        if datum_betaald and o.get("transaction_id"):
+            if "pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower():
+                betaal_status = "Pay ✓"
+                betaal_type = "pay"
+            elif "bank" in betaal_methode.lower() or "transfer" in betaal_methode.lower() or "bacs" in betaal_methode.lower():
+                betaal_status = "Bank ✓"
+                betaal_type = "bank"
+            else:
+                betaal_status = f"Betaald ({betaal_titel or betaal_methode})"
+                betaal_type = "anders"
+        else:
             betaal_status = "Niet betaald"
             betaal_type = "onbetaald"
-        elif datum_betaald and o.get("transaction_id") and ("pay" in betaal_methode.lower() or "paynl" in betaal_methode.lower()):
-            betaal_status = "Pay"
-            betaal_type = "pay"
-        elif bank_betaald:
-            betaal_status = "Bank"
-            betaal_type = "bank"
-        else:
-            # processing/completed zonder Pay of Bank: alternatieve/handmatige afronding
-            betaal_status = "Anders"
-            betaal_type = "anders"
 
         # Verzendstatus: haal ordernotities op voor SendCloud tracking
         zending = sendcloud_zendingen.get(order_id) or sendcloud_zendingen.get(f"#{order_id}")
@@ -707,15 +550,6 @@ async def haal_bestellingen_op():
         else:
             pass  # Ordernotities worden niet opgehaald voor snelheid
             
-        # Verstrekking uit WooCommerce meta
-        heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
-        # Verzonden via SendCloud = ook verstrekking gedaan
-        if zending and not heeft_verstrekking:
-            heeft_verstrekking = True
-        # Admin-orders zijn altijd al verstrekt
-        if o.get("created_via", "") == "admin":
-            heeft_verstrekking = True
-
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
         if not oorsprong:
@@ -737,7 +571,6 @@ async def haal_bestellingen_op():
             "verzend_status": verzend_status,
             "tracking_url": tracking_url,
             "tracking_nr": tracking_nr,
-            "heeft_verstrekking": heeft_verstrekking,
             "oorsprong": oorsprong,
         })
 
@@ -746,218 +579,141 @@ async def haal_bestellingen_op():
 
 @app.post("/api/verwerk-mt940")
 async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None):
-    """MT940 parser: matcht per pending order een betaling op ordernummer of naam+bedrag."""
+    """
+    Parseert een MT940 bankbestand en matcht betalingen aan openstaande WooCommerce orders.
+    """
     import re as _re
     from rapidfuzz import fuzz
 
     inhoud = await bestand.read()
     tekst = inhoud.decode("utf-8", errors="replace")
-    FARMAMED_AGB = "02009907"
 
+    # MT940 parser
     betalingen = []
-    for blok in _re.split(r":61:", tekst)[1:]:
+    transacties = _re.split(r':61:', tekst)
+
+    for i, blok in enumerate(transacties[1:], 1):
         try:
-            header = _re.match(r"(\d{6})(\d{4})?([CD])(\d+),(\d*)", blok)
-            if not header or header.group(3) == "D":
+            # Datum (YYMMDD)
+            datum_match = _re.match(r'(\d{6})', blok)
+            datum = ""
+            if datum_match:
+                d = datum_match.group(1)
+                datum = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
+
+            # Bedrag (C=credit/inkomend, D=debet/uitgaand)
+            bedrag_match = _re.search(r'[CD](\d+),(\d*)', blok)
+            if not bedrag_match:
                 continue
-            d = header.group(1)
-            datum = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
-            bedrag = float(f"{header.group(4)}.{header.group(5) or '00'}")
-            if bedrag <= 0 or bedrag > 400:
-                continue
-            oms_match = _re.search(r":86:(.*?)(?=:6[12]:|:62|$)", blok, _re.DOTALL)
-            if not oms_match:
-                continue
-            oms_raw = oms_match.group(1)
-            if any(w in oms_raw for w in ["Pay.nl", "CLEARING", "Stichting Pay"]):
-                continue
+            richting = 'C' if 'C' in blok[:20] else 'D'
+            if richting != 'C':
+                continue  # Alleen inkomende betalingen
+            bedrag = float(f"{bedrag_match.group(1)}.{bedrag_match.group(2) or '00'}")
+
+            # Omschrijving uit :86: tag
+            omschrijving = ""
             naam = ""
-            # /NAME/ kan afgebroken zijn als /NA\r\nME/ of /NA\nME/
-            oms_naam = oms_raw.replace("\x2fNA\r\nME\x2f", "/NAME/").replace("\x2fNA\nME\x2f", "/NAME/")
-            nm = _re.search(r"/NAME/([^/]+)", oms_naam)
-            if nm:
-                naam = _re.sub(r"\s+", " ", nm.group(1)).strip()
-                naam = _re.sub(r"^(De heer|Mevr?\.?|Dhr\.?|Mw\.?)\s+", "", naam, flags=_re.IGNORECASE).strip()
-                naam = _re.sub(r"\s+(cj|eo|e/o)\s*$", "", naam, flags=_re.IGNORECASE).strip()
-            remi = ""
-            rm = _re.search(r"/REMI/(.+?)(?=/EREF/|/CSID/|$)", oms_raw, _re.DOTALL)
-            if rm:
-                remi = _re.sub(r"\s+", " ", rm.group(1)).strip()
-            order_nr = ""
-            if remi:
-                rc = remi.replace(FARMAMED_AGB, "")
-                rc_nospace = _re.sub(r"\s+", "", rc)
-                nm2 = _re.search(
-                    r"(?:ordernummer|ordernr|ordenummer|order|fact(?:uur)?|bestelling)[nr\.#]*(\d{3,5})",
-                    rc_nospace, _re.IGNORECASE
-                )
-                if nm2:
-                    order_nr = nm2.group(1)
-                    if not (3 <= len(order_nr) <= 5):
-                        order_nr = ""
-                if not order_nr:
-                    # Zoek ook 4-cijferig nummer gevolgd door spatie + ander cijfer
-                    # bijv. "3672 5" of "order 3672 5" → ordernummer 3672
-                    m_spatie = _re.search(r"(\d{4})\s+\d", rc)
-                    if m_spatie:
-                        order_nr = m_spatie.group(1)
-                if not order_nr:
-                    for m in _re.finditer(r"(\d{4,5})", rc):
-                        c = m.group(1)
-                        if c != FARMAMED_AGB and not c.startswith("020") and not c.startswith("022"):
-                            order_nr = c
-                            break
-            betalingen.append({"datum": datum, "bedrag": bedrag, "naam": naam, "remi": remi[:80], "order_nr": order_nr})
+            iban = ""
+            omschrijving_match = _re.search(r':86:(.*?)(?=:6[12]:|$)', blok, _re.DOTALL)
+            if omschrijving_match:
+                omschrijving_raw = omschrijving_match.group(1).strip()
+                omschrijving = omschrijving_raw.replace('\n', ' ').replace('\r', '')
+
+                # Naam tegenhanger
+                naam_match = _re.search(r'/NAME/([^/]+)', omschrijving_raw) or _re.search(r'(?:naam|name)[:\s]+([^/]+)', omschrijving_raw, _re.IGNORECASE)
+                if naam_match:
+                    naam = naam_match.group(1).strip()
+
+                # IBAN
+                iban_match = _re.search(r'[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7,}', omschrijving_raw)
+                if iban_match:
+                    iban = iban_match.group(0)
+
+            betalingen.append({
+                "datum": datum,
+                "bedrag": bedrag,
+                "naam": naam,
+                "iban": iban,
+                "omschrijving": omschrijving[:200],
+            })
         except Exception:
             continue
 
     if not betalingen:
         return JSONResponse(content={"fout": "Geen betalingen gevonden in MT940 bestand"})
 
+    # Haal openstaande orders op
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
     wc_secret = os.getenv("WC_SECRET", "")
-    orders = []
+
     try:
-        pagina = 1
-        while True:
-            resp = http_requests.get(
-                f"{wc_url}/wp-json/wc/v3/orders",
-                auth=(wc_key, wc_secret),
-                headers={"Accept": "application/json"},
-                params={"status": "pending", "per_page": 100, "page": pagina},
-                timeout=20,
-            )
-            if resp.status_code != 200:
-                break
-            batch = resp.json()
-            if not batch:
-                break
-            orders.extend(batch)
-            if len(batch) < 100:
-                break
-            pagina += 1
+        resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders",
+            auth=(wc_key, wc_secret),
+            headers={"Accept": "application/json"},
+            params={"status": "pending", "per_page": 50},
+            timeout=15,
+        )
+        orders = resp.json() if resp.status_code == 200 else []
     except Exception:
-        pass
+        orders = []
 
-    def order_info(o):
-        billing = o.get("billing", {})
-        return {"id": o["id"], "klant_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(), "totaal": o.get("total"), "datum": o.get("date_created", "")[:10]}
-
-    bet_op_nr: dict = {}
-    for b in betalingen:
-        nr = b.get("order_nr", "")
-        if nr:
-            bet_op_nr.setdefault(nr, []).append(b)
-
-    gebruikt: set = set()
+    # Match betalingen aan orders
     matches = []
-    orders_zonder = []
-
-    for order in orders:
-        wc_id = str(order["id"])
-        order_datum = order.get("date_created", "")[:10]
-        wc_bedrag = float(order.get("total", 0))
-        kandidaten = [b for b in bet_op_nr.get(wc_id, []) if b["datum"] >= order_datum and id(b) not in gebruikt]
-        if kandidaten:
-            beste = min(kandidaten, key=lambda b: abs(b["bedrag"] - wc_bedrag))
-            bedrag_klopt = abs(beste["bedrag"] - wc_bedrag) < 0.02
-            gebruikt.add(id(beste))
-            matches.append({"betaling": beste, "order": order_info(order), "gematcht": True, "methode": "ordernummer", "bedrag_klopt": bedrag_klopt})
-        else:
-            orders_zonder.append(order)
-
-    betalingen_zonder_nr = [b for b in betalingen if not b.get("order_nr") and id(b) not in gebruikt]
-    for order in orders_zonder:
-        order_datum = order.get("date_created", "")[:10]
-        wc_bedrag = float(order.get("total", 0))
-        billing = order.get("billing", {})
-        wc_achternaam = _normaliseer_naam(billing.get("last_name", ""))
-        beste_b = None
+    for betaling in betalingen:
+        beste_match = None
         beste_score = 0
-        for b in betalingen_zonder_nr:
-            if id(b) in gebruikt or b["datum"] < order_datum or abs(b["bedrag"] - wc_bedrag) >= 0.02 or not b.get("naam"):
-                continue
-            score = fuzz.token_sort_ratio(_normaliseer_naam(b["naam"]), wc_achternaam)
-            if score > beste_score and score >= 70:
-                beste_score = score
-                beste_b = b
-        if beste_b:
-            gebruikt.add(id(beste_b))
-            matches.append({"betaling": beste_b, "order": order_info(order), "gematcht": True, "methode": "naam+bedrag", "bedrag_klopt": True})
-        else:
-            matches.append({"betaling": None, "order": order_info(order), "gematcht": False, "methode": "geen", "bedrag_klopt": False})
 
-    gematchte_ids = {id(m["betaling"]) for m in matches if m.get("betaling")}
-    ongematchte_betalingen_raw = [b for b in betalingen if id(b) not in gematchte_ids]
+        for order in orders:
+            billing = order.get("billing", {})
+            wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
+            wc_bedrag = float(order.get("total", 0))
+            wc_id = str(order["id"])
 
-    # Zoek ordernummers uit ongematchte betalingen op in WooCommerce (bulk, alle statussen)
-    # Verzamel unieke ordernummers
-    te_zoeken = list({b["order_nr"] for b in ongematchte_betalingen_raw if b.get("order_nr")})
-    order_cache = {}
-    if te_zoeken:
-        try:
-            # Haal in bulk op (max 100 per keer)
-            for i in range(0, len(te_zoeken), 100):
-                bulk = te_zoeken[i:i+100]
-                resp_bulk = http_requests.get(
-                    f"{wc_url}/wp-json/wc/v3/orders",
-                    auth=(wc_key, wc_secret),
-                    headers={"Accept": "application/json"},
-                    params={"include": ",".join(bulk), "per_page": 100},
-                    timeout=15,
+            score = 0
+
+            # Bedrag match (zwaarst gewogen)
+            if abs(betaling["bedrag"] - wc_bedrag) < 0.02:
+                score += 50
+
+            # Naam match
+            if betaling["naam"]:
+                naam_score = fuzz.token_sort_ratio(
+                    _normaliseer_naam(betaling["naam"]),
+                    _normaliseer_naam(wc_naam)
                 )
-                if resp_bulk.status_code == 200:
-                    for o in resp_bulk.json():
-                        billing = o.get("billing", {})
-                        order_cache[str(o["id"])] = {
-                            "id": o["id"],
-                            "status": o.get("status", ""),
-                            "klant_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
-                            "totaal": o.get("total", ""),
-                            "datum": o.get("date_created", "")[:10],
-                        }
-        except Exception:
-            pass
+                score += int(naam_score * 0.4)
 
-    # Fuzzy naam match van ongematchte betalingen tegen pending orders
-    ongematchte_betalingen = []
-    for b in ongematchte_betalingen_raw:
-        item = dict(b)
-        if b.get("order_nr") and b["order_nr"] in order_cache:
-            item["gevonden_order"] = order_cache[b["order_nr"]]
+            # Ordernummer directe match (zwaarste gewicht)
+            if betaling.get("order_nr") == wc_id:
+                score += 60
+            elif wc_id in betaling["omschrijving"]:
+                score += 30
 
-        # Probeer naam te matchen met pending orders
-        if b.get("naam") and not item.get("gevonden_order"):
-            beste_score = 0
-            beste_order = None
-            b_naam = _normaliseer_naam(b["naam"])
-            for order in orders:
-                billing = order.get("billing", {})
-                wc_naam = _normaliseer_naam(billing.get("last_name", ""))
-                if not wc_naam:
-                    continue
-                score = fuzz.token_sort_ratio(b_naam, wc_naam)
-                if score > beste_score and score >= 65:
-                    beste_score = score
-                    beste_order = order
-            if beste_order:
-                billing = beste_order.get("billing", {})
-                item["naam_match"] = {
-                    "id": beste_order["id"],
-                    "naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
-                    "totaal": beste_order.get("total", ""),
-                    "score": beste_score,
-                }
-        ongematchte_betalingen.append(item)
+            if score > beste_score and score >= 50:
+                beste_score = score
+                beste_match = order
+
+        matches.append({
+            "betaling": betaling,
+            "order": {
+                "id": beste_match["id"],
+                "klant_naam": f"{beste_match['billing']['first_name']} {beste_match['billing']['last_name']}".strip(),
+                "totaal": beste_match.get("total"),
+                "status": beste_match.get("status"),
+            } if beste_match else None,
+            "score": beste_score,
+            "gematcht": beste_match is not None and beste_score >= 50,
+        })
 
     return JSONResponse(content={
         "betalingen": len(betalingen),
-        "orders_totaal": len(orders),
         "gematcht": sum(1 for m in matches if m["gematcht"]),
         "matches": matches,
-        "ongematchte_betalingen": ongematchte_betalingen,
     })
+
+
 @app.post("/api/betalingen-verwerken")
 async def betalingen_verwerken(request: Request):
     """Markeert geselecteerde orders als betaald in WooCommerce."""
@@ -974,8 +730,8 @@ async def betalingen_verwerken(request: Request):
                 f"{wc_url}/wp-json/wc/v3/orders/{oid}",
                 auth=(wc_key, wc_secret),
                 json={
+                    "set_paid": True,
                     "status": "processing",
-                    "meta_data": [{"key": "_farmamed_bank_betaald", "value": "1"}]
                 },
                 timeout=10,
             )
@@ -1047,12 +803,6 @@ async def order_afronden(request: Request):
             resultaten.append({"order_id": oid, "ok": False, "fout": str(e)})
 
     return JSONResponse(content={"resultaten": resultaten})
-
-
-@app.get("/bank", response_class=HTMLResponse)
-async def bank_pagina():
-    html_path = BASE_DIR / "templates" / "bank.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
 @app.get("/status", response_class=HTMLResponse)
@@ -1150,7 +900,6 @@ Instructies:
 {{
   "patient_naam": "naam van de originele patient/arts",
   "patient_email": "e-mailadres van de originele afzender",
-  "geboortedatum": "geboortedatum van de patiënt in DD-MM-YYYY formaat, of null als niet genoemd",
   "medicijn": "gevraagd medicijn of null",
   "hoeveelheid": "hoeveelheid of null",
   "is_herhaalverzoek": true of false,
@@ -1187,8 +936,6 @@ Instructies:
     beste_order = None
     beste_score = 0
 
-    huidige_order_id = str(body.get("huidige_order_id", ""))
-
     try:
         # Zoek op e-mailadres van de originele afzender
         if zoek_email and "@" in zoek_email:
@@ -1201,21 +948,15 @@ Instructies:
             )
             orders = resp.json() if resp.status_code == 200 else []
             for order in (orders if isinstance(orders, list) else []):
-                # Sla huidige order over
-                if str(order.get("id")) == huidige_order_id:
-                    continue
                 billing = order.get("billing", {})
                 if billing.get("email", "").lower() == zoek_email.lower():
                     beste_order = order
                     beste_score = 100
                     break
 
-        # Fallback: zoek op naam (+ geboortedatum indien beschikbaar)
-        # Naam + geboortedatum is betrouwbaarder dan naam alleen — vaak ontbreekt
-        # het patiënt-e-mailadres omdat de apotheek zelf het verzoek stuurt.
+        # Fallback: zoek op naam
         if not beste_order:
             naam = zoek_naam
-            zoek_geboortedatum = email_data.get("geboortedatum") or ""
             achternaam = naam.split()[-1] if naam.split() else ""
             if achternaam and len(achternaam) >= 3:
                 from rapidfuzz import fuzz
@@ -1228,27 +969,9 @@ Instructies:
                 )
                 orders = resp.json() if resp.status_code == 200 else []
                 for order in (orders if isinstance(orders, list) else []):
-                    if str(order.get("id")) == huidige_order_id:
-                        continue
                     billing = order.get("billing", {})
-                    meta = {m["key"]: m["value"] for m in order.get("meta_data", [])}
                     wc_naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
-                    naam_score = fuzz.token_sort_ratio(_normaliseer_naam(naam), _normaliseer_naam(wc_naam))
-
-                    # Geboortedatum vergelijken indien beide beschikbaar — sterke extra bevestiging
-                    wc_geboortedatum = _amerikaans_naar_nederlands(
-                        meta.get("billing_birth") or meta.get("_billing_birth") or ""
-                    )
-                    geboortedatum_klopt = bool(
-                        zoek_geboortedatum and wc_geboortedatum and zoek_geboortedatum == wc_geboortedatum
-                    )
-
-                    if geboortedatum_klopt and naam_score >= 70:
-                        # Naam fuzzy match + exacte geboortedatum match = zeer betrouwbaar
-                        score = max(naam_score, 95)
-                    else:
-                        score = naam_score
-
+                    score = fuzz.token_sort_ratio(_normaliseer_naam(naam), _normaliseer_naam(wc_naam))
                     if score > beste_score:
                         beste_score = score
                         beste_order = order
@@ -1385,7 +1108,7 @@ async def verwerk_edifact_bijlage(request: Request):
 
 
 @app.get("/api/orders")
-async def haal_orders_op(toon_alle: bool = False):
+async def haal_orders_op():
     """Haalt openstaande WooCommerce orders op."""
     wc_url = os.getenv("WC_URL", "")
     wc_key = os.getenv("WC_KEY", "")
@@ -1430,14 +1153,6 @@ async def haal_orders_op(toon_alle: bool = False):
             except Exception:
                 o["order_notes"] = []
 
-            heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
-            created_via = o.get("created_via", "")
-            # Admin-orders zijn altijd al verstrekt
-            if created_via == "admin":
-                heeft_verstrekking = True
-            if created_via == "admin" and not toon_alle:
-                continue
-
             orders.append({
                 "id": o["id"],
                 "status": o.get("status", ""),
@@ -1453,7 +1168,6 @@ async def haal_orders_op(toon_alle: bool = False):
                 "totaal": o.get("total", "0"),
                 "heeft_recept": bool(recept_url),
                 "recept_url": recept_url,
-                "heeft_verstrekking": heeft_verstrekking,
             })
 
         return JSONResponse(content={"orders": orders})
@@ -1967,27 +1681,6 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
     return {"velden": velden, "totaal_score": totaal, "aandachtspunten": aandachtspunten}
 
 
-@app.post("/api/order-verstrekking")
-async def order_verstrekking(request: Request):
-    body = await request.json()
-    order_id = body.get("order_id")
-    wc_url = os.getenv("WC_URL", "")
-    wc_key = os.getenv("WC_KEY", "")
-    wc_secret = os.getenv("WC_SECRET", "")
-    if not order_id or not wc_url:
-        return JSONResponse(content={"ok": False})
-    try:
-        resp = http_requests.put(
-            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
-            auth=(wc_key, wc_secret),
-            json={"meta_data": [{"key": "_farmamed_verstrekking", "value": "1"}]},
-            timeout=10,
-        )
-        return JSONResponse(content={"ok": resp.status_code == 200})
-    except Exception as e:
-        return JSONResponse(content={"ok": False, "fout": str(e)})
-
-
 @app.post("/api/order-status")
 async def update_order_status(request: Request):
     """Werkt WooCommerce orderstatus bij na beslissing apotheker."""
@@ -2089,7 +1782,7 @@ def _haal_emails_op_db(limit: int = 50) -> list:
     conn = _sqlite3.connect(_DB_PAD)
     try:
         rows = conn.execute(
-            "SELECT data FROM emails ORDER BY CAST(uid AS INTEGER) ASC LIMIT ?", (limit,)
+            "SELECT data FROM emails ORDER BY ontvangen DESC LIMIT ?", (limit,)
         ).fetchall()
         return [json.loads(r[0]) for r in rows]
     finally:
@@ -2102,24 +1795,6 @@ def _zoek_email_op_uid(uid: str) -> dict:
     try:
         row = conn.execute("SELECT data FROM emails WHERE uid = ?", (uid,)).fetchone()
         return json.loads(row[0]) if row else None
-    finally:
-        conn.close()
-
-
-def _verwijder_emails_niet_in(huidige_uids: set):
-    """Verwijdert lokale e-mailrecords waarvan de UID niet meer in de huidige
-    INBOX-set zit (bijv. extern verplaatst/verwijderd) — houdt de cache exact
-    gesynchroniseerd met de daadwerkelijke inbox."""
-    _init_email_db()
-    conn = _sqlite3.connect(_DB_PAD)
-    try:
-        rows = conn.execute("SELECT uid FROM emails").fetchall()
-        te_verwijderen = [r[0] for r in rows if r[0] not in huidige_uids]
-        for uid in te_verwijderen:
-            conn.execute("DELETE FROM emails WHERE uid = ?", (uid,))
-        if te_verwijderen:
-            conn.commit()
-            print(f"[Poll] {len(te_verwijderen)} verouderde e-mail(s) uit cache verwijderd")
     finally:
         conn.close()
 
@@ -2236,21 +1911,6 @@ async def wis_emails():
         conn.close()
 
 
-@app.post("/api/emails-volledig-herladen")
-async def emails_volledig_herladen():
-    """Wist de cache en haalt de volledige INBOX opnieuw op (synchroon, voor directe feedback)."""
-    _init_email_db()
-    conn = _sqlite3.connect(_DB_PAD)
-    try:
-        conn.execute("DELETE FROM emails")
-        conn.commit()
-    finally:
-        conn.close()
-    await _poll_eenmalig()
-    aantal = len(_haal_emails_op_db(limit=1000))
-    return JSONResponse(content={"ok": True, "aantal": aantal})
-
-
 @app.get("/api/emails")
 async def haal_emails_op(verwerkt: str = "nee"):
     """Geeft opgeslagen e-mails terug vanuit SQLite. verwerkt=nee toont alleen onverwerkte."""
@@ -2279,8 +1939,88 @@ async def markeer_email_verwerkt(request: Request):
         email["verwerkt"] = True
         email["order_id"] = order_id
         _sla_email_op(email)
-    verplaatst = _verplaats_email_imap(email_uid)
-    return JSONResponse(content={"ok": True, "verplaatst": verplaatst})
+    return JSONResponse(content={"ok": True})
+
+    try:
+        conn.select("INBOX")
+        # Haal alle e-mails op (ongelezen + gelezen, max 30 nieuwste)
+        _, berichten = conn.search(None, "ALL")
+        uids = berichten[0].split()
+        uids = uids[-30:]  # laatste 30
+
+        emails = []
+        for uid in reversed(uids):
+            try:
+                _, data = conn.fetch(uid, "(RFC822)")
+                msg = email_lib.message_from_bytes(data[0][1])
+
+                # Onderwerp decoderen
+                onderwerp_raw = msg.get("Subject", "")
+                onderwerp_parts = decode_header(onderwerp_raw)
+                onderwerp = ""
+                for part, enc in onderwerp_parts:
+                    if isinstance(part, bytes):
+                        onderwerp += part.decode(enc or "utf-8", errors="replace")
+                    else:
+                        onderwerp += str(part)
+
+                # Afzender
+                afzender = msg.get("From", "")
+                afzender_naam = ""
+                if "<" in afzender:
+                    afzender_naam = afzender.split("<")[0].strip().strip('"')
+                    afzender_email = afzender.split("<")[1].rstrip(">")
+                else:
+                    afzender_email = afzender
+
+                # Datum
+                datum = msg.get("Date", "")[:25]
+
+                # Body uitlezen
+                body = ""
+                bijlagen = []
+                for part in msg.walk():
+                    ct = part.get_content_type()
+                    cd = str(part.get("Content-Disposition", ""))
+
+                    if ct == "text/plain" and "attachment" not in cd:
+                        try:
+                            body = part.get_payload(decode=True).decode("utf-8", errors="replace")
+                        except Exception:
+                            body = ""
+                    elif "attachment" in cd or ct in ("application/pdf", "image/jpeg", "image/png"):
+                        naam = part.get_filename() or f"bijlage_{len(bijlagen)+1}"
+                        bijlagen.append({"naam": naam, "type": ct})
+
+                # Ongelezen check
+                _, flags_data = conn.fetch(uid, "(FLAGS)")
+                ongelezen = b"\\Seen" not in flags_data[0]
+
+                emails.append({
+                    "uid": uid.decode(),
+                    "onderwerp": onderwerp,
+                    "afzender": afzender_email,
+                    "afzender_naam": afzender_naam,
+                    "datum": datum,
+                    "body": body[:500],  # eerste 500 tekens
+                    "bijlagen": bijlagen,
+                    "heeft_bijlage": len(bijlagen) > 0,
+                    "ongelezen": ongelezen,
+                    "type": _classificeer_email(onderwerp, body),
+                })
+            except Exception:
+                continue
+
+        conn.logout()
+        return JSONResponse(content={"emails": emails})
+
+    except Exception as e:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+        return JSONResponse(content={"fout": str(e)})
+
 
 @app.post("/api/open-email")
 async def open_email(request: Request):
