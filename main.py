@@ -1128,10 +1128,7 @@ async def haal_orders_op(toon_alle: bool = False):
                 headers={"Accept": "application/json"},
                 timeout=20,
             )
-            if response.status_code != 200:
-                fout_tekst = response.text[:500]
-                print(f"[ORDERS] HTTP {response.status_code}: {fout_tekst}")
-                return JSONResponse(content={"fout": f"WooCommerce fout {response.status_code}: {fout_tekst}"})
+            response.raise_for_status()
             batch = response.json()
             if not batch:
                 break
