@@ -1119,23 +1119,31 @@ async def haal_orders_op(toon_alle: bool = False):
 
     try:
         orders_raw = []
-        pagina = 1
-        while True:
-            response = http_requests.get(
-                f"{wc_url}/wp-json/wc/v3/orders",
-                auth=(wc_key, wc_secret),
-                params={"status": "pending,processing", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
-                headers={"Accept": "application/json"},
-                timeout=20,
-            )
-            response.raise_for_status()
-            batch = response.json()
-            if not batch:
-                break
-            orders_raw.extend(batch)
-            if len(batch) < 100:
-                break
-            pagina += 1
+        for status in ["pending", "processing"]:
+            pagina = 1
+            while True:
+                import base64 as _b64auth
+                _auth_str = _b64auth.b64encode(f"{wc_key}:{wc_secret}".encode()).decode()
+                response = http_requests.get(
+                    f"{wc_url}/wp-json/wc/v3/orders",
+                    params={"status": status, "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
+                    headers={
+                        "Accept": "application/json",
+                        "Authorization": f"Basic {_auth_str}",
+                        "User-Agent": "curl/7.68.0",
+                    },
+                    timeout=20,
+                )
+                if response.status_code != 200:
+                    print(f"[ORDERS] {status} HTTP {response.status_code}: {response.text[:200]}")
+                    break
+                batch = response.json()
+                if not batch:
+                    break
+                orders_raw.extend(batch)
+                if len(batch) < 100:
+                    break
+                pagina += 1
 
         orders = []
         for o in orders_raw:
