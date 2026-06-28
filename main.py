@@ -19,13 +19,6 @@ load_dotenv()
 
 app = FastAPI(title="Farmamed Recept Agent")
 
-
-def _wc_auth(wc_key: str, wc_secret: str) -> dict:
-    """Auth headers voor WooCommerce REST API."""
-    import base64 as _b64wc
-    token = _b64wc.b64encode(f"{wc_key}:{wc_secret}".encode()).decode()
-    return {"Accept": "application/json", "Authorization": f"Basic {token}", "User-Agent": "curl/7.68.0"}
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -328,7 +321,7 @@ async def maak_order(request: Request):
     try:
         response = http_requests.post(
             f"{wc_url}/wp-json/wc/v3/orders",
-            headers=_wc_auth(wc_key, wc_secret),
+            auth=(wc_key, wc_secret),
             json=order_payload,
             timeout=20,
         )
@@ -477,7 +470,8 @@ async def haal_bestellingen_op():
         while True:
             resp = http_requests.get(
                 f"{wc_url}/wp-json/wc/v3/orders",
-                headers=_wc_auth(wc_key, wc_secret),
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
                 params={"status": "processing,pending,on-hold", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina, "after": twee_weken_geleden},
                 timeout=20,
             )
@@ -656,7 +650,8 @@ async def verwerk_mt940(bestand: UploadFile = File(...), request: Request = None
     try:
         resp = http_requests.get(
             f"{wc_url}/wp-json/wc/v3/orders",
-            headers=_wc_auth(wc_key, wc_secret),
+            auth=(wc_key, wc_secret),
+            headers={"Accept": "application/json"},
             params={"status": "pending", "per_page": 50},
             timeout=15,
         )
@@ -733,7 +728,7 @@ async def betalingen_verwerken(request: Request):
         try:
             resp = http_requests.put(
                 f"{wc_url}/wp-json/wc/v3/orders/{oid}",
-                headers=_wc_auth(wc_key, wc_secret),
+                auth=(wc_key, wc_secret),
                 json={
                     "set_paid": True,
                     "status": "processing",
@@ -762,7 +757,8 @@ async def haal_verzend_status(request: Request):
         try:
             resp = http_requests.get(
                 f"{wc_url}/wp-json/wc/v3/orders/{oid}/notes",
-                headers=_wc_auth(wc_key, wc_secret),
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
                 timeout=5,
             )
             if resp.status_code == 200:
@@ -798,7 +794,7 @@ async def order_afronden(request: Request):
         try:
             resp = http_requests.put(
                 f"{wc_url}/wp-json/wc/v3/orders/{oid}",
-                headers=_wc_auth(wc_key, wc_secret),
+                auth=(wc_key, wc_secret),
                 json={"status": "completed"},
                 timeout=10,
             )
@@ -945,7 +941,8 @@ Instructies:
         if zoek_email and "@" in zoek_email:
             resp = http_requests.get(
                 f"{wc_url}/wp-json/wc/v3/orders",
-                headers=_wc_auth(wc_key, wc_secret),
+                auth=(wc_key, wc_secret),
+                headers={"Accept": "application/json"},
                 params={"search": zoek_email, "per_page": 5, "orderby": "date", "order": "desc"},
                 timeout=10,
             )
@@ -965,7 +962,8 @@ Instructies:
                 from rapidfuzz import fuzz
                 resp = http_requests.get(
                     f"{wc_url}/wp-json/wc/v3/orders",
-                    headers=_wc_auth(wc_key, wc_secret),
+                    auth=(wc_key, wc_secret),
+                    headers={"Accept": "application/json"},
                     params={"search": achternaam, "per_page": 10, "orderby": "date", "order": "desc"},
                     timeout=10,
                 )
@@ -1094,7 +1092,7 @@ async def verwerk_edifact_bijlage(request: Request):
     try:
         resp = http_requests.post(
             f"{wc_url}/wp-json/wc/v3/orders",
-            headers=_wc_auth(wc_key, wc_secret),
+            auth=(wc_key, wc_secret),
             json=order_payload,
             timeout=20,
         )
@@ -1121,18 +1119,16 @@ async def haal_orders_op(toon_alle: bool = False):
 
     try:
         orders_raw = []
-        for status in ["pending", "processing"]:
-          pagina = 1
-          while True:
+        pagina = 1
+        while True:
             response = http_requests.get(
                 f"{wc_url}/wp-json/wc/v3/orders",
-                params={"status": status, "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
-                headers=_wc_auth(wc_key, wc_secret),
+                auth=(wc_key, wc_secret),
+                params={"status": "pending,processing", "per_page": 100, "orderby": "date", "order": "desc", "page": pagina},
+                headers={"Accept": "application/json"},
                 timeout=20,
             )
-            if response.status_code != 200:
-                print(f"[ORDERS] {status} HTTP {response.status_code}: {response.text[:200]}")
-                break
+            response.raise_for_status()
             batch = response.json()
             if not batch:
                 break
@@ -1179,6 +1175,8 @@ async def haal_orders_op(toon_alle: bool = False):
                 "heeft_verstrekking": heeft_verstrekking,
             })
 
+        # Sorteer op order ID hoog naar laag (nieuwste bovenaan, ongeacht status)
+        orders.sort(key=lambda o: o["id"], reverse=True)
         return JSONResponse(content={"orders": orders})
 
     except Exception as e:
@@ -1304,7 +1302,7 @@ Verwar de achternaam van de arts NIET met een woonplaats.
     try:
         wc_resp = http_requests.get(
             f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
-            headers=_wc_auth(wc_key, wc_secret),
+            auth=(wc_key, wc_secret),
             timeout=15,
         )
         wc_order = wc_resp.json()
@@ -1339,7 +1337,8 @@ async def _verrijk_met_woocommerce(recept: dict, wc_url: str, wc_key: str, wc_se
         # Zoek orders op naam
         resp = http_requests.get(
             f"{wc_url}/wp-json/wc/v3/orders",
-            headers=_wc_auth(wc_key, wc_secret),
+            auth=(wc_key, wc_secret),
+            headers={"Accept": "application/json"},
             params={"search": achternaam, "per_page": 10, "orderby": "date", "order": "desc"},
             timeout=10,
         )
@@ -1703,7 +1702,7 @@ async def update_order_status(request: Request):
     try:
         resp = http_requests.put(
             f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
-            headers=_wc_auth(wc_key, wc_secret),
+            auth=(wc_key, wc_secret),
             json={"status": status},
             timeout=15,
         )
@@ -1848,7 +1847,7 @@ async def download_recept(request: Request):
         resp = http_requests.get(
             download_url,
             params={"order_id": order_id, "bestandsnaam": bestandsnaam},
-            headers=_wc_auth(wc_key, wc_secret),
+            auth=(wc_key, wc_secret),
             timeout=30,
             stream=True,
         )
