@@ -150,7 +150,7 @@ async def _poll_eenmalig():
 
                 for part in alle_parts:
                     ct = part.get_content_type()
-                    cd = str(part.get("Content-Disposition", ""))
+                    cd = " ".join(str(part.get("Content-Disposition", "")).split())
                     cid = part.get("Content-ID", "")
                     if ct == "message/rfc822":
                         continue
@@ -161,7 +161,9 @@ async def _poll_eenmalig():
                                 body = tekst_deel.decode("utf-8", errors="replace")
                         except Exception:
                             pass
-                    elif ct == "application/pdf" or                          (ct in ("image/jpeg", "image/png", "image/jpg", "image/gif") and "attachment" in cd) or                          ("attachment" in cd and ct not in ("text/plain", "text/html")):
+                    elif ct == "application/pdf" or \
+                         (ct in ("image/jpeg", "image/png", "image/jpg", "image/gif") and "attachment" in cd) or \
+                         ("attachment" in cd and ct not in ("text/plain", "text/html")):
                         # Sla inline afbeeldingen met Content-ID over (embedded logos in footer)
                         if cid:
                             continue
