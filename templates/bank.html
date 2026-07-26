@@ -110,11 +110,11 @@
   <div class="tabel" id="tabel" style="display:none;">
     <div class="tabel-header">
       <span></span>
-      <span>Pending Order</span>
-      <span>Gevonden Betaling</span>
+      <span>Betaling</span>
+      <span>Gevonden Order</span>
       <span>Match</span>
     </div>
-    <div id="tabelBody"></div>
+    <div id="resultatenInhoud"></div>
   </div>
 </div>
 
@@ -135,13 +135,13 @@
   let geselecteerd = new Set();
 
   function toonResultaten(data) {
-    const sectie = document.getElementById('sectieResultaten');
+    const tabel = document.getElementById('tabel');
     const inhoud = document.getElementById('resultatenInhoud');
     if (!data || !data.resultaten || data.resultaten.length === 0) {
-      sectie.style.display = 'none';
+      tabel.style.display = 'none';
       return;
     }
-    sectie.style.display = 'block';
+    tabel.style.display = 'block';
 
     // Sorteer: eerst matches op ordernummer, dan naam+bedrag, dan geen match
     const sorted = [...data.resultaten].sort((a, b) => {
