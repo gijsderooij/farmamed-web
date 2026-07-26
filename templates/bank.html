@@ -218,7 +218,6 @@
       status.className = 'status klaar';
       status.textContent = `✓ ${t} openstaande orders bekeken · ${g} betalingen gevonden · ${t - g} geen match`;
       toonMatches();
-      toonOngematchteBetalingen(data.ongematchte_betalingen || []);
     } catch(e) {
       status.className = 'status fout';
       status.textContent = '✕ ' + e.message;
