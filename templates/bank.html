@@ -212,12 +212,12 @@
         status.textContent = '✕ ' + data.fout;
         return;
       }
-      matches = data.matches || [];
+      resultaten = data.resultaten || [];
       const g = data.gematcht || 0;
-      const t = data.orders_totaal || matches.length;
+      const t = data.betalingen || resultaten.length;
       status.className = 'status klaar';
-      status.textContent = `✓ ${t} openstaande orders bekeken · ${g} betalingen gevonden · ${t - g} geen match`;
-      toonMatches();
+      status.textContent = `✓ ${t} betalingen verwerkt · ${g} matches gevonden · ${t - g} geen match`;
+      toonResultaten(data);
     } catch(e) {
       status.className = 'status fout';
       status.textContent = '✕ ' + e.message;
