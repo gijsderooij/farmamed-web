@@ -282,26 +282,47 @@
               <span class="veld-label">Medicijn</span>
               <select class="veld-input" id="o-medicijn">
                 <option value="">— Kies medicijn</option>
-                <option value="Tretinoïne crème 0.02% FNA - tegen huidveroudering (30 gram)">Tretinoïne crème 0.02% FNA (30g)</option>
-                <option value="Tretinoïne crème 0.02% FNA - tegen huidveroudering (90 gram)">Tretinoïne crème 0.02% FNA (90g)</option>
-                <option value="Tretinoïne crème 0.05% FNA - tegen huidveroudering (30 gram)">Tretinoïne crème 0.05% FNA (30g)</option>
-                <option value="Tretinoïne crème 0.05% FNA - tegen huidveroudering (90 gram)">Tretinoïne crème 0.05% FNA (90g)</option>
-                <option value="Tretinoïne crème 0.1% FNA - tegen huidveroudering (30 gram)">Tretinoïne crème 0.1% FNA (30g)</option>
-                <option value="Amitriptyline crème 5% (SAW-crème)">Amitriptyline crème 5%</option>
-                <option value="Amitriptyline crème 10% (SAW-crème)">Amitriptyline crème 10%</option>
-                <option value="Baclofen crème 5% (SAW-crème)">Baclofen crème 5%</option>
-                <option value="Clonidine crème 0,1% (SAW-crème)">Clonidine crème 0,1%</option>
-                <option value="Clonidine crème 0,2% (SAW-crème)">Clonidine crème 0,2%</option>
-                <option value="Fenytoïne crème 5% (SAW-crème)">Fenytoïne crème 5%</option>
-                <option value="Fenytoïne crème 10% (SAW-crème)">Fenytoïne crème 10%</option>
-                <option value="Fenytoïne crème 20% (SAW-crème)">Fenytoïne crème 20%</option>
-                <option value="Gabapentine crème 10% (SAW-crème)">Gabapentine crème 10%</option>
-                <option value="Ketamine crème 10% (SAW-crème)">Ketamine crème 10%</option>
+                <optgroup label="Amitriptyline">
+                <option value="Amitriptyline crème 5% (SAW-crème)">Amitriptyline 5% SAW crème 30g</option>
+                <option value="Amitriptyline crème 5% in DMSO 50% (SAW-crème)">Amitriptyline 5% in DMSO 50% SAW</option>
+                <option value="Amitriptyline crème 10% (SAW-crème)">Amitriptyline 10% SAW crème 30g</option>
+                <option value="Amitriptyline crème 10% in DMSO 50% (SAW-crème)">Amitriptyline 10% in DMSO 50% SAW 30g</option>
+                </optgroup>
+                <optgroup label="Baclofen">
+                <option value="Baclofen crème 5% (SAW-crème)">Baclofen 5% SAW crème 30g</option>
+                <option value="Baclofen 5% / Fenytoïne 5% (SAW-crème)">Baclofen 5% / Fenytoïne 5% SAW crème 30g</option>
+                </optgroup>
+                <optgroup label="Clonidine">
+                <option value="Clonidine crème 0,1% (SAW-crème)">Clonidine 0,1% SAW crème 30g</option>
+                <option value="Clonidine crème 0,2% (SAW-crème)">Clonidine 0,2% SAW crème 30g</option>
+                </optgroup>
+                <optgroup label="Fenytoïne">
+                <option value="Fenytoïne crème 5% (SAW-crème)">Fenytoïne 5% SAW crème 30g</option>
+                <option value="Fenytoïne crème 10% (SAW-crème)">Fenytoïne 10% SAW crème 30g</option>
+                <option value="Fenytoïne crème 20% (SAW-crème)">Fenytoïne 20% SAW crème 30g</option>
+                </optgroup>
+                <optgroup label="Gabapentine">
+                <option value="Gabapentine crème 10% (SAW-crème)">Gabapentine 10% SAW crème 30g</option>
+                </optgroup>
+                <optgroup label="Ketamine">
+                <option value="Ketamine crème 10% (SAW-crème)">Ketamine 10% SAW crème 30g</option>
+                <option value="Ketamine crème 10% in SAW (SAW-crème)">Ketamine 10% in SAW crème</option>
+                </optgroup>
+                <optgroup label="Tretinoïne">
+                <option value="Tretinoïne crème 0.02% FNA - tegen huidveroudering (30 gram)">Tretinoïne 0,02% SAW crème</option>
+                <option value="Tretinoïne crème 0.05% FNA - tegen huidveroudering (30 gram)">Tretinoïne 0,05% SAW crème</option>
+                <option value="Tretinoïne crème 0.1% FNA - tegen huidveroudering (30 gram)">Tretinoïne 0,1% SAW crème</option>
+                </optgroup>
+                <optgroup label="Proefbehandeling">
+                <option value="Proefbehandeling pijnstillende crèmes SAW Kopsky">Proefbehandeling SAW Kopsky</option>
+                <option value="Proefbehandeling pijnstillende crèmes SAW V02">Proefbehandeling SAW V02</option>
+                </optgroup>
+                <optgroup label="Overig">
                 <option value="Isoso in Lidocaine">Isoso in Lidocaine</option>
                 <option value="Naltrexon (Low Dose) - LDN 1.0 - 4.5 mg">Naltrexon LDN</option>
                 <option value="Tadalafil 5mg tabletten op recept (Sandoz)">Tadalafil 5mg</option>
                 <option value="Oxybutynine">Oxybutynine</option>
-                <option value="Proefbehandeling pijnstillende crèmes">Proefbehandeling</option>
+                </optgroup>
               </select>
             </div>
             <div class="veld-rij"><span class="veld-label">Hoeveelheid</span><input class="veld-input" id="o-hoeveelheid" type="text" placeholder="bijv. 30 gram"></div>
