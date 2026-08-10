@@ -649,6 +649,8 @@ async def verstuur_smarthub(request: Request):
             timeout=15,
         )
         ok = smarthub_resp.status_code == 200
+        print(f"[SmartHUB] HTTP {smarthub_resp.status_code}: {smarthub_resp.text[:500]}")
+        print(f"[SmartHUB] Bericht: {json.dumps(smarthub_bericht, ensure_ascii=False)[:500]}")
         # Markeer als verstuurd in DB
         if ok:
             try:
