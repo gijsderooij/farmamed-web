@@ -23,91 +23,106 @@ load_dotenv()
 
 app = FastAPI(title="Farmamed Recept Agent")
 
-# === POSTGRESQL DATABASE ===
-_DATABASE_URL = os.getenv("DATABASE_URL", "")
-
-def _pg_conn():
-    import psycopg2
-    conn = psycopg2.connect(_DATABASE_URL)
-    return conn
-
 # === FARMAMED DATABASE ===
 _FARMAMED_DB = os.getenv("FARMAMED_DB", "/app/data/farmamed.db")
 
 def _init_farmamed_db():
-    """Initialiseert de PostgreSQL tabellen als die nog niet bestaan."""
-    if not _DATABASE_URL:
-        return
-    conn = _pg_conn()
-    cur = conn.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS patienten (
-        id SERIAL PRIMARY KEY, email TEXT UNIQUE, bsn TEXT,
+    """Initialiseert de Farmamed database als die nog niet bestaat."""
+    import sqlite3 as _sq
+    os.makedirs(os.path.dirname(_FARMAMED_DB), exist_ok=True)
+    conn = _sq.connect(_FARMAMED_DB)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS patienten (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, bsn TEXT,
         voornaam TEXT, achternaam TEXT, geboortedatum TEXT,
         adres TEXT, postcode TEXT, plaats TEXT, telefoon TEXT,
         wc_customer_id TEXT,
-        aangemaakt_op TIMESTAMP DEFAULT NOW(), bijgewerkt_op TIMESTAMP DEFAULT NOW())""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS voorschrijvers (
-        id SERIAL PRIMARY KEY, agb_code TEXT UNIQUE, naam TEXT NOT NULL,
-        praktijk TEXT, email TEXT, telefoon TEXT,
-        aangemaakt_op TIMESTAMP DEFAULT NOW(), bijgewerkt_op TIMESTAMP DEFAULT NOW())""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS medicijnen (
-        id SERIAL PRIMARY KEY, prk_code TEXT UNIQUE NOT NULL, article_code TEXT,
-        naam_smarthub TEXT NOT NULL, naam_woocommerce TEXT, wc_product_id TEXT,
-        aangemaakt_op TIMESTAMP DEFAULT NOW())""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS orders (
-        id SERIAL PRIMARY KEY, wc_order_id TEXT UNIQUE NOT NULL,
+        aangemaakt_op TEXT DEFAULT (datetime('now')),
+        bijgewerkt_op TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS voorschrijvers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, agb_code TEXT UNIQUE,
+        naam TEXT NOT NULL, praktijk TEXT, email TEXT, telefoon TEXT,
+        aangemaakt_op TEXT DEFAULT (datetime('now')),
+        bijgewerkt_op TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS medicijnen (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, prk_code TEXT UNIQUE NOT NULL,
+        naam_smarthub TEXT NOT NULL, naam_woocommerce TEXT,
+        wc_product_id TEXT, eenheid TEXT DEFAULT 'gram', verpakking_gram INTEGER DEFAULT 30,
+        aangemaakt_op TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, wc_order_id TEXT UNIQUE NOT NULL,
         patient_id INTEGER REFERENCES patienten(id),
         voorschrijver_id INTEGER REFERENCES voorschrijvers(id),
         medicijn_id INTEGER REFERENCES medicijnen(id),
         hoeveelheid INTEGER DEFAULT 1, recept_datum TEXT, iter INTEGER DEFAULT 0,
-        recept_origineel_naam TEXT, recept_opgeslagen_naam TEXT, recept_geldig_tot TEXT,
-        smarthub_verstuurd INTEGER DEFAULT 0, smarthub_verstuurd_op TIMESTAMP,
-        smarthub_response TEXT, wc_status TEXT, wc_datum TEXT, wc_totaal TEXT,
-        aangemaakt_op TIMESTAMP DEFAULT NOW(), bijgewerkt_op TIMESTAMP DEFAULT NOW())""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS herhaalservice (
-        id SERIAL PRIMARY KEY,
+        recept_origineel_naam TEXT, recept_opgeslagen_naam TEXT,
+        recept_geldig_tot TEXT,
+        smarthub_verstuurd INTEGER DEFAULT 0,
+        smarthub_verstuurd_op TEXT, smarthub_response TEXT,
+        aangemaakt_op TEXT DEFAULT (datetime('now')),
+        bijgewerkt_op TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS herhaalservice (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         patient_id INTEGER NOT NULL REFERENCES patienten(id),
         medicijn_id INTEGER NOT NULL REFERENCES medicijnen(id),
         voorschrijver_id INTEGER REFERENCES voorschrijvers(id),
-        interval_dagen INTEGER DEFAULT 90, laatste_herinnering TEXT,
-        volgende_herinnering TEXT, actief INTEGER DEFAULT 1,
-        aangemaakt_op TIMESTAMP DEFAULT NOW())""")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_patienten_email ON patienten(email)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_patienten_bsn ON patienten(bsn)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_voorschrijvers_agb ON voorschrijvers(agb_code)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_wc_id ON orders(wc_order_id)")
-    cur.execute("SELECT COUNT(*) FROM medicijnen")
-    if cur.fetchone()[0] == 0:
-        for m in [
-            ("90008757","90981758","AMITRIPTYLINE 5% IN DIMETHYLSULFOXIDE 50% SAW","Amitriptyline crème 5% in DMSO 50% (SAW-crème)"),
-            ("90049254","90022256","AMITRIPTYLINE 10% IN DIMETHYLSULFOXIDE 50% SAW 30G","Amitriptyline crème 10% in DMSO 50% (SAW-crème)"),
-            ("90563289","90536291","AMITRIPTYLINE 10% SAW CREME 10%","Amitriptyline crème 10% (SAW-crème)"),
-            ("90522792","90495794","AMITRIPTYLINE 5% SAW CREME 30g","Amitriptyline crème 5% (SAW-crème)"),
-            ("90276591","90249593","AMITRIPTILYNE 5% IN DSMO 50% SAW","Amitriptyline crème 5% in DMSO 50% variant"),
-            ("90089751","90062753","BACLOFEN 5%/ FENYTOINE 5% SAW CREME 30G","Baclofen 5% / Fenytoïne 5% (SAW-crème)"),
-            ("90644283","90617285","BACLOFEN 5% SAW CREME 30G","Baclofen crème 5% (SAW-crème)"),
-            ("90846768","90819770","CLONIDINE 0,1% SAW CREME 30G","Clonidine crème 0,1% (SAW-crème)"),
-            ("90887265","90860267","CLONIDINE 0,2% SAW CREME 30G","Clonidine crème 0,2% (SAW-crème)"),
-            ("90684780","90657782","FENYTOINE 5% SAW CREME 30G","Fenytoïne crème 5% (SAW-crème)"),
-            ("90725277","90698279","FENYTOINE 10% SAW CREME 30G","Fenytoïne crème 10% (SAW-crème)"),
-            ("90765774","90738776","FENYTOINE 20% SAW CREME 30G","Fenytoïne crème 20% (SAW-crème)"),
-            ("90927762","90900764","GABAPENTINE 10% SAW CREME 30G","Gabapentine crème 10% (SAW-crème)"),
-            ("90603786","90576788","KETAMINE 10% SAW CREME 30G","Ketamine crème 10% (SAW-crème)"),
-            ("90236094","90209096","KETAMINE 10% IN SAW CREME","Ketamine crème 10% in SAW (SAW-crème)"),
-            ("90098958","90071960","TRETINOINE 0,05% SAW CREME","Tretinoïne crème 0.05% FNA (30g)"),
-            ("90058461","90031463","TRETINOINE 0,02% SAW CREME","Tretinoïne crème 0.02% FNA (30g)"),
-            ("90139455","90112457","TRETINOINE 0,1% SAW CREME","Tretinoïne crème 0.1% FNA (30g)"),
-            ("90170745","90143747","PROEFBEHANDELING PIJNSTILLENDE CREMES SAW KOPSKY","Proefbehandeling SAW Kopsky"),
-            ("90017964","90990965","PROEFBEHANDELING PIJNSTILLENDE CREMES SAW V02","Proefbehandeling SAW V02"),
-        ]:
-            cur.execute("INSERT INTO medicijnen (prk_code,article_code,naam_smarthub,naam_woocommerce) VALUES (%s,%s,%s,%s) ON CONFLICT (prk_code) DO NOTHING", m)
+        interval_dagen INTEGER DEFAULT 90,
+        laatste_herinnering TEXT, volgende_herinnering TEXT,
+        actief INTEGER DEFAULT 1,
+        aangemaakt_op TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_patienten_email ON patienten(email);
+    CREATE INDEX IF NOT EXISTS idx_patienten_bsn ON patienten(bsn);
+    CREATE INDEX IF NOT EXISTS idx_patienten_achternaam ON patienten(achternaam);
+    CREATE INDEX IF NOT EXISTS idx_voorschrijvers_agb ON voorschrijvers(agb_code);
+    CREATE INDEX IF NOT EXISTS idx_orders_wc_id ON orders(wc_order_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_geldig_tot ON orders(recept_geldig_tot);
+    """)
+    # Vul medicijnen als nog leeg
+    count = conn.execute("SELECT COUNT(*) FROM medicijnen").fetchone()[0]
+    if count == 0:
+        conn.executemany(
+            "INSERT OR IGNORE INTO medicijnen (prk_code, naam_smarthub, naam_woocommerce) VALUES (?,?,?)",
+            [
+                ("90008757","AMITRIPTYLINE 5% IN DIMETHYLSULFOXIDE 50% SAW","Amitriptyline crème 5% in DMSO 50% (SAW-crème)"),
+                ("90049254","AMITRIPTYLINE 10% IN DIMETHYLSULFOXIDE 50% SAW 30G","Amitriptyline crème 10% in DMSO 50% (SAW-crème)"),
+                ("90563289","AMITRIPTYLINE 10% SAW CREME 10%","Amitriptyline crème 10% (SAW-crème)"),
+                ("90522792","AMITRIPTYLINE 5% SAW CREME 30g","Amitriptyline crème 5% (SAW-crème)"),
+                ("90276591","AMITRIPTILYNE 5% IN DSMO 50% SAW","Amitriptyline crème 5% in DMSO 50% variant"),
+                ("90089751","BACLOFEN 5%/ FENYTOINE 5% SAW CREME 30G","Baclofen 5% / Fenytoïne 5% (SAW-crème)"),
+                ("90644283","BACLOFEN 5% SAW CREME 30G","Baclofen crème 5% (SAW-crème)"),
+                ("90846768","CLONIDINE 0,1% SAW CREME 30G","Clonidine crème 0,1% (SAW-crème)"),
+                ("90887265","CLONIDINE 0,2% SAW CREME 30G","Clonidine crème 0,2% (SAW-crème)"),
+                ("90684780","FENYTOINE 5% SAW CREME 30G","Fenytoïne crème 5% (SAW-crème)"),
+                ("90698279","FENYTOINE 10% SAW CREME 30G","Fenytoïne crème 10% (SAW-crème)"),
+                ("90765774","FENYTOINE 20% SAW CREME 30G","Fenytoïne crème 20% (SAW-crème)"),
+                ("90927762","GABAPENTINE 10% SAW CREME 30G","Gabapentine crème 10% (SAW-crème)"),
+                ("90603786","KETAMINE 10% SAW CREME 30G","Ketamine crème 10% (SAW-crème)"),
+                ("90236094","KETAMINE 10% IN SAW CREME","Ketamine crème 10% in SAW (SAW-crème)"),
+                ("90098958","TRETINOINE 0,05% SAW CREME","Tretinoïne crème 0.05% FNA (30g)"),
+                ("90058461","TRETINOINE 0,02% SAW CREME","Tretinoïne crème 0.02% FNA (30g)"),
+                ("90139455","TRETINOINE 0,1% SAW CREME","Tretinoïne crème 0.1% FNA (30g)"),
+                ("90170745","PROEFBEHANDELING PIJNSTILLENDE CREMES SAW KOPSKY","Proefbehandeling SAW Kopsky"),
+                ("90017964","PROEFBEHANDELING PIJNSTILLENDE CREMES SAW V02","Proefbehandeling SAW V02"),
+            ]
+        )
     conn.commit()
-    cur.close()
     conn.close()
 
+
 def _farmamed_db():
-    """Geeft een PostgreSQL verbinding."""
-    return _pg_conn()
+    """Geeft een verbinding met de Farmamed database."""
+    import sqlite3 as _sq
+    _init_farmamed_db()
+    conn = _sq.connect(_FARMAMED_DB)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.row_factory = _sq.Row
+    return conn
 
 
 def _zoek_of_maak_patient(billing: dict, bsn: str = "") -> int | None:
@@ -123,7 +138,7 @@ def _zoek_of_maak_patient(billing: dict, bsn: str = "") -> int | None:
             # Bijwerken indien BSN nieuw is
             if bsn:
                 conn.execute(
-                    "UPDATE patienten SET bsn=?, bijgewerkt_op=NOW() WHERE id=%s AND (bsn IS NULL OR bsn='')",
+                    "UPDATE patienten SET bsn=?, bijgewerkt_op=datetime('now') WHERE id=? AND (bsn IS NULL OR bsn='')",
                     (bsn, row["id"])
                 )
                 conn.commit()
@@ -207,11 +222,11 @@ def _sla_order_op(wc_order_id: str, patient_id, voorschrijver_id, medicijn_id,
                 medicijn_id=COALESCE(?,medicijn_id),
                 hoeveelheid=COALESCE(?,hoeveelheid),
                 recept_datum=COALESCE(NULLIF(?,\'\'),recept_datum),
-                iter=COALESCE(%s,iter),
-                recept_origineel_naam=COALESCE(NULLIF(%s,\'\'),recept_origineel_naam),
-                recept_opgeslagen_naam=COALESCE(NULLIF(%s,\'\'),recept_opgeslagen_naam),
-                recept_geldig_tot=COALESCE(NULLIF(%s,\'\'),recept_geldig_tot),
-                bijgewerkt_op=NOW()
+                iter=COALESCE(?,iter),
+                recept_origineel_naam=COALESCE(NULLIF(?,\'\'),recept_origineel_naam),
+                recept_opgeslagen_naam=COALESCE(NULLIF(?,\'\'),recept_opgeslagen_naam),
+                recept_geldig_tot=COALESCE(NULLIF(?,\'\'),recept_geldig_tot),
+                bijgewerkt_op=datetime('now')
                 WHERE wc_order_id=?""",
                 (patient_id, voorschrijver_id, medicijn_id, hoeveelheid,
                  recept_datum, iter_, recept_origineel_naam, recept_opgeslagen_naam,
@@ -257,12 +272,6 @@ async def index():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(_email_poller_loop())
-    try:
-        if _DATABASE_URL:
-            _init_farmamed_db()
-            print("[DB] Farmamed database geïnitialiseerd")
-    except Exception as e:
-        print(f"[DB] Init fout (niet fataal): {e}")
 
 
 @app.post("/api/poll-emails")
@@ -658,14 +667,12 @@ async def verstuur_smarthub(request: Request):
         # Markeer als verstuurd in DB
         if ok:
             try:
-                conn = _pg_conn()
-                cur = conn.cursor()
-                cur.execute(
-                    "UPDATE orders SET smarthub_verstuurd=1, smarthub_verstuurd_op=NOW(), smarthub_response=%s WHERE wc_order_id=%s",
+                conn = _farmamed_db()
+                conn.execute(
+                    "UPDATE orders SET smarthub_verstuurd=1, smarthub_verstuurd_op=datetime('now'), smarthub_response=? WHERE wc_order_id=?",
                     (smarthub_resp.text[:500], str(order_id))
                 )
                 conn.commit()
-                cur.close()
                 conn.close()
             except Exception:
                 pass
@@ -677,6 +684,122 @@ async def verstuur_smarthub(request: Request):
         })
     except Exception as e:
         return JSONResponse(content={"ok": False, "fout": str(e), "bericht": smarthub_bericht})
+
+
+@app.get("/patient", response_class=HTMLResponse)
+async def patient_pagina():
+    html_path = BASE_DIR / "templates" / "patient.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/zoek-patient")
+async def zoek_patient(q: str = ""):
+    """Zoekt patiënten op email, naam, telefoon of BSN."""
+    if not q or len(q) < 2:
+        return JSONResponse(content={"patienten": []})
+    if not _DATABASE_URL:
+        return JSONResponse(content={"fout": "Geen database verbinding"})
+    conn = _pg_conn()
+    cur = conn.cursor()
+    try:
+        zoek = f"%{q.lower()}%"
+        cur.execute("""
+            SELECT id, email, voornaam, achternaam, geboortedatum,
+                   bsn, telefoon, adres, postcode, plaats
+            FROM patienten
+            WHERE LOWER(email) LIKE %s
+               OR LOWER(achternaam) LIKE %s
+               OR LOWER(voornaam || ' ' || achternaam) LIKE %s
+               OR telefoon LIKE %s
+               OR bsn LIKE %s
+            ORDER BY achternaam, voornaam
+            LIMIT 20
+        """, (zoek, zoek, zoek, zoek, zoek))
+        cols = [d[0] for d in cur.description]
+        rijen = [dict(zip(cols, r)) for r in cur.fetchall()]
+        return JSONResponse(content={"patienten": rijen})
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.get("/api/patient/{patient_id}")
+async def get_patient(patient_id: int):
+    """Haalt volledige patiëntdatasheet op inclusief alle orders."""
+    if not _DATABASE_URL:
+        return JSONResponse(content={"fout": "Geen database verbinding"})
+    conn = _pg_conn()
+    cur = conn.cursor()
+    try:
+        # Patiëntgegevens
+        cur.execute("""
+            SELECT id, email, voornaam, achternaam, geboortedatum,
+                   bsn, telefoon, adres, postcode, plaats, wc_customer_id,
+                   aangemaakt_op, bijgewerkt_op
+            FROM patienten WHERE id = %s
+        """, (patient_id,))
+        cols = [d[0] for d in cur.description]
+        row = cur.fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"fout": "Patiënt niet gevonden"})
+        patient = dict(zip(cols, row))
+        # Datums naar string
+        for k in ["aangemaakt_op", "bijgewerkt_op"]:
+            if patient[k]:
+                patient[k] = str(patient[k])[:16]
+
+        # Alle orders van deze patiënt
+        cur.execute("""
+            SELECT o.id, o.wc_order_id, o.wc_status, o.wc_datum, o.wc_totaal,
+                   o.hoeveelheid, o.recept_datum, o.recept_geldig_tot,
+                   o.smarthub_verstuurd, o.smarthub_verstuurd_op,
+                   o.recept_opgeslagen_naam,
+                   m.naam_smarthub as medicijn,
+                   v.naam as voorschrijver, v.agb_code
+            FROM orders o
+            LEFT JOIN medicijnen m ON m.id = o.medicijn_id
+            LEFT JOIN voorschrijvers v ON v.id = o.voorschrijver_id
+            WHERE o.patient_id = %s
+            ORDER BY o.wc_datum DESC
+        """, (patient_id,))
+        cols_o = [d[0] for d in cur.description]
+        orders = []
+        for r in cur.fetchall():
+            order = dict(zip(cols_o, r))
+            for k in ["smarthub_verstuurd_op"]:
+                if order[k]:
+                    order[k] = str(order[k])[:16]
+            orders.append(order)
+
+        patient["orders"] = orders
+        return JSONResponse(content=patient)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.put("/api/patient/{patient_id}")
+async def update_patient(patient_id: int, request: Request):
+    """Werkt patiëntgegevens bij (BSN, voorschrijver email, etc.)."""
+    if not _DATABASE_URL:
+        return JSONResponse(content={"fout": "Geen database verbinding"})
+    data = await request.json()
+    conn = _pg_conn()
+    cur = conn.cursor()
+    try:
+        toegestane_velden = ["bsn", "voornaam", "achternaam", "geboortedatum",
+                             "telefoon", "adres", "postcode", "plaats"]
+        updates = {k: v for k, v in data.items() if k in toegestane_velden and v is not None}
+        if not updates:
+            return JSONResponse(content={"ok": False, "fout": "Geen geldige velden"})
+        set_clause = ", ".join(f"{k}=%s" for k in updates)
+        values = list(updates.values()) + [patient_id]
+        cur.execute(f"UPDATE patienten SET {set_clause}, bijgewerkt_op=NOW() WHERE id=%s", values)
+        conn.commit()
+        return JSONResponse(content={"ok": True})
+    finally:
+        cur.close()
+        conn.close()
 
 
 @app.get("/api/download-db")
@@ -2569,7 +2692,7 @@ def _init_email_db():
         CREATE TABLE IF NOT EXISTS emails (
             uid TEXT PRIMARY KEY,
             data TEXT NOT NULL,
-            ontvangen TEXT DEFAULT (NOW())
+            ontvangen TEXT DEFAULT (datetime('now'))
         )
     """)
     conn.commit()
