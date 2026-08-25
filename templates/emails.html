@@ -70,7 +70,7 @@
     /* Split: e-mail links, verwerking rechts */
     .detail-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; min-height: 0; }
     .detail-links { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; background: white; }
-    .detail-rechts { display: flex; flex-direction: column; overflow: hidden; background: white; }
+    .detail-rechts { display: flex; flex-direction: column; overflow-y: auto; background: white; }
 
     .email-inhoud-wrapper { flex: 1; overflow-y: auto; padding: 20px; }
     .email-meta { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
@@ -93,14 +93,20 @@
     .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--cream); flex-shrink: 0; }
     .tab { padding: 9px 14px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; }
     .tab.actief { color: var(--text); border-bottom-color: var(--teal); }
-    .tab-inhoud { display: block; flex: 1; overflow-y: auto; padding: 14px; }
+    .tab-inhoud { display: block; padding: 14px; }
     .tab-inhoud.actief { display: block; }
-    .bron-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; margin-bottom: 2px; }
-    .bron-chip { font-size: 10px; padding: 2px 7px; border-radius: 10px; border: 1px solid var(--border); background: white; color: var(--text); cursor: pointer; white-space: nowrap; transition: all 0.1s; }
-    .bron-chip:hover { border-color: var(--teal); background: var(--teal-lt); }
-    .bron-chip-actief { border-color: var(--teal); background: var(--teal-lt); color: var(--teal-dk); font-weight: 600; }
-    .bron-chip-ontbreekt { border-color: var(--danger); color: var(--danger); background: #fdecea; cursor: default; }
-    .recept-prefix { display: inline-block; width: 18px; font-weight: 700; color: var(--muted); font-size: 11px; }
+    .verg-tabel { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+    .verg-tabel th { text-align: left; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 6px; border-bottom: 1px solid var(--border); }
+    .verg-tabel td { padding: 5px 6px; vertical-align: middle; border-bottom: 1px solid #f0f0f0; }
+    .verg-label { color: var(--muted); font-weight: 500; white-space: nowrap; }
+    .verg-radio { width: 18px; text-align: center; cursor: pointer; }
+    .verg-waarde-db { color: var(--text); }
+    .verg-waarde-recept input, .verg-waarde-recept textarea { width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font-size: 12px; font-family: 'DM Sans', sans-serif; box-sizing: border-box; }
+    .verg-sectie-kop td { font-size: 11px; font-weight: 700; color: var(--teal-dk); text-transform: uppercase; letter-spacing: 0.05em; padding-top: 12px; border-bottom: none; }
+    .verg-ontbreekt { color: var(--danger); font-style: italic; }
+    .recept-prefix { font-weight: 700; color: var(--muted); font-size: 11px; margin-right: 3px; }
+    .keuze-optie { cursor: pointer; }
+    .keuze-optie:hover { text-decoration: underline; }
 
     /* Velden */
     .sectie-titel { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--teal-dk); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--teal-lt); margin-top: 14px; }
@@ -274,31 +280,11 @@
           <!-- Tab: Nieuwe order aanmaken -->
           <div class="tab-inhoud" id="tab-order">
             <div id="orderMelding"></div>
-            <div class="sectie-titel">Patiëntgegevens</div>
-            <div class="veld-rij"><span class="veld-label">Voornaam</span><input class="veld-input" id="o-voornaam" type="text" placeholder="—"></div>
-            <div class="veld-rij"><span class="veld-label">Achternaam</span><input class="veld-input" id="o-achternaam" type="text" placeholder="—"></div>
-            <div id="chips-o-naam" class="bron-chips"></div>
-            <div class="veld-rij"><span class="veld-label">Geboortedatum</span><input class="veld-input" id="o-geboortedatum" type="text" placeholder="DD-MM-YYYY"></div>
-            <div id="chips-o-geboortedatum" class="bron-chips"></div>
-            <div class="veld-rij"><span class="veld-label">E-mail</span><input class="veld-input" id="o-email" type="text" placeholder="—"></div>
-            <div id="chips-o-email" class="bron-chips"></div>
-            <div class="veld-rij"><span class="veld-label">Telefoon</span><input class="veld-input" id="o-telefoon" type="text" placeholder="—"></div>
-            <div id="chips-o-telefoon" class="bron-chips"></div>
-            <div class="veld-rij"><span class="veld-label">Straat & huisnr.</span><input class="veld-input" id="o-straat" type="text" placeholder="—"></div>
-            <div id="chips-o-straat" class="bron-chips"></div>
-            <div class="veld-rij"><span class="veld-label">Postcode & plaats</span><input class="veld-input" id="o-postcode_plaats" type="text" placeholder="—"></div>
-            <div id="chips-o-postcode_plaats" class="bron-chips"></div>
-
-            <div class="veld-rij"><span class="veld-label">BSN-nummer</span><input class="veld-input" id="o-bsn" type="text" placeholder="bijv. 123456789" maxlength="9" oninput="valideerBSNEmail(this)"></div>
-            <div id="chips-o-bsn" class="bron-chips"></div>
             <div id="bsn-email-fout" style="display:none;font-size:11px;color:var(--danger);padding-left:130px;margin-top:-4px;margin-bottom:4px;">⚠ BSN moet exact 9 cijfers zijn (geen spaties of letters)</div>
 
-            <div id="orderContextRegel" style="display:none;font-size:11px;color:var(--muted);margin:6px 0;padding:5px 8px;background:var(--teal-lt);border-radius:6px;"></div>
-
-            <div class="sectie-titel">Medicatie</div>
+            <div class="sectie-titel">Artikelkeuze (gecontroleerd assortiment)</div>
             <div class="veld-rij">
-              <span class="recept-prefix">R/</span>
-              <span class="veld-label" style="width:auto;flex:0 0 90px;">Medicijn</span>
+              <span class="veld-label">Medicijn</span>
               <select class="veld-input" id="o-medicijn">
                 <option value="">— Kies medicijn</option>
                 <optgroup label="Amitriptyline">
@@ -344,13 +330,6 @@
                 </optgroup>
               </select>
             </div>
-            <div id="chips-o-medicijn" class="bron-chips"></div>
-            <div class="veld-rij">
-              <span class="recept-prefix">D/</span>
-              <span class="veld-label" style="width:auto;flex:0 0 90px;">Hoeveelheid</span>
-              <input class="veld-input" id="o-hoeveelheid" type="text" placeholder="bijv. 30 gram">
-            </div>
-            <div id="chips-o-hoeveelheid" class="bron-chips"></div>
             <div class="veld-rij"><span class="veld-label">Herhaalrecept</span>
               <select class="veld-input" id="o-iter">
                 <option value="">— Onbekend</option>
@@ -361,18 +340,6 @@
                 <option value="3x iter">3x herhalingen</option>
               </select>
             </div>
-            <div class="veld-rij" style="align-items:flex-start">
-              <span class="recept-prefix" style="padding-top:6px;">S/</span>
-              <span class="veld-label" style="width:auto;flex:0 0 90px;padding-top:6px">Gebruik</span>
-              <textarea class="veld-input" id="o-gebruiksaanwijzing" rows="2" placeholder="—"></textarea>
-            </div>
-            <div id="chips-o-gebruiksaanwijzing" class="bron-chips"></div>
-
-            <div class="sectie-titel">Voorschrijver</div>
-            <div class="veld-rij"><span class="veld-label">Naam arts</span><input class="veld-input" id="o-voorschrijver" type="text" placeholder="—"></div>
-            <div id="chips-o-voorschrijver" class="bron-chips"></div>
-            <div class="veld-rij"><span class="veld-label">AGB-code</span><input class="veld-input" id="o-agb_code" type="text" placeholder="—"></div>
-            <div id="chips-o-agb_code" class="bron-chips"></div>
           </div>
 
           <button id="btnMaakOrder" onclick="maakOrder()" style="display:none"></button>
@@ -1194,16 +1161,16 @@
   // Gebruikt exact dezelfde /api/patient/{id} als de patiëntenpagina (bewezen werkend).
   async function haalDossierHtml(patientId, kandidaat, medicijnHint, lijstFnNaam) {
     lijstFnNaam = lijstFnNaam || 'toonKandidatenLijst';
+    const vertrouwen = kandidaat?.match_score != null ? Math.round(kandidaat.match_score) : null;
+
     // WooCommerce-only kandidaat (nog geen lokale patiënt-id) — geen orderhistorie beschikbaar
     if (!patientId) {
       const versWc = window._zoekEmailAnalyse || {};
       window._huidigDossierNaam = `${kandidaat.voornaam || ''} ${kandidaat.achternaam || ''}`.trim();
       window._huidigDossierPatientId = null;
-      vulVergelijkingsChips(kandidaat, { ...versWc, medicijn: medicijnHint || versWc.medicijn || '' }, null);
-      return { ok: true, patient: kandidaat, orders: [], html: `
-        <div style="font-size:13px;font-weight:600;">${kandidaat.voornaam || ''} ${kandidaat.achternaam || ''}</div>
-        <div style="font-size:12px;margin-top:4px;">⚠ Gevonden via WooCommerce, nog geen lokaal patiëntdossier — geen orderhistorie beschikbaar. Alle velden staan hieronder in het formulier.</div>
-        <div style="margin-top:8px;"><a href="#" onclick="${lijstFnNaam}(window._laatsteKandidaten||[]); return false;" style="font-size:11px;color:var(--teal);">← Andere patiënt kiezen</a></div>` };
+      const html = bouwVergelijkingsTabel(kandidaat, { ...versWc, medicijn: medicijnHint || versWc.medicijn || '' }, null, null, lijstFnNaam, vertrouwen)
+        + `<div style="font-size:11px;margin-top:6px;color:var(--warn);">⚠ Gevonden via WooCommerce, nog geen lokaal patiëntdossier — geen orderhistorie beschikbaar.</div>`;
+      return { ok: true, patient: kandidaat, orders: [], html };
     }
 
     let p = null;
@@ -1218,64 +1185,209 @@
     }
 
     const orders = p.orders || [];
-
     const vers = window._zoekEmailAnalyse || {};
-    const bouwMeta = (order) => ({
-      patient_naam: `${p.voornaam || ''} ${p.achternaam || ''}`.trim(),
-      email: p.email || vers.email || '', telefoon: p.telefoon || vers.telefoon || '',
-      geboortedatum: p.geboortedatum || vers.geboortedatum || '', bsn: p.bsn || vers.bsn || '',
-      straat: p.adres || vers.straat || '',
-      postcode_plaats: `${p.postcode || ''} ${p.plaats || vers.woonplaats || ''}`.trim(),
-      // Echte kloon: gegevens van de aangeklikte order zijn leidend, de huidige
-      // e-mail dient alleen als terugval als de order zelf iets niet heeft.
-      medicijn: order?.medicijn || medicijnHint || '',
-      hoeveelheid: order?.hoeveelheid || '',
-      iter: order?.iter || '',
-      gebruiksaanwijzing: order?.gebruiksaanwijzing || '',
-      voorschrijver: order?.voorschrijver || '',
-      agb_code: order?.agb_code || '',
-    });
-
     const laatsteOrder = orders[0];
 
     window._huidigDossierNaam = `${p.voornaam || ''} ${p.achternaam || ''}`.trim();
     window._huidigDossierPatientId = p.id;
 
-    const ordersHtml = orders.length === 0
-      ? '<div style="color:var(--muted);font-size:12px;margin-top:8px;">Geen eerdere orders gevonden bij deze patiënt.</div>'
-      : `
-        <div style="margin-top:10px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Laatste order</div>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
-          <div style="padding:8px 10px;background:var(--teal-lt);border-radius:8px;font-size:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-weight:600;">#${laatsteOrder.wc_order_id} — ${laatsteOrder.medicijn || '—'}${laatsteOrder.hoeveelheid ? ' (' + laatsteOrder.hoeveelheid + ')' : ''}</span>
-              <span style="color:var(--muted);">${laatsteOrder.wc_datum || ''}</span>
-            </div>
-            <div style="color:var(--muted);margin-top:2px;">${laatsteOrder.voorschrijver || '—'} · €${laatsteOrder.wc_totaal || '—'} · ${laatsteOrder.wc_status || ''}</div>
-            <button onclick="kloonOrderDirect('${laatsteOrder.wc_order_id}')" id="btnKloonDirect_${laatsteOrder.wc_order_id}"
-              style="margin-top:6px;padding:5px 10px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;">
-              A) ↻ Kloon vorige order — direct aanmaken (onverkort)
-            </button>
-          </div>
-        </div>`;
-
-    const html = `
-      <div style="font-size:13px;font-weight:600;">${p.voornaam || ''} ${p.achternaam || ''}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px;">Orders: ${orders.length} · Alle gegevens en keuzemogelijkheden staan hieronder in het formulier — B) pas aan waar nodig en klik op "Order aanmaken".</div>
-      ${ordersHtml}
-      <div style="margin-top:10px;display:flex;gap:12px;">
-        <a href="/patient#${p.id}" target="_blank" style="font-size:11px;color:var(--teal);">Bekijk patiëntdossier ↗</a>
-        <a href="#" onclick="${lijstFnNaam}(window._laatsteKandidaten||[]); return false;" style="font-size:11px;color:var(--teal);">← Andere patiënt kiezen</a>
-      </div>`;
-
-    // Vult de ECHTE (altijd zichtbare) formuliervelden direct met de standaardkeuze
-    // per veld, plus klikbare chips om tussen bronnen te wisselen of gewoon
-    // handmatig te overschrijven — dit vervangt de losse vergelijkingstabel.
-    vulVergelijkingsChips(p, vers, laatsteOrder);
-
-
+    const html = bouwVergelijkingsTabel(p, vers, laatsteOrder, orders.length, lijstFnNaam, vertrouwen);
     return { ok: true, patient: p, orders, html };
   }
+
+  // --- Bouwt de volledige vergelijk-en-pas-aan-tabel, exact volgens het
+  // opgeleverde ontwerp: kolomkoppen ÉÉN keer bovenaan (niet per rij), radio-
+  // rondjes, R/S/D-receptnotatie, en de KEUZE-rij (klonen vs. aanpassen). ---
+  function bouwVergelijkingsTabel(p, vers, laatsteOrder, aantalOrders, lijstFnNaam, vertrouwen) {
+    const zet = (id, waarde) => { const el = document.getElementById(id); if (el) el.value = waarde || ''; };
+    const escAttr = (s) => JSON.stringify(s || '').replace(/'/g, "&apos;");
+
+    // --- Rijen met radiorondjes (links = database, "wat het is"; rechts =
+    // e-mail/recept, bewerkbaar). Standaard wint database als die iets heeft. ---
+    const radioRijen = [
+      { label: 'Naam', veldId: null, split: true,
+        dbWaarde: `${p.voornaam || ''} ${p.achternaam || ''}`.trim(), versWaarde: '' },
+      { label: 'Geboortedatum', veldId: 'o-geboortedatum', dbWaarde: p.geboortedatum, versWaarde: vers.geboortedatum },
+      { label: 'BSN', veldId: 'o-bsn', dbWaarde: p.bsn, versWaarde: vers.bsn },
+      { label: 'Telefoon', veldId: 'o-telefoon', dbWaarde: p.telefoon, versWaarde: vers.telefoon },
+      { label: 'Email', veldId: 'o-email', dbWaarde: p.email, versWaarde: vers.email },
+      { label: 'Adres', veldId: 'o-straat', dbWaarde: p.adres, versWaarde: vers.straat },
+      { label: 'Postcode/Woonplaats', veldId: 'o-postcode_plaats',
+        dbWaarde: p.plaats ? `${p.postcode || ''} ${p.plaats}`.trim() : '', versWaarde: vers.woonplaats },
+    ];
+    // Voorschrijver/AGB-code: hier wint standaard de RECHTERKANT (recept/AIS),
+    // want dat is doorgaans actueler dan wat er op de laatste order stond.
+    const radioRijenVoorschrijver = [
+      { label: 'Voorschrijver', veldId: 'o-voorschrijver', dbWaarde: laatsteOrder?.voorschrijver, versWaarde: p.voorschrijver_naam, standaardRechts: true },
+      { label: 'AGB-code', veldId: 'o-agb_code', dbWaarde: laatsteOrder?.agb_code, versWaarde: p.voorschrijver_agb_code || vers.agb_code, standaardRechts: true },
+    ];
+
+    let radioTeller = 0;
+    const bouwRadioRij = (rij) => {
+      radioTeller++;
+      const naamGroep = `verg_${radioTeller}`;
+      const standaardRechts = !!rij.standaardRechts && !!rij.versWaarde;
+      const linksActief = rij.dbWaarde && !standaardRechts;
+      const rechtsActief = !linksActief;
+
+      // Startwaarde in het echte (bewerkbare) veld
+      const startWaarde = linksActief ? rij.dbWaarde : (rij.versWaarde || rij.dbWaarde || '');
+      if (rij.split) {
+        const delen = startWaarde.split(' ');
+        zet('o-voornaam', delen[0] || ''); zet('o-achternaam', delen.slice(1).join(' ') || '');
+      } else if (rij.veldId) {
+        zet(rij.veldId, startWaarde);
+      }
+
+      const linksHtml = rij.dbWaarde
+        ? `<span class="verg-waarde-db">${rij.dbWaarde}</span>`
+        : `<span class="verg-ontbreekt">—</span>`;
+
+      let rechtsHtml;
+      if (rij.split) {
+        rechtsHtml = `—`; // naam zelf niet apart bewerkbaar rechts; komt uit patiëntherkenning
+      } else {
+        rechtsHtml = `<span class="verg-waarde-recept"><input type="text" id="verg-${rij.veldId}" value="${(rij.versWaarde || (rechtsActief ? startWaarde : '')).replace(/"/g,'&quot;')}"
+          oninput="_vergRechtsGewijzigd('${rij.veldId}', this.value, '${naamGroep}')"></span>`;
+      }
+
+      return `<tr>
+        <td class="verg-label">${rij.label}</td>
+        <td class="verg-radio"><span onclick="_kiesVergRadio(this,'links','${naamGroep}','${rij.veldId || ''}', ${escAttr(rij.dbWaarde)}, ${!!rij.split})" style="cursor:pointer;">${linksActief ? '●' : '○'}</span></td>
+        <td>${linksHtml}</td>
+        <td class="verg-radio" id="radio-rechts-${naamGroep}"><span onclick="_kiesVergRadio(this,'rechts','${naamGroep}','${rij.veldId || ''}', null, ${!!rij.split})" style="cursor:pointer;">${rechtsActief ? '●' : '○'}</span></td>
+        <td>${rechtsHtml}</td>
+      </tr>`;
+    };
+
+    const radioRijenHtml = radioRijen.map(bouwRadioRij).join('')
+      + `<tr><td colspan="5" style="border-bottom:none;padding:2px;"></td></tr>`
+      + radioRijenVoorschrijver.map(bouwRadioRij).join('');
+
+    // --- Bestelling-sectie: alleen ter vergelijking, geen radio's (net als
+    // in het ontwerp) — het bewerkbare veld rechts wint standaard als het
+    // recept iets heeft, anders valt het terug op de laatste order. ---
+    const infoRij = (label, prefix, dbWaarde, versWaarde, veldId, isTextarea) => {
+      const startWaarde = versWaarde || dbWaarde || '';
+      if (veldId) zet(veldId, startWaarde);
+      const inputHtml = veldId
+        ? (isTextarea
+            ? `<textarea rows="2" id="verg-${veldId}" oninput="zet2('${veldId}', this.value)">${versWaarde || ''}</textarea>`
+            : `<input type="text" id="verg-${veldId}" value="${(versWaarde || '').replace(/"/g,'&quot;')}" oninput="zet2('${veldId}', this.value)">`)
+        : (versWaarde || '—');
+      return `<tr>
+        <td class="verg-label">${label}</td>
+        <td class="verg-radio">${prefix ? `<span class="recept-prefix">${prefix}</span>` : ''}</td>
+        <td>${dbWaarde || '<span class="verg-ontbreekt">—</span>'}</td>
+        <td></td>
+        <td>${veldId ? `<span class="verg-waarde-recept">${inputHtml}</span>` : (versWaarde || '<span class="verg-ontbreekt">—</span>')}</td>
+      </tr>`;
+    };
+
+    const bestellingHtml = laatsteOrder ? `
+      <tr class="verg-sectie-kop"><td colspan="5">Bestelling</td></tr>
+      <tr>
+        <td class="verg-label">Laatste order</td><td></td>
+        <td>#${laatsteOrder.wc_order_id} op ${laatsteOrder.wc_datum || '?'}</td><td></td>
+        <td>${vers.recept_datum ? 'Receptdatum ' + vers.recept_datum : (laatsteOrder.recept_datum || '—')}</td>
+      </tr>
+      ${infoRij('Medicijn', 'R/', laatsteOrder.medicijn, vers.medicijn, null, false)}
+      ${infoRij('Gebruik', 'S/', laatsteOrder.gebruiksaanwijzing, vers.gebruiksaanwijzing, 'o-gebruiksaanwijzing', true)}
+      ${infoRij('Hoeveelheid', 'D/', laatsteOrder.hoeveelheid ? laatsteOrder.hoeveelheid + ' (laatste order)' : '', vers.hoeveelheid, 'o-hoeveelheid', false)}
+      <tr>
+        <td class="verg-label">Bedrag en Status</td><td></td>
+        <td>€${laatsteOrder.wc_totaal || '—'} · ${laatsteOrder.wc_status || ''}</td><td></td><td>—</td>
+      </tr>` : `
+      <tr class="verg-sectie-kop"><td colspan="5">Bestelling</td></tr>
+      ${infoRij('Medicijn', 'R/', '', vers.medicijn, null, false)}
+      ${infoRij('Gebruik', 'S/', '', vers.gebruiksaanwijzing, 'o-gebruiksaanwijzing', true)}
+      ${infoRij('Hoeveelheid', 'D/', '', vers.hoeveelheid, 'o-hoeveelheid', false)}`;
+
+    // Medicijn-select alvast proberen te matchen op de recept-tekst (silent, geen fout als het niet lukt)
+    if (vers.medicijn) {
+      const sel = document.getElementById('o-medicijn');
+      if (sel) {
+        const treffer = Array.from(sel.options).find(o =>
+          o.value && (o.value.toLowerCase().includes(vers.medicijn.toLowerCase().slice(0, 8)) || vers.medicijn.toLowerCase().includes(o.value.toLowerCase().slice(0, 8))));
+        if (treffer) sel.value = treffer.value;
+      }
+    }
+
+    const keuzeHtml = laatsteOrder ? `
+      <tr><td colspan="5" style="border-bottom:none;padding:2px;"></td></tr>
+      <tr>
+        <td class="verg-label">KEUZE</td>
+        <td class="verg-radio"><span class="keuze-optie" onclick="kloonOrderDirect('${laatsteOrder.wc_order_id}')">○</span></td>
+        <td><span class="keuze-optie" onclick="kloonOrderDirect('${laatsteOrder.wc_order_id}')">Kloon vorige order —&gt; onverkort</span></td>
+        <td class="verg-radio">●</td>
+        <td>Pas order aan —&gt; nieuwe order (gebruik "Order aanmaken" hieronder)</td>
+      </tr>` : '';
+
+    return `
+      <div style="font-size:13px;font-weight:600;">${p.voornaam || ''} ${p.achternaam || ''}</div>
+      <div style="font-size:11px;color:var(--muted);">Orders: ${aantalOrders ?? 0}</div>
+      <table class="verg-tabel">
+        <thead><tr>
+          <th>VERGELIJK EN PAS AAN</th><th></th><th>UIT DATABASE</th><th></th><th>UIT EMAIL - RECEPT</th>
+        </tr></thead>
+        <tbody>
+          ${radioRijenHtml}
+          ${bestellingHtml}
+          ${keuzeHtml}
+        </tbody>
+      </table>
+      <div style="margin-top:10px;display:flex;gap:12px;align-items:center;">
+        <a href="/patient#${p.id || ''}" target="_blank" style="font-size:11px;color:var(--teal);">Bekijk patiëntdossier ↗</a>
+        <a href="#" onclick="${lijstFnNaam}(window._laatsteKandidaten||[]); return false;" style="font-size:11px;color:var(--teal);">← Andere patiënt kiezen</a>
+        ${vertrouwen != null ? `<span style="font-size:11px;color:var(--muted);margin-left:auto;">Vertrouwen: ${vertrouwen}%</span>` : ''}
+      </div>`;
+  }
+
+  // --- Klik op een radiorondje in de vergelijkingstabel ---
+  function _kiesVergRadio(el, kant, naamGroep, veldId, dbWaarde, isSplit) {
+    const rij = el.closest('tr');
+    if (!rij) return;
+    const radioCellen = rij.querySelectorAll('.verg-radio span');
+    radioCellen.forEach(c => c.textContent = '○');
+    el.textContent = '●';
+
+    if (kant === 'links') {
+      if (isSplit) {
+        const delen = (dbWaarde || '').split(' ');
+        const vEl = document.getElementById('o-voornaam'); if (vEl) vEl.value = delen[0] || '';
+        const aEl = document.getElementById('o-achternaam'); if (aEl) aEl.value = delen.slice(1).join(' ') || '';
+      } else if (veldId) {
+        const el = document.getElementById(veldId); if (el) el.value = dbWaarde || '';
+        const inp = document.getElementById('verg-' + veldId); if (inp) inp.value = '';
+      }
+    } else if (veldId) {
+      const inp = document.getElementById('verg-' + veldId);
+      const el = document.getElementById(veldId);
+      if (el) el.value = (inp ? inp.value : '') || '';
+    }
+  }
+
+  // --- Typen in het rechter (recept) veld: werkt automatisch het echte veld
+  // bij en selecteert automatisch de rechter radio ---
+  function _vergRechtsGewijzigd(veldId, waarde, naamGroep) {
+    const el = document.getElementById(veldId);
+    if (el) el.value = waarde;
+    const radioCel = document.getElementById('radio-rechts-' + naamGroep);
+    if (radioCel) {
+      const rij = radioCel.closest('tr');
+      if (rij) rij.querySelectorAll('.verg-radio span').forEach(c => c.textContent = '○');
+      const span = radioCel.querySelector('span');
+      if (span) span.textContent = '●';
+    }
+  }
+
+  // --- Simpele veldkoppeling voor de Bestelling-sectie (geen radio's daar) ---
+  function zet2(veldId, waarde) {
+    const el = document.getElementById(veldId);
+    if (el) el.value = waarde;
+  }
+
+
 
   // --- Knop A: kloont een order 1-op-1 (exacte line_items, geen enkele
   // herberekening) via het server-side kloon-endpoint ---
@@ -1337,106 +1449,6 @@
   }
 
 
-  // --- Vult de echte, altijd-zichtbare orderformuliervelden met de
-  // standaardkeuze per veld (database/laatste-order gaat voor, tenzij
-  // die leeg is), en bouwt per veld klikbare chips om van bron te
-  // wisselen. De velden blijven daarnaast gewoon vrij te bewerken/typen —
-  // dit vervangt de losse vergelijkingstabel volledig. ---
-  function vulVergelijkingsChips(p, vers, laatsteOrder) {
-    const zet = (id, waarde) => { const el = document.getElementById(id); if (el) el.value = waarde || ''; };
-
-    const rijen = [
-      { chipId: 'chips-o-naam', split: true, bronnen: [
-          { label: 'Database', waarde: `${p.voornaam || ''} ${p.achternaam || ''}`.trim() },
-        ] },
-      { chipId: 'chips-o-geboortedatum', veldId: 'o-geboortedatum', bronnen: [
-          { label: 'Database', waarde: p.geboortedatum }, { label: 'E-mail/recept', waarde: vers.geboortedatum },
-        ] },
-      { chipId: 'chips-o-bsn', veldId: 'o-bsn', bronnen: [
-          { label: 'Database', waarde: p.bsn }, { label: 'E-mail/recept', waarde: vers.bsn },
-        ] },
-      { chipId: 'chips-o-email', veldId: 'o-email', bronnen: [
-          { label: 'Database', waarde: p.email }, { label: 'E-mail/recept', waarde: vers.email },
-        ] },
-      { chipId: 'chips-o-telefoon', veldId: 'o-telefoon', bronnen: [
-          { label: 'Database', waarde: p.telefoon }, { label: 'E-mail/recept', waarde: vers.telefoon },
-        ] },
-      { chipId: 'chips-o-straat', veldId: 'o-straat', bronnen: [
-          { label: 'Database', waarde: p.adres }, { label: 'E-mail/recept', waarde: vers.straat },
-        ] },
-      { chipId: 'chips-o-postcode_plaats', veldId: 'o-postcode_plaats', bronnen: [
-          { label: 'Database', waarde: p.plaats ? `${p.postcode || ''} ${p.plaats}`.trim() : '' },
-          { label: 'E-mail/recept', waarde: vers.woonplaats },
-        ] },
-      { chipId: 'chips-o-medicijn', veldId: 'o-medicijn', bronnen: [
-          { label: 'Laatste order', waarde: laatsteOrder?.medicijn }, { label: 'E-mail/recept', waarde: vers.medicijn },
-        ] },
-      { chipId: 'chips-o-hoeveelheid', veldId: 'o-hoeveelheid', bronnen: [
-          { label: 'Laatste order', waarde: laatsteOrder?.hoeveelheid }, { label: 'E-mail/recept', waarde: vers.hoeveelheid },
-        ] },
-      { chipId: 'chips-o-gebruiksaanwijzing', veldId: 'o-gebruiksaanwijzing', bronnen: [
-          { label: 'Laatste order', waarde: laatsteOrder?.gebruiksaanwijzing }, { label: 'E-mail/recept', waarde: vers.gebruiksaanwijzing },
-        ] },
-      { chipId: 'chips-o-voorschrijver', veldId: 'o-voorschrijver', bronnen: [
-          { label: 'Patiëntdossier', waarde: p.voorschrijver_naam }, { label: 'Laatste order', waarde: laatsteOrder?.voorschrijver },
-        ] },
-      { chipId: 'chips-o-agb_code', veldId: 'o-agb_code', bronnen: [
-          { label: 'Patiëntdossier', waarde: p.voorschrijver_agb_code }, { label: 'Laatste order', waarde: laatsteOrder?.agb_code },
-          { label: 'E-mail/recept', waarde: vers.agb_code },
-        ] },
-    ];
-
-    rijen.forEach(rij => {
-      const chipContainer = document.getElementById(rij.chipId);
-      if (!chipContainer) return;
-      const bronnenMetWaarde = rij.bronnen.filter(b => b.waarde);
-
-      if (bronnenMetWaarde.length === 0) {
-        chipContainer.innerHTML = '<span class="bron-chip bron-chip-ontbreekt">⚠ ontbreekt in alle bronnen — vul zelf in</span>';
-        return;
-      }
-
-      const standaardBron = bronnenMetWaarde[0]; // bronnen-array staat al in prioriteitsvolgorde
-      if (rij.split) {
-        const delen = standaardBron.waarde.split(' ');
-        zet('o-voornaam', delen[0] || '');
-        zet('o-achternaam', delen.slice(1).join(' ') || '');
-      } else {
-        zet(rij.veldId, standaardBron.waarde);
-      }
-
-      chipContainer.innerHTML = bronnenMetWaarde.map((b, i) => `
-        <span class="bron-chip ${i === 0 ? 'bron-chip-actief' : ''}"
-          onclick='_kiesChipBron(${JSON.stringify(rij.veldId || "")}, ${JSON.stringify(b.waarde).replace(/'/g, "&apos;")}, this, ${!!rij.split})'>
-          ${b.label}: ${b.waarde}
-        </span>`).join('');
-    });
-
-    const contextEl = document.getElementById('orderContextRegel');
-    if (contextEl) {
-      if (laatsteOrder) {
-        contextEl.style.display = 'block';
-        contextEl.textContent = `Laatste order: #${laatsteOrder.wc_order_id} op ${laatsteOrder.wc_datum || '?'} — €${laatsteOrder.wc_totaal || '—'} · ${laatsteOrder.wc_status || ''}`;
-      } else {
-        contextEl.style.display = 'none';
-      }
-    }
-  }
-
-  // --- Klik op een chip: vult het veld met die waarde, markeert de chip als actief ---
-  function _kiesChipBron(veldId, waarde, chipEl, isNaamSplit) {
-    if (isNaamSplit) {
-      const delen = (waarde || '').split(' ');
-      const vEl = document.getElementById('o-voornaam'); if (vEl) vEl.value = delen[0] || '';
-      const aEl = document.getElementById('o-achternaam'); if (aEl) aEl.value = delen.slice(1).join(' ') || '';
-    } else {
-      const el = document.getElementById(veldId);
-      if (el) el.value = waarde || '';
-    }
-    const groep = chipEl.parentElement;
-    if (groep) groep.querySelectorAll('.bron-chip').forEach(c => c.classList.remove('bron-chip-actief'));
-    chipEl.classList.add('bron-chip-actief');
-  }
 
   // --- Kandidaat gekozen in de "geen bijlage"-flow: vervangt uitgelezenInhoud ---
   async function kiesKandidaat(patientId, kandidaat) {
