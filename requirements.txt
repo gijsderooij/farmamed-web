@@ -7,3 +7,4 @@ rapidfuzz
 psycopg2-binary
 anthropic
 PyMuPDF
+openpyxl
