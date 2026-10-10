@@ -654,7 +654,7 @@
         <td class="verg-label">${rij.prefix ? `<span class="recept-prefix">${rij.prefix}</span> ` : ''}${rij.label}</td>
         <td class="verg-radio"><span onclick="_kiesVergRadio(this,'links','${naamGroep}','${rij.veldId || ''}', ${escAttr(rij.dbWaarde)}, ${!!rij.split}, '${selectSoort}')" style="cursor:pointer;">${linksActief ? '●' : '○'}</span></td>
         <td>${linksHtml}</td>
-        <td class="verg-radio" id="radio-rechts-${naamGroep}"><span onclick="_kiesVergRadio(this,'rechts','${naamGroep}','${rij.veldId || ''}', null, ${!!rij.split}, '${selectSoort}')" style="cursor:pointer;">${rechtsActief ? '●' : '○'}</span></td>
+        <td class="verg-radio" id="radio-rechts-${naamGroep}"><span onclick="_kiesVergRadio(this,'rechts','${naamGroep}','${rij.veldId || ''}', ${escAttr(rij.versWaarde)}, ${!!rij.split}, '${selectSoort}')" style="cursor:pointer;">${rechtsActief ? '●' : '○'}</span></td>
         <td${rechtsTdId}>${rechtsHtml}</td>
       </tr>`;
     };
@@ -761,60 +761,71 @@
   // drie dropdown-rijen moet de linkerkant-klik de database-waarde LETTERLIJK
   // overnemen (geen fuzzy-match, geen 'standaard'-permutatie), anders komt de
   // samenvatting niet overeen met de knop die aan staat. ---
-  function _kiesVergRadio(bronEl, kant, naamGroep, veldId, dbWaarde, isSplit, selectSoort) {
+  function _kiesVergRadio(bronEl, kant, naamGroep, veldId, waarde, isSplit, selectSoort) {
     const rij = bronEl.closest('tr');
     if (!rij) return;
     const radioCellen = rij.querySelectorAll('.verg-radio span');
     radioCellen.forEach(c => c.textContent = '○');
     bronEl.textContent = '●';
 
-    if (kant === 'links') {
-      if (isSplit) {
-        const delen = (dbWaarde || '').split(' ');
+    if (isSplit) {
+      if (kant === 'links') {
+        const delen = (waarde || '').split(' ');
         const vEl = document.getElementById('o-voornaam'); if (vEl) vEl.value = delen[0] || '';
         const aEl = document.getElementById('o-achternaam'); if (aEl) aEl.value = delen.slice(1).join(' ') || '';
-      } else if (veldId) {
-        const hiddenEl = document.getElementById(veldId);
-        if (selectSoort === 'medicijn') {
-          // Geen fuzzy-match meer tegen het gecontroleerde assortiment: de
-          // database-waarde wordt LETTERLIJK overgenomen (zelfde waarde die
-          // links in de tabel te zien is) — geen gok die op een heel ander
-          // medicijn kan uitkomen. Komt de waarde niet letterlijk voor in de
-          // vaste opties, dan toont _bouwMedicijnSelectHtml 'm als extra
-          // '(afwijkend)'-optie, zodat wat je ziet exact is wat er doorgaat.
-          if (hiddenEl) hiddenEl.value = dbWaarde || '';
-          const cel = document.getElementById('cel-' + veldId);
-          if (cel) {
-            cel.innerHTML = _bouwMedicijnSelectHtml('verg-' + veldId, dbWaarde || '',
-              `_vergRechtsGewijzigd('${veldId}', this.value, '${naamGroep}'); _medicijnGewijzigd(this.value);`);
+      }
+      // Rechts bij de naam-rij: geen apart beheerd veld hier (bij een
+      // bestaande patiënt is de rechterkant een niet-bewerkbaar streepje/
+      // tekst, bij een nieuwe patiënt schrijven de losse invoervelden al
+      // rechtstreeks naar o-voornaam/o-achternaam via _vergNaamGewijzigd) —
+      // niets te doen.
+      return;
+    }
+
+    if (!veldId) return;
+    const hiddenEl = document.getElementById(veldId);
+
+    if (selectSoort === 'medicijn' || selectSoort === 'hoeveelheid' || selectSoort === 'gebruik') {
+      // Geen fuzzy-match en geen 'standaard'-permutatie: de LETTERLIJKE
+      // waarde van de kant die nu is aangeklikt (database bij links,
+      // uitgelezen recept bij rechts) wordt overgenomen — niet wat er
+      // toevallig al in de dropdown staat. Dat voorkomt zowel de oude
+      // 'verkeerd medicijn'-gok als het vastlopen op de linkerkant nadat
+      // er eerder naar rechts geschakeld was: de dropdown wordt bij elke
+      // klik destructief herbouwd, dus zonder de letterlijke waarde van
+      // de aangeklikte kant hier opnieuw te gebruiken zou terugschakelen
+      // niets meer doen (de oorspronkelijke andere kant was al overschreven).
+      if (hiddenEl) hiddenEl.value = waarde || '';
+      const cel = document.getElementById('cel-' + veldId);
+      if (selectSoort === 'medicijn') {
+        if (cel) {
+          cel.innerHTML = _bouwMedicijnSelectHtml('verg-' + veldId, waarde || '',
+            `_vergRechtsGewijzigd('${veldId}', this.value, '${naamGroep}'); _medicijnGewijzigd(this.value);`);
+        }
+        _medicijnGewijzigd(waarde || '');
+      } else {
+        const huidigMedicijn = document.getElementById('o-medicijn')?.value || '';
+        const permutaties = _vindPermutaties(huidigMedicijn) || { hoeveelheden: [], gebruik_opties: [], eenheid_type: 'tube' };
+        if (cel) {
+          if (selectSoort === 'hoeveelheid') {
+            cel.innerHTML = _bouwHoeveelheidSelectHtml('verg-' + veldId, waarde || '', permutaties,
+              `_vergRechtsGewijzigd('${veldId}', this.value, '${naamGroep}')`);
+          } else {
+            cel.innerHTML = _bouwGebruikSelectHtml('verg-' + veldId + '-select', 'verg-' + veldId, waarde || '', permutaties, naamGroep);
           }
-          _medicijnGewijzigd(dbWaarde || '');
-        } else if (selectSoort === 'hoeveelheid' || selectSoort === 'gebruik') {
-          // Zelfde principe als bij medicijn: de database-waarde letterlijk
-          // overnemen, niet terugvallen op de 'standaard' permutatie voor het
-          // huidige medicijn — anders wint de default-hoeveelheid alsnog van
-          // de knop die net is aangeklikt.
-          if (hiddenEl) hiddenEl.value = dbWaarde || '';
-          const huidigMedicijn = document.getElementById('o-medicijn')?.value || '';
-          const permutaties = _vindPermutaties(huidigMedicijn) || { hoeveelheden: [], gebruik_opties: [], eenheid_type: 'tube' };
-          const cel = document.getElementById('cel-' + veldId);
-          if (cel) {
-            if (selectSoort === 'hoeveelheid') {
-              cel.innerHTML = _bouwHoeveelheidSelectHtml('verg-' + veldId, dbWaarde || '', permutaties,
-                `_vergRechtsGewijzigd('${veldId}', this.value, '${naamGroep}')`);
-            } else {
-              cel.innerHTML = _bouwGebruikSelectHtml('verg-' + veldId + '-select', 'verg-' + veldId, dbWaarde || '', permutaties, naamGroep);
-            }
-          }
-        } else {
-          const zichtbaarEl = document.getElementById('verg-' + veldId);
-          if (hiddenEl) hiddenEl.value = dbWaarde || '';
-          if (zichtbaarEl) zichtbaarEl.value = '';
         }
       }
-    } else if (veldId) {
-      const zichtbaarEl = document.getElementById('verg-' + veldId);
-      const hiddenEl = document.getElementById(veldId);
+      return;
+    }
+
+    // Vrij tekstveld (geen dropdown) — links toont de databasewaarde en
+    // maakt het rechter invoerveld leeg; rechts neemt gewoon over wat er nu
+    // in het (eventueel met de hand aangepaste) rechter invoerveld staat.
+    const zichtbaarEl = document.getElementById('verg-' + veldId);
+    if (kant === 'links') {
+      if (hiddenEl) hiddenEl.value = waarde || '';
+      if (zichtbaarEl) zichtbaarEl.value = '';
+    } else {
       if (hiddenEl) hiddenEl.value = (zichtbaarEl ? zichtbaarEl.value : '') || '';
     }
   }
