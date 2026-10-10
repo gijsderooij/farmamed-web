@@ -135,6 +135,7 @@
     .melding-ok { background: #e8f8ee; color: var(--success); }
     .melding-warn { background: #fef3e2; color: var(--warn); }
     .melding-fout { background: #fdecea; color: var(--danger); }
+    .edifact-box { background: #0d1b2a; color: #7ec8e3; font-family: 'Courier New', monospace; font-size: 10px; padding: 14px; border-radius: var(--radius); line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -232,16 +233,15 @@
           </button>
           <button id="btnBevestigOrder" onclick="bevestigOrderAanmaak()" style="display:none;font-size:12px;padding:7px 14px;background:var(--success);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:500;flex-shrink:0;font-family:'DM Sans',sans-serif;">✓ Maak Order Aan</button>
           <button id="btnAnnuleerOrder" onclick="annuleerOrderPreview()" style="display:none;font-size:12px;padding:7px 14px;background:white;color:var(--muted);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-weight:500;flex-shrink:0;font-family:'DM Sans',sans-serif;">Annuleren</button>
+          <!-- Verschijnen pas ná order-aanmaak (zie bevestigOrderAanmaak) —
+               zelfde knoppen/functionaliteit als bij Orders: JSON eerst
+               opbouwen uit de bevestigde o-*-velden, dan pas versturen. -->
+          <span id="scheidingNaOrder" style="display:none;width:0.5px;align-self:stretch;background:var(--border);flex-shrink:0;"></span>
+          <button id="btnReceptOpslaanMetOrder" onclick="downloadReceptEmail()" class="btn" style="display:none;font-size:12px;padding:6px 12px;flex-shrink:0;">⬇ Recept opslaan</button>
+          <button id="btnMaakSmartHubJson" onclick="genereerSmartHubJsonEmail()" class="btn" style="display:none;font-size:12px;padding:6px 12px;flex-shrink:0;">📄 SmartHUB JSON aanmaken</button>
+          <button id="btnSmartHubVersturen" onclick="verstuurSmartHubEmail()" style="display:none;font-size:12px;padding:7px 14px;background:#2980b9;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:500;flex-shrink:0;font-family:'DM Sans',sans-serif;">📡 SmartHUB versturen</button>
+          <button id="btnVerstuurKlant" onclick="verstuurNaarKlant(window._emailOrderId)" class="btn" style="display:none;font-size:12px;padding:6px 12px;flex-shrink:0;">✉ Stuur bestelgegevens naar klant</button>
           <span class="status-tekst" id="statusTekst" style="flex-shrink:0;"></span>
-        </div>
-
-        <!-- Acties verschijnen na order aanmaken -->
-        <div id="stapActies" style="display:none;padding:8px 14px;border-top:0.5px solid var(--border);background:var(--teal-lt);gap:8px;align-items:center;flex-wrap:wrap;">
-          <div id="stapOrderMelding" style="font-size:12px;color:var(--success);"></div>
-          <div style="margin-left:auto;display:flex;gap:8px;">
-            <button class="btn" onclick="downloadReceptEmail()" style="font-size:12px;padding:6px 12px;">⬇ Recept opslaan</button>
-            <button class="btn" onclick="downloadEdifactEmail()" style="font-size:12px;padding:6px 12px;">📤 EDIFACT downloaden</button>
-          </div>
         </div>
       </div>
 
@@ -409,8 +409,16 @@
     document.getElementById('detailLeeg').style.display = 'none';
     document.getElementById('detailInhoud').classList.add('zichtbaar');
     zetStap(1);
-    const stapActies = document.getElementById('stapActies');
-    if (stapActies) stapActies.style.display = 'none';
+    window._emailOrderId = null;
+    window._smarthubBericht = null;
+    // Order-afhankelijke knoppen in de actiebalk weer verbergen tot er
+    // opnieuw een order is aangemaakt voor deze (nieuw geselecteerde) e-mail.
+    ['scheidingNaOrder', 'btnReceptOpslaanMetOrder', 'btnMaakSmartHubJson', 'btnSmartHubVersturen', 'btnVerstuurKlant'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    const btnSH = document.getElementById('btnSmartHubVersturen');
+    if (btnSH) { btnSH.disabled = false; btnSH.textContent = '📡 SmartHUB versturen'; btnSH.style.background = '#2980b9'; }
     // Stap 2 knop direct tonen - bijlage check na laden
     const btn2 = document.getElementById('stapBtn2');
     if (btn2) btn2.style.display = 'inline-flex';
@@ -655,6 +663,139 @@
     btnSamenvatten.textContent = '📊 Order Samenvatten';
   }
 
+  // --- SmartHUB JSON opbouwen uit de bevestigde o-*-velden (dezelfde
+  // vergelijkingstabel-waarden als bij Orders) — zelfde aanpak/structuur als
+  // genereerEdifact() in orders.html, hier aangepast aan de e-mail-stroom:
+  // geen bestaande WC-order om 'aantal' uit te lezen, dus dat leiden we af
+  // uit o-hoeveelheid / de verpakkingsgrootte van het gekozen medicijn
+  // (window._medicijnPermutaties, al geladen via laadMedicijnPermutaties()).
+  async function genereerSmartHubJsonEmail() {
+    const _veld = (id, terugval) => document.getElementById(id)?.value || terugval || '';
+
+    const voornaam = _veld('o-voornaam');
+    const achternaam = _veld('o-achternaam');
+    const naam = `${voornaam} ${achternaam}`.trim();
+    const voorschrijver_naam = _veld('o-voorschrijver') || 'Onbekende voorschrijver';
+    const agb_code = _veld('o-agb_code') || '00000000';
+    const email = _veld('o-email');
+    const telefoon = _veld('o-telefoon');
+    const geboortedatum = _veld('o-geboortedatum');
+    const bsn = _veld('o-bsn');
+    const medicijn = _veld('o-medicijn');
+    const straat = _veld('o-straat');
+    const hoeveelheid = _veld('o-hoeveelheid');
+
+    const postcodePlaatsRuw = _veld('o-postcode_plaats');
+    const pcMatch = postcodePlaatsRuw.match(/^(\d{4}\s?[A-Za-z]{2})\s*(.*)$/i);
+    const postalCode = (pcMatch ? pcMatch[1] : '').replace(/\s+/g, '').toUpperCase();
+    const stad = (pcMatch && pcMatch[2]) ? pcMatch[2].trim() : '';
+
+    // Echte SmartHUB-artikelcode + -naam opzoeken — zelfde matching die ook
+    // daadwerkelijk gebruikt wordt bij het versturen.
+    let artikel = { code: 'ONBEKEND', name: (medicijn || '').toUpperCase() };
+    try {
+      const artikelRes = await fetch('/api/zoek-artikel?naam=' + encodeURIComponent(medicijn || ''));
+      artikel = await artikelRes.json();
+    } catch (e) { /* val terug op ONBEKEND hierboven — niet blokkerend */ }
+
+    // Aantal verpakkingen = hoeveelheid / verpakkingsgrootte van dit medicijn.
+    let aantal = 1;
+    const permutaties = (typeof _vindPermutaties === 'function') ? _vindPermutaties(medicijn) : null;
+    const hoeveelheidNum = parseFloat(hoeveelheid) || 0;
+    if (permutaties && permutaties.verpakkingsgrootte && hoeveelheidNum > 0) {
+      aantal = Math.round(hoeveelheidNum / permutaties.verpakkingsgrootte) || 1;
+    }
+
+    const json_preview = {
+      organizationCode: "SMARTMED",
+      code: String(window._emailOrderId || ''),
+      system: "Farmamed",
+      client: {
+        code: email || String(window._emailOrderId || ''),
+        initials: voornaam ? voornaam[0].toUpperCase() + '.' : '',
+        firstname: voornaam,
+        surname: achternaam,
+        name: naam,
+        dateOfBirth: geboortedatum || "",
+        socialSecurityNumber: bsn || "",
+        contacts: email ? [
+          {type: "Email", value: email},
+          ...(telefoon ? [{type: "Phone", value: telefoon}] : [])
+        ] : []
+      },
+      items: [{
+        article: {code: artikel.code || 'ONBEKEND', name: artikel.name || (medicijn || '').toUpperCase(), system: "CUSTOM.Article"},
+        quantity: {type: "Package", value: aantal},
+        prescription: {
+          code: String(window._emailOrderId || ''),
+          date: new Date().toISOString().slice(0,19).replace('T',' '),
+          prescriber: {code: agb_code, name: voorschrijver_naam, system: "NL_AGB"}
+        }
+      }],
+      delivery: {
+        type: "Shipper", code: "SendCloud",
+        address: { line: straat || "", postalCode: postalCode || "", city: stad || "" }
+      }
+    };
+
+    // Bewaren zodat verstuurSmartHubEmail() straks PRECIES dit bericht
+    // meestuurt — niet nogmaals laten herbouwen door de server.
+    window._smarthubBericht = json_preview;
+
+    const jsonTekst = JSON.stringify(json_preview, null, 2);
+    let html = `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:white;margin-bottom:12px;">`;
+    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;">Controleer dit verstrekkingsverzoek voordat je op 📡 SmartHUB versturen drukt:</div>`;
+    if (artikel.code === 'ONBEKEND') {
+      html += `<div class="melding melding-warn" style="margin-bottom:8px;">⚠ Geen SmartHUB-artikel gevonden voor "${medicijn || '—'}" — controleer de artikelcode handmatig vóór het versturen.</div>`;
+    }
+    html += bouwVerstrekkingsverzoekPreview(json_preview);
+    html += `<details style="margin-top:6px;">
+        <summary style="font-size:11px;color:var(--muted);cursor:pointer;">Ruwe JSON tonen</summary>
+        <div class="edifact-box" style="margin-top:6px;">${jsonTekst}</div>
+      </details>`;
+    html += `</div>`;
+    document.getElementById('orderMelding').innerHTML = html;
+  }
+
+  async function verstuurSmartHubEmail() {
+    if (!window._emailOrderId) return;
+    const btn = document.getElementById('btnSmartHubVersturen');
+    const status = document.getElementById('statusTekst');
+    btn.disabled = true;
+    btn.textContent = '⏳ Versturen…';
+    try {
+      const res = await fetch('/api/verstuur-smarthub', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: window._emailOrderId,
+          bericht: window._smarthubBericht || null,
+          patient_id: window._huidigDossierPatientId || null,
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        btn.textContent = '✓ SmartHUB versturen';
+        btn.style.background = 'var(--success)';
+        status.textContent = '✓ Verstuurd naar SmartHUB';
+        status.style.color = 'var(--success)';
+        if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'edifact', true);
+      } else {
+        btn.textContent = '✗ SmartHUB versturen';
+        btn.style.background = 'var(--danger)';
+        btn.disabled = false;
+        status.textContent = data.fout || `HTTP ${data.status_code}`;
+        status.style.color = 'var(--danger)';
+      }
+    } catch(e) {
+      btn.textContent = '✗ SmartHUB versturen';
+      btn.style.background = 'var(--danger)';
+      btn.disabled = false;
+      status.textContent = e.message;
+      status.style.color = 'var(--danger)';
+    }
+  }
+
   // --- Daadwerkelijke aanmaak, pas aangeroepen ná bevestiging in de preview ---
   async function bevestigOrderAanmaak() {
     const payload = window._pendingOrderPayload;
@@ -675,41 +816,18 @@
 
       if (data.order_id) {
         window._emailOrderId = data.order_id;
-        let receptKnop = '';
-        // Recept download als er een bijlage was
-        if (huidigeEmail && huidigeEmail.bijlagen && huidigeEmail.bijlagen.length > 0 && huidigeBijlageIndex !== null) {
-          receptKnop = `<button onclick="downloadReceptEmail()" style="margin-top:8px;margin-right:6px;padding:7px 14px;background:#e8f4f4;color:var(--teal-dk);border:1px solid var(--teal);border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Recept opslaan</button>`;
-        }
-        let edifactKnop = '';
-        if (data.edifact) {
-          window._edifact = data.edifact;
-          window._edifactOrderId = data.order_id;
-          edifactKnop = `<button onclick="downloadEdifactEmail()" style="margin-top:8px;padding:7px 14px;background:var(--teal);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-family:'DM Sans',sans-serif;">⬇ Download EDIFACT verstrekkingsverzoek</button>`;
-        }
+
         // Stap 4 voltooid: stap 5 actief
         zetStap(5);
 
-        // Actiebalk tonen met alle drie sub-routines
-        const stapActies = document.getElementById('stapActies');
-        if (stapActies) stapActies.style.display = 'flex';
-
-        // Sub-routine a: bevestiging ordernummer + verstuur-naar-klant-knop
-        const stapMelding = document.getElementById('stapOrderMelding');
-        if (stapMelding) {
-          stapMelding.innerHTML = `✓ Order #${data.order_id} aangemaakt
-            <button id="btnVerstuurKlant" onclick="verstuurNaarKlant(${data.order_id})"
-              style="margin-left:8px;padding:4px 10px;background:white;color:var(--teal-dk);border:1px solid var(--teal);border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;">
-              ✉ Stuur bestelgegevens naar klant
-            </button>`;
-        }
-
-        // Sub-routine b: recept opslaan knop (al aanwezig, nu zichtbaar)
-        // Sub-routine c: EDIFACT knop (al aanwezig, nu zichtbaar)
-        // EDIFACT data alvast klaarzetten
-        if (data.edifact) {
-          window._edifact = data.edifact;
-          window._edifactOrderId = data.order_id;
-        }
+        // De order-afhankelijke knoppen in de actiebalk tonen — recept
+        // opslaan (met ordernummer), SmartHUB JSON aanmaken + versturen,
+        // en de klant-mail. Geen aparte tekst/rij meer; het ordernummer
+        // staat al in de statusbalk hieronder.
+        ['scheidingNaOrder', 'btnReceptOpslaanMetOrder', 'btnMaakSmartHubJson', 'btnSmartHubVersturen', 'btnVerstuurKlant'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = 'inline-flex';
+        });
 
         document.getElementById('orderMelding').innerHTML = '';
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
@@ -974,22 +1092,15 @@
 
       if (btn) { btn.textContent = `✓ Gekloond als order #${data.order_id}`; btn.style.background = 'var(--success)'; }
 
-      // Zelfde succesweergave als een normale order-aanmaak
-      const stapActies = document.getElementById('stapActies');
-      if (stapActies) stapActies.style.display = 'flex';
-      const stapMelding = document.getElementById('stapOrderMelding');
-      if (stapMelding) {
-        stapMelding.innerHTML = `✓ Order #${data.order_id} gekloond van #${data.gekloond_van}
-          <button id="btnVerstuurKlant" onclick="verstuurNaarKlant(${data.order_id})"
-            style="margin-left:8px;padding:4px 10px;background:white;color:var(--teal-dk);border:1px solid var(--teal);border-radius:6px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif;">
-            ✉ Stuur bestelgegevens naar klant
-          </button>`;
-      }
-      if (data.edifact) {
-        window._edifact = data.edifact;
-        window._edifactOrderId = data.order_id;
-      }
+      // Zelfde succesweergave als een normale order-aanmaak: de
+      // order-afhankelijke knoppen in de actiebalk tonen.
       window._emailOrderId = data.order_id;
+      ['scheidingNaOrder', 'btnReceptOpslaanMetOrder', 'btnMaakSmartHubJson', 'btnSmartHubVersturen', 'btnVerstuurKlant'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'inline-flex';
+      });
+      const status = document.getElementById('statusTekst');
+      if (status) { status.textContent = `✓ Order #${data.order_id} gekloond van #${data.gekloond_van}`; status.style.color = 'var(--success)'; }
     } catch(e) {
       if (btn) { btn.disabled = false; btn.textContent = '↻ Kloon vorige order —> onverkort'; }
       alert(`⚠ Klonen mislukt (netwerkfout): ${e.message}`);
@@ -1128,20 +1239,6 @@
     const labelSchoon = label.replace(/[^a-zA-Z0-9]/g, '_') || standaardLabel;
     const bestandsnaam = `${labelSchoon}_Farmamed_${achternaam}.pdf`;
     await _downloadBijlageAlsPdf(bestandsnaam);
-  }
-
-  // --- EDIFACT download na order aanmaken ---
-  function downloadEdifactEmail() {
-    if (!window._edifact) return;
-    // Werklijst: markeer EDIFACT als gedaan
-    if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'edifact', true);
-    const blob = new Blob([window._edifact], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${window._edifactOrderId}_farmamed_verstrekkingsverzoek.edi`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   // --- Stroom 4: EDIFACT bijlage herkennen ---
