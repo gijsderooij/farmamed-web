@@ -26,7 +26,7 @@
 //   - bevestigOrderAanmaak(): ondanks de eerdere classificatie als 'gedeeld'
 //     is dit bij nader inzien stevig emailflow-specifiek (zetStap(5),
 //     huidigeEmail, huidigeBijlageIndex, downloadReceptEmail(),
-//     downloadEdifactEmail(), de 'email_'-sleutel in slaWerklijstStatusOp).
+//     genereerSmartHubJsonEmail(), de 'email_'-sleutel in slaWerklijstStatusOp).
 //     Het generieke stuk (POST naar /api/maak-order + foutafhandeling) is nog
 //     te vervlochten met die e-mail-specifieke UI-acties om dit nu veilig te
 //     knippen. Bij de Balie-rebuild (stap 3) kan Balie een eigen, kleinere
@@ -86,16 +86,25 @@
   function _bouwMedicijnSelectHtml(id, geselecteerdeWaarde, onchangeAttr) {
     let laatsteGroep = null;
     let opties = '';
+    let matchGevonden = false;
     for (const [waarde, label, groep] of MEDICIJN_OPTIES) {
       if (groep !== laatsteGroep) {
         if (laatsteGroep !== null) opties += '</optgroup>';
         if (groep !== null) opties += `<optgroup label="${groep}">`;
         laatsteGroep = groep;
       }
-      const geselecteerd = waarde === geselecteerdeWaarde ? ' selected' : '';
+      const geselecteerd = waarde === geselecteerdeWaarde ? (matchGevonden = true, ' selected') : '';
       opties += `<option value="${waarde.replace(/"/g,'&quot;')}"${geselecteerd}>${label}</option>`;
     }
     if (laatsteGroep !== null) opties += '</optgroup>';
+    // Geen van de vaste opties komt letterlijk overeen met de gekozen
+    // (links/database- of rechts/uitgelezen) waarde — toon 'm toch als extra
+    // optie, i.p.v. stilzwijgend terug te vallen op de lege placeholder of een
+    // geraden 'best passende' optie. De samenvatting en de order moeten
+    // precies tonen/gebruiken wat links of rechts stond, niet een gok.
+    if (!matchGevonden && geselecteerdeWaarde) {
+      opties = `<option value="${geselecteerdeWaarde.replace(/"/g,'&quot;')}" selected>${geselecteerdeWaarde} (afwijkend)</option>` + opties;
+    }
     return `<select id="${id}" class="veld-input" style="width:100%;" onchange="${onchangeAttr}">${opties}</select>`;
   }
 
@@ -290,8 +299,9 @@
     if (veld('o-telefoon')) veld('o-telefoon').value = recept.telefoon || '';
     if (veld('o-straat')) veld('o-straat').value = recept.straat || '';
     if (veld('o-postcode_plaats')) veld('o-postcode_plaats').value = recept.postcode_plaats || '';
-    // Medicijn: voorlopige invulling met de ruwe recept-tekst — de definitieve,
-    // betere matching (via _matchMedicijnOptie) gebeurt zodra het dossier laadt.
+    // Medicijn: voorlopige invulling met de ruwe recept-tekst — dit IS de
+    // definitieve waarde (geen fuzzy-matching meer), de vergelijkingstabel
+    // toont 'm straks letterlijk zodra het dossier laadt.
     if (veld('o-medicijn')) veld('o-medicijn').value = recept.medicijn || '';
     if (veld('o-hoeveelheid')) veld('o-hoeveelheid').value = recept.hoeveelheid || '';
     if (veld('o-gebruiksaanwijzing')) veld('o-gebruiksaanwijzing').value = recept.gebruiksaanwijzing || '';
@@ -636,7 +646,7 @@
           oninput="_vergRechtsGewijzigd('${rij.veldId}', this.value, '${naamGroep}')"></span>`;
       }
 
-      const rechtsTdId = (rij.isHoeveelheidSelect || rij.isGebruikSelect) ? ` id="cel-${rij.veldId}"` : '';
+      const rechtsTdId = (rij.isHoeveelheidSelect || rij.isGebruikSelect || rij.isMedicijnSelect) ? ` id="cel-${rij.veldId}"` : '';
       if (rij.veldId === 'o-hoeveelheid') window._hoeveelheidNaamGroep = naamGroep;
       if (rij.veldId === 'o-gebruiksaanwijzing') window._gebruikNaamGroep = naamGroep;
       return `<tr>
@@ -674,7 +684,12 @@
     // Bepaal welk medicijn er (standaard) wint, om de bijbehorende D/- en
     // S/-permutaties op te zoeken — zelfde prioriteitsregel als bouwRadioRij
     // zelf hanteert (laatste-order wint als die iets heeft, anders recept).
-    const medicijnStartWaarde = _matchMedicijnOptie(vers.medicijn) || vers.medicijn || '';
+    // Geen fuzzy-match meer tegen het dropdown-assortiment — de rechterkant
+    // toont en gebruikt letterlijk de uitgelezen medicijnnaam. _vindPermutaties()
+    // hieronder doet zijn eigen (gewaarborgde) woord-matching puur om de
+    // D/S-permutatielijsten op te zoeken, en bepaalt dus niet welke waarde
+    // uiteindelijk in de samenvatting/order terechtkomt.
+    const medicijnStartWaarde = vers.medicijn || '';
     const medicijnWinnaar = laatsteOrder?.medicijn || medicijnStartWaarde;
     const permutaties = _vindPermutaties(medicijnWinnaar) || { hoeveelheden: [], gebruik_opties: [], eenheid_type: 'tube' };
 
@@ -755,15 +770,22 @@
         const aEl = document.getElementById('o-achternaam'); if (aEl) aEl.value = delen.slice(1).join(' ') || '';
       } else if (veldId) {
         const hiddenEl = document.getElementById(veldId);
-        const zichtbaarEl = document.getElementById('verg-' + veldId);
         if (isSelect) {
-          // Probeer de databasewaarde (bijv. een oudere medicijn-omschrijving) alsnog
-          // te matchen tegen het gecontroleerde assortiment, i.p.v. het dropdown leeg te maken.
-          const match = _matchMedicijnOptie(dbWaarde) || '';
-          if (hiddenEl) hiddenEl.value = match;
-          if (zichtbaarEl) zichtbaarEl.value = match;
-          _medicijnGewijzigd(match);
+          // Geen fuzzy-match meer tegen het gecontroleerde assortiment: de
+          // database-waarde wordt LETTERLIJK overgenomen (zelfde waarde die
+          // links in de tabel te zien is) — geen gok die op een heel ander
+          // medicijn kan uitkomen. Komt de waarde niet letterlijk voor in de
+          // vaste opties, dan toont _bouwMedicijnSelectHtml 'm als extra
+          // '(afwijkend)'-optie, zodat wat je ziet exact is wat er doorgaat.
+          if (hiddenEl) hiddenEl.value = dbWaarde || '';
+          const cel = document.getElementById('cel-' + veldId);
+          if (cel) {
+            cel.innerHTML = _bouwMedicijnSelectHtml('verg-' + veldId, dbWaarde || '',
+              `_vergRechtsGewijzigd('${veldId}', this.value, '${naamGroep}'); _medicijnGewijzigd(this.value);`);
+          }
+          _medicijnGewijzigd(dbWaarde || '');
         } else {
+          const zichtbaarEl = document.getElementById('verg-' + veldId);
           if (hiddenEl) hiddenEl.value = dbWaarde || '';
           if (zichtbaarEl) zichtbaarEl.value = '';
         }
