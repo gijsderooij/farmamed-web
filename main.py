@@ -2070,18 +2070,9 @@ async def kloon_order_exact(order_id: int):
             except Exception as e:
                 print(f"[kloon-order] DB fout: {e}")
 
-        # EDIFACT verstrekkingsverzoek, met het EXACTE gekopieerde aantal tubes
-        edifact = _genereer_edifact({
-            "id": nieuwe_order["id"],
-            "medicijn": productnaam,
-            "hoeveelheid": f"{aantal_tubes * 30} gram",
-            "patient_naam": f"{billing.get('first_name','')} {billing.get('last_name','')}".strip(),
-        }, {"voorschrijver": meta.get("voorschrijver", ""), "recept_datum": meta.get("recept_datum", "")})
-
         return JSONResponse(content={
             "order_id": nieuwe_order["id"],
             "status": nieuwe_order["status"],
-            "edifact": edifact,
             "gekloond_van": order_id,
         })
     except Exception as e:
@@ -2287,14 +2278,6 @@ async def maak_order(request: Request):
             except Exception as _e:
                 print(f"[maak-order] DB fout: {_e}")
 
-        # Genereer EDIFACT voor dit verstrekkingsverzoek
-        edifact = _genereer_edifact({
-            "id": order["id"],
-            "medicijn": data.get("medicijn", ""),
-            "hoeveelheid": data.get("hoeveelheid", "30"),
-            "patient_naam": data.get("patient_naam", ""),
-        }, data)
-
         # Sla order_id op bij e-mail maar markeer NIET als verwerkt
         # Verwerkt wordt pas gezet als apotheker op "E-mail verwerkt" klikt
         if data.get("bron") == "email" and data.get("email_uid"):
@@ -2306,7 +2289,6 @@ async def maak_order(request: Request):
         return JSONResponse(content={
             "order_id": order["id"],
             "status": order["status"],
-            "edifact": edifact,
         })
     except Exception as e:
         return JSONResponse(content={"fout": str(e)})
@@ -2960,54 +2942,6 @@ async def orders_pagina():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
-def _parseer_edifact(tekst: str) -> dict:
-    """
-    Parseert een inkomend EDIFACT-bericht (verstrekkingsverzoek van arts).
-    Extraheert patiënt- en medicijngegevens voor WooCommerce order.
-    """
-    import re
-    data = {}
-
-    # Patiëntnaam uit NAD segment
-    nad = re.search(r"NAD\+PAT\+([^+']+)", tekst)
-    if nad:
-        data["patient_naam"] = nad.group(1).strip().replace(":", " ")
-
-    # Geboortedatum
-    dob = re.search(r"DTM\+329:(\d{8})", tekst)
-    if dob:
-        d = dob.group(1)
-        data["geboortedatum"] = f"{d[6:8]}-{d[4:6]}-{d[0:4]}"
-
-    # Medicijn uit LIN of IMD segment
-    imd = re.search(r"IMD\+F\+\+\+([^']+)", tekst)
-    if imd:
-        data["medicijn"] = imd.group(1).strip()
-
-    # Hoeveelheid uit QTY segment
-    qty = re.search(r"QTY\+21:(\d+):GRM", tekst)
-    if qty:
-        data["hoeveelheid"] = f"{qty.group(1)} gram"
-
-    # Voorschrijver uit NAD+PrescribingDoctor of PRE segment
-    prs = re.search(r"NAD\+PRS\+([^+']+)", tekst)
-    if prs:
-        data["voorschrijver"] = prs.group(1).strip().replace(":", " ")
-
-    # Receptdatum
-    rdt = re.search(r"DTM\+137:(\d{8}):102", tekst)
-    if rdt:
-        d = rdt.group(1)
-        data["recept_datum"] = f"{d[6:8]}-{d[4:6]}-{d[0:4]}"
-
-    # BSN uit PNA of GIN segment
-    bsn = re.search(r"GIN\+BSN\+(\d{8,9})", tekst)
-    if bsn:
-        data["bsn"] = bsn.group(1)
-
-    return data
-
-
 @app.post("/api/zoek-herhaalorder")
 async def zoek_herhaalorder(request: Request):
     """
@@ -3269,77 +3203,6 @@ async def kloon_order(request: Request):
     data["bron"] = "email"
     # Hergebruik maak-order logica
     return await maak_order(request.__class__(request._scope, request._receive))
-
-
-@app.post("/api/verwerk-edifact-bijlage")
-async def verwerk_edifact_bijlage(request: Request):
-    """
-    Stroom 4: verwerkt een inkomend EDIFACT-bestand van een arts.
-    Parseert de gegevens en maakt een WooCommerce order aan.
-    """
-    body = await request.json()
-    email_uid = body.get("email_uid", "")
-    bijlage_index = body.get("bijlage_index", 0)
-
-    email = _zoek_email_op_uid(email_uid)
-    if not email:
-        return JSONResponse(content={"fout": "E-mail niet gevonden"})
-
-    bijlagen = email.get("bijlagen", [])
-    if bijlage_index >= len(bijlagen):
-        return JSONResponse(content={"fout": "Bijlage niet gevonden"})
-
-    bijlage = bijlagen[bijlage_index]
-    try:
-        inhoud_bytes = base64.b64decode(bijlage["data"])
-        edifact_tekst = inhoud_bytes.decode("utf-8", errors="replace")
-    except Exception as e:
-        return JSONResponse(content={"fout": f"Kon bijlage niet lezen: {e}"})
-
-    # Parseer EDIFACT
-    gegevens = _parseer_edifact(edifact_tekst)
-    if not gegevens:
-        return JSONResponse(content={"fout": "Geen EDIFACT-gegevens gevonden in bijlage"})
-
-    # Maak WooCommerce order aan
-    wc_url = os.getenv("WC_URL", "")
-    wc_key = os.getenv("WC_KEY", "")
-    wc_secret = os.getenv("WC_SECRET", "")
-
-    _voornaam_edifact, _achternaam_edifact = _splits_voornaam_achternaam(gegevens.get("patient_naam") or "")
-    order_payload = {
-        "status": "processing",
-        "billing": {
-            "first_name": _voornaam_edifact,
-            "last_name": _achternaam_edifact,
-        },
-        "meta_data": [
-            {"key": "geboortedatum", "value": gegevens.get("geboortedatum", "")},
-            {"key": "bsn", "value": gegevens.get("bsn", "")},
-            {"key": "voorschrijver", "value": gegevens.get("voorschrijver", "")},
-            {"key": "recept_datum", "value": gegevens.get("recept_datum", "")},
-            {"key": "medicijn_ocr", "value": gegevens.get("medicijn", "")},
-            {"key": "bron", "value": "edifact_email"},
-        ],
-        "customer_note": f"Order aangemaakt vanuit EDIFACT-bijlage. Medicijn: {gegevens.get('medicijn', '')}",
-    }
-
-    try:
-        resp = http_requests.post(
-            f"{wc_url}/wp-json/wc/v3/orders",
-            headers=_wc_auth(wc_key, wc_secret),
-            json=order_payload,
-            timeout=20,
-        )
-        resp.raise_for_status()
-        order = resp.json()
-        return JSONResponse(content={
-            "order_id": order["id"],
-            "gegevens": gegevens,
-            "bericht": f"Order #{order['id']} aangemaakt vanuit EDIFACT-bijlage",
-        })
-    except Exception as e:
-        return JSONResponse(content={"fout": str(e), "gegevens": gegevens})
 
 
 @app.get("/api/orders")
@@ -3637,60 +3500,6 @@ async def _verrijk_met_woocommerce(recept: dict, wc_url: str, wc_key: str, wc_se
         verrijkt["_verrijking_fout"] = str(e)
 
     return verrijkt
-
-
-def _genereer_edifact(order_data: dict, recept_data: dict = None) -> str:
-    """
-    Genereert een EDIFACT ORDERS D96A verstrekkingsverzoek.
-    Werkt voor alle drie werkstromen.
-    """
-    from datetime import datetime
-    nu = datetime.now()
-    datum = nu.strftime("%y%m%d")
-    tijd = nu.strftime("%H%M")
-    order_id = str(order_data.get("id") or order_data.get("order_id") or "0")
-    ctrl = order_id.zfill(5)
-
-    medicijn = order_data.get("medicijn", "ONBEKEND")
-    medicijn_code = medicijn.upper().replace(" ", "")[:20]
-    try:
-        hoev_raw = str(order_data.get("hoeveelheid", 30))
-        hoev_raw = hoev_raw.replace(",", ".").replace(" gram", "").replace("gram", "").replace(" g", "").replace("G", "").replace("g", "").strip()
-        # Neem alleen het eerste getal
-        import re as _re
-        hoev_match = _re.search(r"[\d.]+", hoev_raw)
-        hoeveelheid = int(float(hoev_match.group(0))) if hoev_match else 30
-    except Exception:
-        hoeveelheid = 30
-
-    naam = order_data.get("patient_naam") or order_data.get("klant_naam") or ""
-    voorschrijver = ""
-    recept_datum = ""
-    if recept_data:
-        voorschrijver = recept_data.get("voorschrijver") or ""
-        recept_datum = recept_data.get("recept_datum") or ""
-
-    if voorschrijver and recept_datum:
-        recept_ref = f"RECEPT-{voorschrijver[:12].upper().replace(' ','-')}-{recept_datum}"
-    else:
-        recept_ref = f"BESTELLING-{order_id}"
-
-    regels = [
-        f"UNB+UNOA:2+FARMAMED+GROOTHANDEL+{datum}:{tijd}+{ctrl}'",
-        f"UNH+1+ORDERS:D:96A:UN'",
-        f"BGM+220+{order_id}+9'",
-        f"DTM+137:{nu.strftime('%Y%m%d')}:102'",
-        f"NAD+BY+FARMAMED:::Farmamed BV'",
-        f"NAD+SU+GROOTHANDEL:::Groothandel Farma NL'",
-        f"NAD+DP+{naam[:35]}'",
-        f"LIN+1++{medicijn_code}:BP'",
-        f"IMD+F+++{medicijn[:35]}'",
-        f"QTY+21:{hoeveelheid}:GRM'",
-        f"RFF+PD:{recept_ref}'",
-        f"UNT+11+1'",
-        f"UNZ+1+{ctrl}'",
-    ]
-    return "\n".join(regels)
 
 
 def _normaliseer_hoeveelheid(tekst: str) -> str:
