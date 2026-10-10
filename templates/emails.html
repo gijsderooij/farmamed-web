@@ -419,6 +419,18 @@
     });
     const btnSH = document.getElementById('btnSmartHubVersturen');
     if (btnSH) { btnSH.disabled = false; btnSH.textContent = '📡 SmartHUB versturen'; btnSH.style.background = '#2980b9'; }
+    // Zelfde reset als hierboven voor SmartHUB versturen, maar dan voor 'Stuur
+    // bestelgegevens naar klant' — anders blijft de "✓ Verstuurd naar klant"
+    // (uitgeschakelde) staat van een EERDER op een andere e-mail verstuurde
+    // order hangen, en lijkt de knop bij de nieuwe e-mail "vast" te zitten op
+    // verstuurd zodra hij (na een nieuwe order) weer zichtbaar wordt.
+    const btnVK = document.getElementById('btnVerstuurKlant');
+    if (btnVK) {
+      btnVK.disabled = false;
+      btnVK.textContent = '✉ Stuur bestelgegevens naar klant';
+      btnVK.style.color = '';
+      btnVK.style.borderColor = '';
+    }
     // Stap 2 knop direct tonen - bijlage check na laden
     const btn2 = document.getElementById('stapBtn2');
     if (btn2) btn2.style.display = 'inline-flex';
@@ -841,6 +853,17 @@
           const el = document.getElementById(id);
           if (el) el.style.display = 'inline-flex';
         });
+        // Extra zekerheid (naast de reset bij het selecteren van de e-mail):
+        // dit is een gloednieuwe order, dus 'Stuur bestelgegevens naar klant'
+        // hoort hier altijd in de beginstaat te starten, nooit nog op
+        // '✓ Verstuurd naar klant' van iets eerders te staan.
+        const btnVKNieuw = document.getElementById('btnVerstuurKlant');
+        if (btnVKNieuw) {
+          btnVKNieuw.disabled = false;
+          btnVKNieuw.textContent = '✉ Stuur bestelgegevens naar klant';
+          btnVKNieuw.style.color = '';
+          btnVKNieuw.style.borderColor = '';
+        }
 
         document.getElementById('orderMelding').innerHTML = '';
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
@@ -1110,6 +1133,16 @@
         const el = document.getElementById(id);
         if (el) el.style.display = 'inline-flex';
       });
+      // Zelfde reset als bij een normale order-aanmaak: dit is een
+      // gloednieuwe (gekloonde) order, dus 'Stuur bestelgegevens naar klant'
+      // start altijd in de beginstaat.
+      const btnVKKloon = document.getElementById('btnVerstuurKlant');
+      if (btnVKKloon) {
+        btnVKKloon.disabled = false;
+        btnVKKloon.textContent = '✉ Stuur bestelgegevens naar klant';
+        btnVKKloon.style.color = '';
+        btnVKKloon.style.borderColor = '';
+      }
       const status = document.getElementById('statusTekst');
       if (status) { status.textContent = `✓ Order #${data.order_id} gekloond van #${data.gekloond_van}`; status.style.color = 'var(--success)'; }
     } catch(e) {
