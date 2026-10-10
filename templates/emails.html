@@ -220,9 +220,12 @@
              inmiddels is (window._emailOrderId), anders null. Bewust
              bovenaan, vóór de order-specifieke acties, zodat 'm niet gemist
              wordt. -->
-        <div id="stapAfhandelen" style="display:flex;padding:10px 14px;border-top:0.5px solid var(--border);background:white;gap:8px;align-items:center;flex-wrap:nowrap;white-space:nowrap;">
-          <button class="btn" onclick="markeerAfgehandeld()" id="btnAfhandelen" style="font-size:12px;padding:7px 14px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);font-weight:500;">✓ Markeer als afgehandeld</button>
+        <!-- Eén rij: knop - tekst - knop - tekst, altijd op één regel. -->
+        <div id="stapAfhandelen" style="display:flex;padding:10px 14px;border-top:0.5px solid var(--border);background:white;gap:10px;align-items:center;flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;">
+          <button class="btn" onclick="markeerAfgehandeld()" id="btnAfhandelen" style="font-size:12px;padding:7px 14px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);font-weight:500;flex-shrink:0;">✓ Markeer als afgehandeld</button>
           <span style="font-size:11px;color:var(--muted);">Werkt met of zonder aangemaakte bestelling</span>
+          <button class="btn" onclick="downloadReceptZonderOrder()" style="font-size:12px;padding:6px 12px;border:1px solid #c5c5c5;background:#e8e8e8;color:var(--text);font-weight:500;flex-shrink:0;">⬇ Recept opslaan (zelf label invullen)</button>
+          <span style="font-size:11px;color:var(--muted);">Recept bij een ander/bestaand ordernummer opslaan?</span>
         </div>
 
         <!-- Acties verschijnen na order aanmaken -->
@@ -232,13 +235,6 @@
             <button class="btn" onclick="downloadReceptEmail()" style="font-size:12px;padding:6px 12px;">⬇ Recept opslaan</button>
             <button class="btn" onclick="downloadEdifactEmail()" style="font-size:12px;padding:6px 12px;">📤 EDIFACT downloaden</button>
           </div>
-        </div>
-
-        <!-- Recept opslaan onder zelf gekozen label/ordernummer, los van of
-             er al een order is — ongewijzigd t.o.v. eerder. -->
-        <div style="padding:8px 14px;border-top:0.5px solid var(--border);background:white;display:flex;gap:8px;align-items:center;flex-wrap:nowrap;white-space:nowrap;">
-          <span style="font-size:11px;color:var(--muted);">Recept bij een ander/bestaand ordernummer opslaan?</span>
-          <button class="btn" onclick="downloadReceptZonderOrder()" style="font-size:12px;padding:6px 12px;border:1px solid #c5c5c5;background:#e8e8e8;color:var(--text);font-weight:500;">⬇ Recept opslaan (zelf label invullen)</button>
         </div>
       </div>
 
