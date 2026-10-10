@@ -135,7 +135,7 @@
     .melding-ok { background: #e8f8ee; color: var(--success); }
     .melding-warn { background: #fef3e2; color: var(--warn); }
     .melding-fout { background: #fdecea; color: var(--danger); }
-    .edifact-box { background: #0d1b2a; color: #7ec8e3; font-family: 'Courier New', monospace; font-size: 10px; padding: 14px; border-radius: var(--radius); line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
+    .json-box { background: #0d1b2a; color: #7ec8e3; font-family: 'Courier New', monospace; font-size: 10px; padding: 14px; border-radius: var(--radius); line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -205,7 +205,7 @@
           <div id="stap4" style="flex:1;padding:10px 14px;border-right:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;opacity:0.4;">
             <div style="display:flex;align-items:center;gap:8px;">
               <span class="stap-nr" id="nr4" style="width:20px;height:20px;border-radius:50%;background:var(--border);color:var(--muted);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">4</span>
-              <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + EDIFACT</div></div>
+              <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + SmartHUB</div></div>
             </div>
             <button id="stapBtn4" onclick="maakOrder()" style="display:none;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--teal);background:var(--teal);color:white;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;">📦 Aanmaken</button>
           </div>
@@ -485,16 +485,8 @@
       bijlageSectie.style.display = 'none';
       if (data.bijlagen && data.bijlagen.length > 0) {
         bijlageLijst.innerHTML = '';
-        let eersteNormaal = -1;
-        data.bijlagen.forEach((bijlage, idx) => {
-          const isEdi = isEdifactBijlage(bijlage);
-          if (!isEdi && eersteNormaal === -1) eersteNormaal = idx;
-        });
-        // Eerste normale bijlage automatisch laden
-        if (eersteNormaal >= 0) openBijlage(eersteNormaal);
-        else if (data.bijlagen.length > 0 && isEdifactBijlage(data.bijlagen[0])) {
-          document.getElementById('uitgelezenInhoud').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px;">EDIFACT bijlage gevonden &#8212; klik op Order Samenvatten om te verwerken.</div>';
-        }
+        // Eerste bijlage automatisch laden
+        openBijlage(0);
       } else {
         // Geen bijlage — wacht tot body geladen is, zoek dan eerdere order
         huidigeEmail.body = data.body || '';
@@ -665,7 +657,7 @@
 
   // --- SmartHUB JSON opbouwen uit de bevestigde o-*-velden (dezelfde
   // vergelijkingstabel-waarden als bij Orders) — zelfde aanpak/structuur als
-  // genereerEdifact() in orders.html, hier aangepast aan de e-mail-stroom:
+  // genereerSmartHubJson() in orders.html, hier aangepast aan de e-mail-stroom:
   // geen bestaande WC-order om 'aantal' uit te lezen, dus dat leiden we af
   // uit o-hoeveelheid / de verpakkingsgrootte van het gekozen medicijn
   // (window._medicijnPermutaties, al geladen via laadMedicijnPermutaties()).
@@ -751,7 +743,7 @@
     html += bouwVerstrekkingsverzoekPreview(json_preview);
     html += `<details style="margin-top:6px;">
         <summary style="font-size:11px;color:var(--muted);cursor:pointer;">Ruwe JSON tonen</summary>
-        <div class="edifact-box" style="margin-top:6px;">${jsonTekst}</div>
+        <div class="json-box" style="margin-top:6px;">${jsonTekst}</div>
       </details>`;
     html += `</div>`;
     document.getElementById('orderMelding').innerHTML = html;
@@ -779,7 +771,7 @@
         btn.style.background = 'var(--success)';
         status.textContent = '✓ Verstuurd naar SmartHUB';
         status.style.color = 'var(--success)';
-        if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'edifact', true);
+        if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'smarthub_verstuurd', true);
       } else {
         btn.textContent = '✗ SmartHUB versturen';
         btn.style.background = 'var(--danger)';
@@ -889,9 +881,7 @@
 
   function eersteNormaleBijlageOpenen() {
     if (!huidigeEmail || !huidigeEmail.bijlagen) return;
-    const idx = huidigeEmail.bijlagen.findIndex(b => !isEdifactBijlage(b));
-    if (idx >= 0) openBijlage(idx);
-    else if (huidigeEmail.bijlagen.length > 0) openBijlage(0);
+    if (huidigeEmail.bijlagen.length > 0) openBijlage(0);
   }
 
   // Eén knop voor 'afgehandeld', los van order-status: stuurt het ordernummer
@@ -1239,44 +1229,6 @@
     const labelSchoon = label.replace(/[^a-zA-Z0-9]/g, '_') || standaardLabel;
     const bestandsnaam = `${labelSchoon}_Farmamed_${achternaam}.pdf`;
     await _downloadBijlageAlsPdf(bestandsnaam);
-  }
-
-  // --- Stroom 4: EDIFACT bijlage herkennen ---
-  function isEdifactBijlage(bijlage) {
-    const naam = (bijlage.naam || '').toLowerCase();
-    return naam.endsWith('.edi') || naam.endsWith('.edifact') || naam.includes('edifact') || naam.includes('verstrekkings');
-  }
-
-  async function verwerkEdifactBijlage(idx) {
-    if (!huidigeEmail) return;
-    document.getElementById('uitgelezenInhoud').innerHTML = '<div class="laden-tekst"><span class="spinner-klein"></span>EDIFACT verwerken en order aanmaken…</div>';
-
-    try {
-      const res = await fetch('/api/verwerk-edifact-bijlage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email_uid: huidigeEmail.uid, bijlage_index: idx })
-      });
-      const data = await res.json();
-
-      if (data.order_id) {
-        const g = data.gegevens || {};
-        document.getElementById('uitgelezenInhoud').innerHTML = `
-          <div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt vanuit EDIFACT</div>
-          <div style="margin-top:10px;font-size:12px;">
-            <div style="font-weight:600;margin-bottom:6px;color:var(--teal-dk)">Uitgelezen uit EDIFACT:</div>
-            ${g.patient_naam ? `<div><span style="color:var(--muted)">Patiënt:</span> ${g.patient_naam}</div>` : ''}
-            ${g.geboortedatum ? `<div><span style="color:var(--muted)">Geboortedatum:</span> ${g.geboortedatum}</div>` : ''}
-            ${g.medicijn ? `<div><span style="color:var(--muted)">Medicijn:</span> ${g.medicijn}</div>` : ''}
-            ${g.hoeveelheid ? `<div><span style="color:var(--muted)">Hoeveelheid:</span> ${g.hoeveelheid}</div>` : ''}
-            ${g.voorschrijver ? `<div><span style="color:var(--muted)">Voorschrijver:</span> ${g.voorschrijver}</div>` : ''}
-          </div>`;
-      } else {
-        document.getElementById('uitgelezenInhoud').innerHTML = `<div class="melding melding-fout">✕ ${data.fout || 'Onbekende fout'}</div>`;
-      }
-    } catch(e) {
-      document.getElementById('uitgelezenInhoud').innerHTML = `<div class="melding melding-fout">Fout: ${e.message}</div>`;
-    }
   }
 
   // --- Tab wisselen ---
