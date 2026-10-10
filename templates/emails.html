@@ -433,7 +433,19 @@
     btnSamenvatten.disabled = true;
     btnSamenvatten.style.display = 'inline-flex';
     btnSamenvatten.textContent = '📊 Order Samenvatten';
-    document.getElementById('btnBevestigOrder').style.display = 'none';
+    // btnBevestigOrder moet HIER ook expliciet terug naar zijn begintoestand
+    // (tekst + disabled), niet alleen verborgen: anders blijft de "✓
+    // Aangemaakt" (uitgeschakelde) staat van een EERDER op een andere e-mail
+    // aangemaakte order gewoon hangen. Klik je dan op deze nieuwe e-mail op
+    // 'Order Samenvatten', dan wordt die stale, al-uitgeschakelde knop gewoon
+    // weer zichtbaar gemaakt (toonOrderPreview() zet alleen de 'display' aan)
+    // — het lijkt dan alsof 'Samenvatten' direct naar '✓ Aangemaakt' springt,
+    // terwijl er in werkelijkheid nooit een nieuwe order-aanmaak-aanvraag is
+    // gedaan (de knop was al disabled, dus onclick deed niets).
+    const btnBevestig = document.getElementById('btnBevestigOrder');
+    btnBevestig.style.display = 'none';
+    btnBevestig.disabled = false;
+    btnBevestig.textContent = '✓ Maak Order Aan';
     document.getElementById('btnAnnuleerOrder').style.display = 'none';
     document.getElementById('statusTekst').textContent = '';
     document.getElementById('orderMelding').innerHTML = '';
@@ -639,8 +651,17 @@
       </div>`;
 
     // Wissel om in de actiebalk: Samenvatten weg, Bevestigen + Annuleren aan.
+    // De tekst/disabled-staat van btnBevestigOrder hier ALTIJD terugzetten
+    // naar de beginstaat — dit is de enige plek waar de knop weer zichtbaar
+    // wordt, dus als hij ooit al op '✓ Aangemaakt' (disabled) stond van een
+    // eerdere order, moet dat hier gegarandeerd gereset worden, anders lijkt
+    // 'Order Samenvatten' direct naar '✓ Aangemaakt' te springen terwijl er
+    // in werkelijkheid geen nieuwe aanmaak-aanvraag is gedaan.
     document.getElementById('btnMaakOrder').style.display = 'none';
-    document.getElementById('btnBevestigOrder').style.display = 'inline-flex';
+    const btnBevestig = document.getElementById('btnBevestigOrder');
+    btnBevestig.disabled = false;
+    btnBevestig.textContent = '✓ Maak Order Aan';
+    btnBevestig.style.display = 'inline-flex';
     document.getElementById('btnAnnuleerOrder').style.display = 'inline-flex';
   }
 
