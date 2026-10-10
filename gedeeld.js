@@ -649,11 +649,12 @@
       const rechtsTdId = (rij.isHoeveelheidSelect || rij.isGebruikSelect || rij.isMedicijnSelect) ? ` id="cel-${rij.veldId}"` : '';
       if (rij.veldId === 'o-hoeveelheid') window._hoeveelheidNaamGroep = naamGroep;
       if (rij.veldId === 'o-gebruiksaanwijzing') window._gebruikNaamGroep = naamGroep;
+      const selectSoort = rij.isMedicijnSelect ? 'medicijn' : (rij.isHoeveelheidSelect ? 'hoeveelheid' : (rij.isGebruikSelect ? 'gebruik' : ''));
       return `<tr>
         <td class="verg-label">${rij.prefix ? `<span class="recept-prefix">${rij.prefix}</span> ` : ''}${rij.label}</td>
-        <td class="verg-radio"><span onclick="_kiesVergRadio(this,'links','${naamGroep}','${rij.veldId || ''}', ${escAttr(rij.dbWaarde)}, ${!!rij.split}, ${!!rij.isMedicijnSelect})" style="cursor:pointer;">${linksActief ? '●' : '○'}</span></td>
+        <td class="verg-radio"><span onclick="_kiesVergRadio(this,'links','${naamGroep}','${rij.veldId || ''}', ${escAttr(rij.dbWaarde)}, ${!!rij.split}, '${selectSoort}')" style="cursor:pointer;">${linksActief ? '●' : '○'}</span></td>
         <td>${linksHtml}</td>
-        <td class="verg-radio" id="radio-rechts-${naamGroep}"><span onclick="_kiesVergRadio(this,'rechts','${naamGroep}','${rij.veldId || ''}', null, ${!!rij.split}, ${!!rij.isMedicijnSelect})" style="cursor:pointer;">${rechtsActief ? '●' : '○'}</span></td>
+        <td class="verg-radio" id="radio-rechts-${naamGroep}"><span onclick="_kiesVergRadio(this,'rechts','${naamGroep}','${rij.veldId || ''}', null, ${!!rij.split}, '${selectSoort}')" style="cursor:pointer;">${rechtsActief ? '●' : '○'}</span></td>
         <td${rechtsTdId}>${rechtsHtml}</td>
       </tr>`;
     };
@@ -755,8 +756,12 @@
       </div>`;
   }
 
-  // --- Klik op een radiorondje in de vergelijkingstabel ---
-  function _kiesVergRadio(bronEl, kant, naamGroep, veldId, dbWaarde, isSplit, isSelect) {
+  // --- Klik op een radiorondje in de vergelijkingstabel. 'selectSoort' is
+  // '' (vrij tekstveld), 'medicijn', 'hoeveelheid' of 'gebruik' — voor de
+  // drie dropdown-rijen moet de linkerkant-klik de database-waarde LETTERLIJK
+  // overnemen (geen fuzzy-match, geen 'standaard'-permutatie), anders komt de
+  // samenvatting niet overeen met de knop die aan staat. ---
+  function _kiesVergRadio(bronEl, kant, naamGroep, veldId, dbWaarde, isSplit, selectSoort) {
     const rij = bronEl.closest('tr');
     if (!rij) return;
     const radioCellen = rij.querySelectorAll('.verg-radio span');
@@ -770,7 +775,7 @@
         const aEl = document.getElementById('o-achternaam'); if (aEl) aEl.value = delen.slice(1).join(' ') || '';
       } else if (veldId) {
         const hiddenEl = document.getElementById(veldId);
-        if (isSelect) {
+        if (selectSoort === 'medicijn') {
           // Geen fuzzy-match meer tegen het gecontroleerde assortiment: de
           // database-waarde wordt LETTERLIJK overgenomen (zelfde waarde die
           // links in de tabel te zien is) — geen gok die op een heel ander
@@ -784,6 +789,23 @@
               `_vergRechtsGewijzigd('${veldId}', this.value, '${naamGroep}'); _medicijnGewijzigd(this.value);`);
           }
           _medicijnGewijzigd(dbWaarde || '');
+        } else if (selectSoort === 'hoeveelheid' || selectSoort === 'gebruik') {
+          // Zelfde principe als bij medicijn: de database-waarde letterlijk
+          // overnemen, niet terugvallen op de 'standaard' permutatie voor het
+          // huidige medicijn — anders wint de default-hoeveelheid alsnog van
+          // de knop die net is aangeklikt.
+          if (hiddenEl) hiddenEl.value = dbWaarde || '';
+          const huidigMedicijn = document.getElementById('o-medicijn')?.value || '';
+          const permutaties = _vindPermutaties(huidigMedicijn) || { hoeveelheden: [], gebruik_opties: [], eenheid_type: 'tube' };
+          const cel = document.getElementById('cel-' + veldId);
+          if (cel) {
+            if (selectSoort === 'hoeveelheid') {
+              cel.innerHTML = _bouwHoeveelheidSelectHtml('verg-' + veldId, dbWaarde || '', permutaties,
+                `_vergRechtsGewijzigd('${veldId}', this.value, '${naamGroep}')`);
+            } else {
+              cel.innerHTML = _bouwGebruikSelectHtml('verg-' + veldId + '-select', 'verg-' + veldId, dbWaarde || '', permutaties, naamGroep);
+            }
+          }
         } else {
           const zichtbaarEl = document.getElementById('verg-' + veldId);
           if (hiddenEl) hiddenEl.value = dbWaarde || '';
@@ -848,7 +870,13 @@
   }
 
   // --- Ververst de Hoeveelheid- en Gebruik-dropdowns zodra het medicijn
-  // wisselt (via de select of via terugklikken naar de databasekant) ---
+  // wisselt (via de select of via terugklikken naar de databasekant).
+  //
+  // BELANGRIJK: dit mag de knop die de apotheker al heeft gezet (links/
+  // database of rechts/uitgelezen) niet stilzwijgend overschrijven met een
+  // 'standaard' permutatie. Welk medicijn er ook gekozen wordt, de al
+  // actieve hoeveelheid/gebruik-waarde blijft gewoon staan — alleen als er
+  // nog HELEMAAL geen waarde is (nieuwe rij, leeg) kiezen we een default. ---
   function _medicijnGewijzigd(nieuweMedicijnNaam) {
     const zet = (id, waarde) => { const el = document.getElementById(id); if (el) el.value = waarde || ''; };
     const permutaties = _vindPermutaties(nieuweMedicijnNaam) || { hoeveelheden: [], gebruik_opties: [], eenheid_type: 'tube' };
@@ -856,12 +884,18 @@
     const hoeveelheidCel = document.getElementById('cel-o-hoeveelheid');
     if (hoeveelheidCel && window._hoeveelheidNaamGroep) {
       const naamGroep = window._hoeveelheidNaamGroep;
+      const huidigeWaarde = document.getElementById('o-hoeveelheid')?.value || '';
       if (permutaties.hoeveelheden.length > 0) {
         const eenheid = _eenheidLabel(permutaties.eenheid_type);
-        const standaardWaarde = `${permutaties.hoeveelheden[0]} ${eenheid}`;
-        hoeveelheidCel.innerHTML = _bouwHoeveelheidSelectHtml('verg-o-hoeveelheid', standaardWaarde, permutaties,
+        const behoudenWaarde = huidigeWaarde || `${permutaties.hoeveelheden[0]} ${eenheid}`;
+        hoeveelheidCel.innerHTML = _bouwHoeveelheidSelectHtml('verg-o-hoeveelheid', behoudenWaarde, permutaties,
           `_vergRechtsGewijzigd('o-hoeveelheid', this.value, '${naamGroep}')`);
-        zet('o-hoeveelheid', standaardWaarde);
+        zet('o-hoeveelheid', behoudenWaarde);
+      } else if (huidigeWaarde) {
+        // Geen permutatiedata voor dit medicijn, maar er stond al een waarde
+        // (links of rechts gekozen) — die blijven tonen, niet leegmaken.
+        hoeveelheidCel.innerHTML = `<span class="verg-waarde-recept"><input type="text" id="verg-o-hoeveelheid" value="${huidigeWaarde.replace(/"/g,'&quot;')}"
+          oninput="_vergRechtsGewijzigd('o-hoeveelheid', this.value, '${naamGroep}')"></span>`;
       } else {
         // Geen permutatiedata voor dit medicijn — terugval naar vrij tekstveld
         hoeveelheidCel.innerHTML = `<span class="verg-waarde-recept"><input type="text" id="verg-o-hoeveelheid" value=""
@@ -873,10 +907,11 @@
     const gebruikCel = document.getElementById('cel-o-gebruiksaanwijzing');
     if (gebruikCel && window._gebruikNaamGroep) {
       const naamGroep = window._gebruikNaamGroep;
+      const huidigeGebruikWaarde = document.getElementById('o-gebruiksaanwijzing')?.value || '';
       const standaardOptie = permutaties.gebruik_opties.find(g => g.is_standaard) || permutaties.gebruik_opties[0];
-      const standaardWaarde = standaardOptie ? standaardOptie.code : '';
-      gebruikCel.innerHTML = _bouwGebruikSelectHtml('verg-o-gebruiksaanwijzing-select', 'verg-o-gebruiksaanwijzing', standaardWaarde, permutaties, naamGroep);
-      zet('o-gebruiksaanwijzing', standaardWaarde);
+      const behoudenWaarde = huidigeGebruikWaarde || (standaardOptie ? standaardOptie.code : '');
+      gebruikCel.innerHTML = _bouwGebruikSelectHtml('verg-o-gebruiksaanwijzing-select', 'verg-o-gebruiksaanwijzing', behoudenWaarde, permutaties, naamGroep);
+      zet('o-gebruiksaanwijzing', behoudenWaarde);
     }
   }
 
