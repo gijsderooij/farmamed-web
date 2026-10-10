@@ -215,17 +215,24 @@
           </div>
         </div>
 
-        <!-- Altijd zichtbaar en klikbaar zodra een e-mail geselecteerd is —
-             los van order-status: stuurt het ordernummer mee als dat er
-             inmiddels is (window._emailOrderId), anders null. Bewust
-             bovenaan, vóór de order-specifieke acties, zodat 'm niet gemist
-             wordt. -->
-        <!-- Eén rij: knop - tekst - knop - tekst, altijd op één regel. -->
-        <div id="stapAfhandelen" style="display:flex;padding:10px 14px;border-top:0.5px solid var(--border);background:white;gap:10px;align-items:center;flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;">
+        <!-- Dé enige actiebalk: alle knoppen staan hier, nooit meer onder de
+             vergelijkingstabel. 'Markeer als afgehandeld' en 'Recept opslaan'
+             werken altijd; 'Order Samenvatten' alleen als de gegevens
+             compleet zijn (zelfde disabled-logica als voorheen). Na
+             Samenvatten verschijnen 'Maak Order Aan' en 'Annuleren' hier ook
+             (zie toonOrderPreview/annuleerOrderPreview hieronder) — de
+             samenvatting zelf komt boven de tabel te staan, niet hier. -->
+        <div id="stapAfhandelen" style="display:flex;padding:10px 14px;border-top:0.5px solid var(--border);background:white;gap:8px;align-items:center;flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;">
           <button class="btn" onclick="markeerAfgehandeld()" id="btnAfhandelen" style="font-size:12px;padding:7px 14px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);font-weight:500;flex-shrink:0;">✓ Markeer als afgehandeld</button>
-          <span style="font-size:11px;color:var(--muted);">Werkt met of zonder aangemaakte bestelling</span>
           <button class="btn" onclick="downloadReceptZonderOrder()" style="font-size:12px;padding:6px 12px;border:1px solid #c5c5c5;background:#e8e8e8;color:var(--text);font-weight:500;flex-shrink:0;">⬇ Recept opslaan (zelf label invullen)</button>
-          <span style="font-size:11px;color:var(--muted);">Recept bij een ander/bestaand ordernummer opslaan?</span>
+          <span style="width:0.5px;align-self:stretch;background:var(--border);flex-shrink:0;"></span>
+          <button id="btnMaakOrder" onclick="maakOrder()" disabled class="btn"
+            style="font-size:12px;padding:7px 14px;background:var(--teal);color:white;border:none;font-weight:500;flex-shrink:0;">
+            📊 Order Samenvatten
+          </button>
+          <button id="btnBevestigOrder" onclick="bevestigOrderAanmaak()" style="display:none;font-size:12px;padding:7px 14px;background:var(--success);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:500;flex-shrink:0;font-family:'DM Sans',sans-serif;">✓ Maak Order Aan</button>
+          <button id="btnAnnuleerOrder" onclick="annuleerOrderPreview()" style="display:none;font-size:12px;padding:7px 14px;background:white;color:var(--muted);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-weight:500;flex-shrink:0;font-family:'DM Sans',sans-serif;">Annuleren</button>
+          <span class="status-tekst" id="statusTekst" style="flex-shrink:0;"></span>
         </div>
 
         <!-- Acties verschijnen na order aanmaken -->
@@ -276,19 +283,20 @@
             <div class="tab" onclick="toonTab('order')">📦 Nieuwe order</div>
           </div>
 
-          <!-- Tab: Uitgelezen data -->
+          <!-- Tab: Uitgelezen data — orderMelding (samenvatting/preview) staat
+               hier bewust BOVEN uitgelezenInhoud (de vergelijkingstabel). -->
           <div class="tab-inhoud actief" id="tab-uitgelezen">
+            <div id="orderMelding"></div>
             <div id="uitgelezenInhoud">
               <div style="color:var(--muted);font-size:13px;padding:8px;">Open een bijlage om het recept uit te lezen.</div>
             </div>
           </div>
 
-          <!-- Tab: Nieuwe order aanmaken -->
-          <div class="tab-inhoud" id="tab-order">
-            <div id="orderMelding"></div>
-            <!-- Verborgen velden: houden de daadwerkelijke (door de vergelijkingstabel
-                 berekende/gekozen) waardes vast. De tabel zelf toont en laat je kiezen,
-                 maar deze velden zijn wat maakOrder() straks echt verstuurt. -->
+          <!-- Verborgen velden: houden de daadwerkelijke (door de vergelijkingstabel
+               berekende/gekozen) waardes vast. De tabel zelf toont en laat je kiezen,
+               maar deze velden zijn wat maakOrder() straks echt verstuurt. Puur
+               data, geen eigen zichtbaar blok (vandaar tab-order nu display:none). -->
+          <div class="tab-inhoud" id="tab-order" style="display:none;">
             <input type="hidden" id="o-voornaam"><input type="hidden" id="o-achternaam">
             <input type="hidden" id="o-geboortedatum"><input type="hidden" id="o-bsn">
             <input type="hidden" id="o-email"><input type="hidden" id="o-telefoon">
@@ -296,15 +304,7 @@
             <input type="hidden" id="o-voorschrijver"><input type="hidden" id="o-agb_code">
             <input type="hidden" id="o-hoeveelheid"><input type="hidden" id="o-gebruiksaanwijzing">
             <input type="hidden" id="o-medicijn"><input type="hidden" id="o-iter">
-            <div id="bsn-email-fout" style="display:none;font-size:11px;color:var(--danger);padding-left:130px;margin-top:-4px;margin-bottom:4px;">⚠ BSN moet exact 9 cijfers zijn (geen spaties of letters)</div>
-          </div>
-
-          <div class="actiebalk" style="justify-content:space-between;align-items:center;">
-            <span class="status-tekst" id="statusTekst"></span>
-            <button id="btnMaakOrder" onclick="maakOrder()" disabled
-              style="padding:8px 18px;background:var(--teal);color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;">
-              📊 Order Samenvatten
-            </button>
+            <div id="bsn-email-fout" style="display:none;font-size:11px;color:var(--danger);">⚠ BSN moet exact 9 cijfers zijn (geen spaties of letters)</div>
           </div>
         </div>
       </div>
@@ -421,7 +421,12 @@
     if (btnAfhandelen) { btnAfhandelen.disabled = false; btnAfhandelen.textContent = '✓ Markeer als afgehandeld'; }
 
     // Reset
-    document.getElementById('btnMaakOrder').disabled = true;
+    const btnSamenvatten = document.getElementById('btnMaakOrder');
+    btnSamenvatten.disabled = true;
+    btnSamenvatten.style.display = 'inline-flex';
+    btnSamenvatten.textContent = '📊 Order Samenvatten';
+    document.getElementById('btnBevestigOrder').style.display = 'none';
+    document.getElementById('btnAnnuleerOrder').style.display = 'none';
     document.getElementById('statusTekst').textContent = '';
     document.getElementById('orderMelding').innerHTML = '';
     document.getElementById('receptViewer').style.display = 'none';
@@ -602,11 +607,60 @@
 
 
 
+  // --- Lokale override van gedeeld.js's toonOrderPreview(): dezelfde
+  // samenvatting (patiënt, regels, totaal, waarschuwing), maar ZONDER de
+  // eigen 'Bevestig'/'Annuleren'-knoppen erin te bakken — die staan hier
+  // vast in de actiebalk (#btnBevestigOrder/#btnAnnuleerOrder), niet meer
+  // onder de tabel. Wordt door maakOrder() (gedeeld.js) aangeroepen zoals
+  // altijd; alleen deze emails.html-versie "wint" omdat hij na gedeeld.js
+  // geladen wordt.
+  function toonOrderPreview(preview) {
+    const regelsHtml = preview.regels.map(r =>
+      `<div style="display:flex;justify-content:space-between;padding:3px 0;">
+        <span>${r.aantal}× ${r.naam}</span>
+        <span style="font-family:monospace;">€${r.bedrag.toFixed(2)}</span>
+      </div>`
+    ).join('');
+
+    const waarschuwing = !preview.medicijn_gevonden
+      ? `<div class="melding melding-fout" style="margin-bottom:8px;">⚠ Medicijn "${preview.medicijn}" niet gevonden in WooCommerce — deze regel wordt NIET meegenomen in de order. Controleer de medicijnkeuze voordat je doorgaat.</div>`
+      : '';
+
+    document.getElementById('orderMelding').innerHTML = `
+      <div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:white;margin-bottom:12px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;">Controleer voordat je de order aanmaakt:</div>
+        ${waarschuwing}
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">${preview.patient_naam || '—'} · ${preview.email || '—'}</div>
+        <div style="font-size:12px;border-top:1px solid var(--border);padding-top:6px;">${regelsHtml}</div>
+        ${preview.coulance_van_toepassing ? `<div style="font-size:11px;color:var(--teal-dk);margin-top:4px;">ℹ Coulance-korting van toepassing (€${preview.coulance_bedrag_per_tube.toFixed(2)} per tube)</div>` : ''}
+        <div style="display:flex;justify-content:space-between;font-weight:600;font-size:13px;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;">
+          <span>Totaal</span><span style="font-family:monospace;">€${preview.totaal.toFixed(2)}</span>
+        </div>
+      </div>`;
+
+    // Wissel om in de actiebalk: Samenvatten weg, Bevestigen + Annuleren aan.
+    document.getElementById('btnMaakOrder').style.display = 'none';
+    document.getElementById('btnBevestigOrder').style.display = 'inline-flex';
+    document.getElementById('btnAnnuleerOrder').style.display = 'inline-flex';
+  }
+
+  // Annuleert de preview: terug naar alleen 'Order Samenvatten' in de actiebalk.
+  function annuleerOrderPreview() {
+    document.getElementById('orderMelding').innerHTML = '';
+    document.getElementById('btnBevestigOrder').style.display = 'none';
+    document.getElementById('btnAnnuleerOrder').style.display = 'none';
+    const btnSamenvatten = document.getElementById('btnMaakOrder');
+    btnSamenvatten.style.display = 'inline-flex';
+    btnSamenvatten.disabled = false;
+    btnSamenvatten.textContent = '📊 Order Samenvatten';
+  }
+
   // --- Daadwerkelijke aanmaak, pas aangeroepen ná bevestiging in de preview ---
   async function bevestigOrderAanmaak() {
     const payload = window._pendingOrderPayload;
-    const btn = document.getElementById('btnMaakOrder');
+    const btn = document.getElementById('btnBevestigOrder');
     const status = document.getElementById('statusTekst');
+    document.getElementById('btnAnnuleerOrder').style.display = 'none';
     document.getElementById('orderMelding').innerHTML = '';
     btn.disabled = true;
     btn.textContent = '⏳ Bezig…';
@@ -669,7 +723,8 @@
     } catch(e) {
       document.getElementById('orderMelding').innerHTML = `<div class="melding melding-fout">✕ Fout: ${e.message}</div>`;
       btn.disabled = false;
-      btn.textContent = '📊 Order Samenvatten';
+      btn.textContent = '✓ Maak Order Aan';
+      document.getElementById('btnAnnuleerOrder').style.display = 'inline-flex';
     }
   }
 
