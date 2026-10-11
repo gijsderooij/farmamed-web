@@ -887,9 +887,27 @@ MEDICIJN_OPTIES_ARTIKELCODES = {
     "Tretinoïne crème 0.1% FNA - tegen huidveroudering (30 gram)": {"code": "90112457", "name": "TRETINOINE 0,1% SAW CREME"},
     "Proefbehandeling pijnstillende crèmes SAW Kopsky": {"code": "90143747", "name": "PROEFBEHANDELING PIJNSTILLENDE CREMES SAW KOPSKY"},
     "Proefbehandeling pijnstillende crèmes SAW V02": {"code": "90990965", "name": "PROEFBEHANDELING PIJNSTILLENDE CREMES SAW V02"},
-    # 'Isoso in Lidocaine', 'Naltrexon (Low Dose)...', 'Tadalafil 5mg...' en
-    # 'Oxybutynine' staan bewust NIET in deze lijst — daar is (nog) geen
-    # bekende SmartHUB-artikelcode voor; die vallen terug op de
+    # Tadalafil + LDN (Naltrexon Low Dose): artikelcodes ontvangen van Gijs op
+    # 11 okt 2026 (Permutaties_Farmamed_sjabloon_GDR.xlsx, tabblad
+    # 'Veranderen') — deze stonden tot nu toe expres NIET in deze lijst
+    # (zie het oude commentaar hieronder), waardoor er 'ONBEKEND' werd
+    # verstuurd naar SmartHUB en dat terecht werd afgewezen met
+    # "Article ... NotFound". De 'waarde' hier is letterlijk de eerste
+    # kolom (dropdown-waarde) uit MEDICIJN_OPTIES in gedeeld.js.
+    "Tadalafil 5mg tabletten op recept (Sandoz)": {"code": "90691841", "name": "TADALAFIL TABLET FILMOMHULD SAW 5MG"},
+    "Tadalafil 10mg tabletten op recept (Sandoz)": {"code": "90096812", "name": "TADALAFIL TABLET FILMOMHULD SAW 10MG"},
+    "Tadalafil 20mg tabletten op recept (Sandoz)": {"code": "90137309", "name": "TADALAFIL TABLET FILMOMHULD SAW 20MG"},
+    "LDN (Naltrexon Low Dose) 0,5mg capsules": {"code": "90772835", "name": "LDN SAW CAPSULE 0.5MG"},
+    "LDN (Naltrexon Low Dose) 1,0mg capsules": {"code": "90813332", "name": "LDN SAW CAPSULE 1.0MG"},
+    "LDN (Naltrexon Low Dose) 1,5mg capsules": {"code": "90853829", "name": "LDN SAW CAPSULE 1.5MG"},
+    "LDN (Naltrexon Low Dose) 2,0mg capsules": {"code": "90894326", "name": "LDN SAW CAPSULE 2.0MG"},
+    "LDN (Naltrexon Low Dose) 2,5mg capsules": {"code": "90934823", "name": "LDN SAW CAPSULE 2.5MG"},
+    "LDN (Naltrexon Low Dose) 3,0mg capsules": {"code": "90975320", "name": "LDN SAW CAPSULE 3.0MG"},
+    "LDN (Naltrexon Low Dose) 4,5mg capsules": {"code": "90015818", "name": "LDN SAW CAPSULE 4.5MG"},
+    "LDN (Naltrexon Low Dose) druppels 5mg/ml": {"code": "90056315", "name": "LDN SAW DRUPPELS 5MG/ML - 10ML"},
+    # 'Isoso in Lidocaine' en 'Oxybutynine' staan bewust NOG STEEDS NIET in
+    # deze lijst — die komen niet voor in de Excel hierboven, dus daar is nog
+    # steeds geen bekende SmartHUB-artikelcode voor; die vallen terug op de
     # database-opzoeking/fuzzy-match/'ONBEKEND' hieronder, in plaats van dat
     # hier een gok wordt vastgelegd.
 }
