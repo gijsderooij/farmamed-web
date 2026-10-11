@@ -1235,9 +1235,33 @@ async def verstuur_smarthub(request: Request):
                 conn.close()
             except Exception:
                 pass
+        # Bij een foutstatus (bijv. 400) stuurt SmartHUB vaak een JSON-body
+        # terug met de PRECIEZE validatiereden (welk veld, welke regel) — die
+        # moet de medewerker te zien krijgen in plaats van alleen "HTTP 400",
+        # anders is er niets om op te sturen naar SmartHUB-support of zelf te
+        # herleiden. We proberen eerst een leesbaar veld uit de JSON-body te
+        # pakken (message/error/title/detail — SmartHUB gebruikt niet overal
+        # exact dezelfde sleutel), en vallen terug op de ruwe tekst.
+        smarthub_foutdetail = None
+        if not ok:
+            try:
+                foutbody = smarthub_resp.json()
+                if isinstance(foutbody, dict):
+                    smarthub_foutdetail = (
+                        foutbody.get("message") or foutbody.get("error")
+                        or foutbody.get("title") or foutbody.get("detail")
+                        or foutbody.get("errors")
+                    )
+                    if isinstance(smarthub_foutdetail, (list, dict)):
+                        smarthub_foutdetail = json.dumps(smarthub_foutdetail, ensure_ascii=False)
+            except Exception:
+                pass
+            if not smarthub_foutdetail:
+                smarthub_foutdetail = smarthub_resp.text[:500] or None
         return JSONResponse(content={
             "ok": ok,
             "status_code": smarthub_resp.status_code,
+            "fout": None if ok else f"HTTP {smarthub_resp.status_code}: {smarthub_foutdetail}" if smarthub_foutdetail else f"HTTP {smarthub_resp.status_code}",
             "bericht": smarthub_bericht,
             "response": smarthub_resp.text[:500],
             "opslag_fout": opslag_fout,
