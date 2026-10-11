@@ -216,8 +216,12 @@
           </div>
         </div>
 
-        <!-- Dé enige actiebalk: alle knoppen staan hier, nooit meer onder de
-             vergelijkingstabel. 'Markeer als afgehandeld' en 'Recept opslaan'
+        <!-- Dé enige actiebalk: ALLEEN knoppen met vaste, nooit-wijzigende
+             labels — een knop verandert hier nooit in een resultaat-tekst
+             (geen "✓ Aangemaakt"/"✓ Verstuurd" meer op de knop zelf). Het
+             resultaat van een actie (gelukt/mislukt) komt in de aparte
+             meldingen-balk hieronder (#meldingenBalk) te staan, nooit in de
+             actiebalk zelf. 'Markeer als afgehandeld' en 'Recept opslaan'
              werken altijd; 'Order Samenvatten' alleen als de gegevens
              compleet zijn (zelfde disabled-logica als voorheen). Na
              Samenvatten verschijnen 'Maak Order Aan' en 'Annuleren' hier ook
@@ -225,7 +229,7 @@
              samenvatting zelf komt boven de tabel te staan, niet hier. -->
         <div id="stapAfhandelen" style="display:flex;padding:10px 14px;border-top:0.5px solid var(--border);background:white;gap:8px;align-items:center;flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;">
           <button class="btn" onclick="markeerAfgehandeld()" id="btnAfhandelen" style="font-size:12px;padding:7px 14px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);font-weight:500;flex-shrink:0;">✓ Markeer als afgehandeld</button>
-          <button class="btn" onclick="downloadReceptZonderOrder()" style="font-size:12px;padding:6px 12px;border:1px solid #c5c5c5;background:#e8e8e8;color:var(--text);font-weight:500;flex-shrink:0;">⬇ Recept opslaan (zelf label invullen)</button>
+          <button class="btn" onclick="downloadReceptZonderOrder()" style="font-size:12px;padding:6px 12px;border:1px solid #c5c5c5;background:#e8e8e8;color:var(--text);font-weight:500;flex-shrink:0;">⬇ Recept opslaan (order# invullen)</button>
           <span style="width:0.5px;align-self:stretch;background:var(--border);flex-shrink:0;"></span>
           <button id="btnMaakOrder" onclick="maakOrder()" disabled class="btn"
             style="font-size:12px;padding:7px 14px;background:var(--teal);color:white;border:none;font-weight:500;flex-shrink:0;">
@@ -241,8 +245,13 @@
           <button id="btnMaakSmartHubJson" onclick="genereerSmartHubJsonEmail()" class="btn" style="display:none;font-size:12px;padding:6px 12px;flex-shrink:0;">📄 SmartHUB JSON aanmaken</button>
           <button id="btnSmartHubVersturen" onclick="verstuurSmartHubEmail()" style="display:none;font-size:12px;padding:7px 14px;background:#2980b9;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:500;flex-shrink:0;font-family:'DM Sans',sans-serif;">📡 SmartHUB versturen</button>
           <button id="btnVerstuurKlant" onclick="verstuurNaarKlant(window._emailOrderId)" class="btn" style="display:none;font-size:12px;padding:6px 12px;flex-shrink:0;">✉ Stuur bestelgegevens naar klant</button>
-          <span class="status-tekst" id="statusTekst" style="flex-shrink:0;"></span>
         </div>
+        <!-- Meldingen-balk: aparte regel ONDER de actiebalk, puur voor de
+             resultaat-tekst van een actie (bijv. "Order #1234 aangemaakt",
+             "Verstuurd naar SmartHUB", "Verstuurd naar klant"). De knoppen
+             hierboven veranderen zelf nooit meer van tekst om dit te tonen —
+             zie setMelding()/wisMelding() in de JS hieronder. -->
+        <div id="meldingenBalk" style="display:none;padding:7px 14px;border-top:0.5px solid var(--border);background:white;font-size:12px;font-weight:500;"></div>
       </div>
 
       <div class="detail-split">
@@ -320,6 +329,27 @@
   let huidigeEmail = null;
   let receptData = null;
   let huidigeBijlageIndex = null;
+
+  // --- Meldingen-balk: aparte regel onder de actiebalk, puur voor het
+  // resultaat van een actie ("Order #1234 aangemaakt", "Verstuurd naar
+  // SmartHUB", "Verstuurd naar klant", of een foutmelding). De knoppen in de
+  // actiebalk zelf houden altijd hun vaste actie-label en veranderen hier
+  // nooit meer in een resultaat-tekst. ---
+  function setMelding(tekst, soort) {
+    const el = document.getElementById('meldingenBalk');
+    if (!el) return;
+    if (!tekst) { wisMelding(); return; }
+    const kleur = soort === 'fout' ? 'var(--danger)' : soort === 'warn' ? 'var(--warn)' : 'var(--success)';
+    el.textContent = tekst;
+    el.style.color = kleur;
+    el.style.display = 'block';
+  }
+  function wisMelding() {
+    const el = document.getElementById('meldingenBalk');
+    if (!el) return;
+    el.textContent = '';
+    el.style.display = 'none';
+  }
 
   // --- E-mails laden ---
   async function herladenInbox() {
@@ -459,7 +489,7 @@
     btnBevestig.disabled = false;
     btnBevestig.textContent = '✓ Maak Order Aan';
     document.getElementById('btnAnnuleerOrder').style.display = 'none';
-    document.getElementById('statusTekst').textContent = '';
+    wisMelding();
     document.getElementById('orderMelding').innerHTML = '';
     document.getElementById('receptViewer').style.display = 'none';
     document.getElementById('receptHeader').style.display = 'none';
@@ -688,6 +718,31 @@
     btnSamenvatten.textContent = '📊 Order Samenvatten';
   }
 
+  // --- Lokale override van gedeeld.js's verstuurNaarKlant(): zelfde
+  // aanroep/logica, maar de knop zelf houdt altijd zijn vaste actie-label
+  // ('✉ Stuur bestelgegevens naar klant') — het resultaat ("Verstuurd naar
+  // klant" / een foutmelding) gaat naar de meldingen-balk (setMelding), niet
+  // naar de knoptekst zelf. Wint van gedeeld.js omdat dit bestand later
+  // geladen wordt.
+  async function verstuurNaarKlant(orderId) {
+    const btn = document.getElementById('btnVerstuurKlant');
+    const basistekst = '✉ Stuur bestelgegevens naar klant';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Bezig…'; }
+    try {
+      const resp = await fetch(`/api/order/${orderId}/verstuur-naar-klant`, { method: 'POST' });
+      const result = await resp.json();
+      if (btn) { btn.disabled = false; btn.textContent = basistekst; btn.style.color = ''; btn.style.borderColor = ''; }
+      if (result.ok) {
+        setMelding('✓ Verstuurd naar klant', 'ok');
+      } else {
+        setMelding('✕ Kon niet versturen: ' + (result.fout || 'onbekende fout'), 'fout');
+      }
+    } catch(e) {
+      if (btn) { btn.disabled = false; btn.textContent = basistekst; btn.style.color = ''; btn.style.borderColor = ''; }
+      setMelding('✕ Kon niet versturen (netwerkfout): ' + e.message, 'fout');
+    }
+  }
+
   // --- SmartHUB JSON opbouwen uit de bevestigde o-*-velden (dezelfde
   // vergelijkingstabel-waarden als bij Orders) — zelfde aanpak/structuur als
   // genereerSmartHubJson() in orders.html, hier aangepast aan de e-mail-stroom:
@@ -785,7 +840,11 @@
   async function verstuurSmartHubEmail() {
     if (!window._emailOrderId) return;
     const btn = document.getElementById('btnSmartHubVersturen');
-    const status = document.getElementById('statusTekst');
+    // Vaste labeltekst van deze knop — wijzigt nooit permanent, alleen
+    // tijdens het versturen zelf (transient), en het resultaat gaat naar de
+    // meldingen-balk (setMelding), niet naar de knoptekst.
+    const basistekst = '📡 SmartHUB versturen';
+    const basisKleur = '#2980b9';
     btn.disabled = true;
     btn.textContent = '⏳ Versturen…';
     try {
@@ -799,25 +858,20 @@
         })
       });
       const data = await res.json();
+      btn.textContent = basistekst;
+      btn.style.background = basisKleur;
+      btn.disabled = false;
       if (data.ok) {
-        btn.textContent = '✓ SmartHUB versturen';
-        btn.style.background = 'var(--success)';
-        status.textContent = '✓ Verstuurd naar SmartHUB';
-        status.style.color = 'var(--success)';
+        setMelding('✓ Verstuurd naar SmartHUB', 'ok');
         if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'smarthub_verstuurd', true);
       } else {
-        btn.textContent = '✗ SmartHUB versturen';
-        btn.style.background = 'var(--danger)';
-        btn.disabled = false;
-        status.textContent = data.fout || `HTTP ${data.status_code}`;
-        status.style.color = 'var(--danger)';
+        setMelding('✕ ' + (data.fout || `HTTP ${data.status_code}`), 'fout');
       }
     } catch(e) {
-      btn.textContent = '✗ SmartHUB versturen';
-      btn.style.background = 'var(--danger)';
+      btn.textContent = basistekst;
+      btn.style.background = basisKleur;
       btn.disabled = false;
-      status.textContent = e.message;
-      status.style.color = 'var(--danger)';
+      setMelding('✕ ' + e.message, 'fout');
     }
   }
 
@@ -825,7 +879,6 @@
   async function bevestigOrderAanmaak() {
     const payload = window._pendingOrderPayload;
     const btn = document.getElementById('btnBevestigOrder');
-    const status = document.getElementById('statusTekst');
     document.getElementById('btnAnnuleerOrder').style.display = 'none';
     document.getElementById('orderMelding').innerHTML = '';
     btn.disabled = true;
@@ -845,10 +898,17 @@
         // Stap 4 voltooid: stap 5 actief
         zetStap(5);
 
+        // 'Maak Order Aan' is nu gedaan — er is geen actie meer op die knop
+        // te ondernemen, dus die (en 'Order Samenvatten') verdwijnen uit de
+        // actiebalk. Het resultaat staat in de meldingen-balk hieronder.
+        document.getElementById('btnMaakOrder').style.display = 'none';
+        btn.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = '✓ Maak Order Aan';
+
         // De order-afhankelijke knoppen in de actiebalk tonen — recept
         // opslaan (met ordernummer), SmartHUB JSON aanmaken + versturen,
-        // en de klant-mail. Geen aparte tekst/rij meer; het ordernummer
-        // staat al in de statusbalk hieronder.
+        // en de klant-mail.
         ['scheidingNaOrder', 'btnReceptOpslaanMetOrder', 'btnMaakSmartHubJson', 'btnSmartHubVersturen', 'btnVerstuurKlant'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.style.display = 'inline-flex';
@@ -866,9 +926,7 @@
         }
 
         document.getElementById('orderMelding').innerHTML = '';
-        status.textContent = `✓ Order #${data.order_id} aangemaakt`;
-        status.style.color = 'var(--success)';
-        btn.textContent = '✓ Aangemaakt';
+        setMelding(`✓ Order #${data.order_id} aangemaakt`, 'ok');
         // Werklijst: markeer WC Order als gedaan
         if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'order', true);
       } else {
@@ -1127,8 +1185,13 @@
       if (btn) { btn.textContent = `✓ Gekloond als order #${data.order_id}`; btn.style.background = 'var(--success)'; }
 
       // Zelfde succesweergave als een normale order-aanmaak: de
-      // order-afhankelijke knoppen in de actiebalk tonen.
+      // order-afhankelijke knoppen in de actiebalk tonen, en 'Order
+      // Samenvatten'/'Maak Order Aan' weg (er is al een order).
       window._emailOrderId = data.order_id;
+      const btnSamenvattenKloon = document.getElementById('btnMaakOrder');
+      if (btnSamenvattenKloon) btnSamenvattenKloon.style.display = 'none';
+      const btnBevestigKloon = document.getElementById('btnBevestigOrder');
+      if (btnBevestigKloon) btnBevestigKloon.style.display = 'none';
       ['scheidingNaOrder', 'btnReceptOpslaanMetOrder', 'btnMaakSmartHubJson', 'btnSmartHubVersturen', 'btnVerstuurKlant'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'inline-flex';
@@ -1143,8 +1206,7 @@
         btnVKKloon.style.color = '';
         btnVKKloon.style.borderColor = '';
       }
-      const status = document.getElementById('statusTekst');
-      if (status) { status.textContent = `✓ Order #${data.order_id} gekloond van #${data.gekloond_van}`; status.style.color = 'var(--success)'; }
+      setMelding(`✓ Order #${data.order_id} gekloond van #${data.gekloond_van}`, 'ok');
     } catch(e) {
       if (btn) { btn.disabled = false; btn.textContent = '↻ Kloon vorige order —> onverkort'; }
       alert(`⚠ Klonen mislukt (netwerkfout): ${e.message}`);
