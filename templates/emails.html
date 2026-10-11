@@ -251,7 +251,7 @@
              "Verstuurd naar SmartHUB", "Verstuurd naar klant"). De knoppen
              hierboven veranderen zelf nooit meer van tekst om dit te tonen —
              zie setMelding()/wisMelding() in de JS hieronder. -->
-        <div id="meldingenBalk" style="display:none;padding:7px 14px;border-top:0.5px solid var(--border);background:white;font-size:12px;font-weight:500;"></div>
+        <div id="meldingenBalk" style="display:none;flex-direction:column;gap:3px;padding:7px 14px;border-top:0.5px solid var(--border);background:white;font-size:12px;font-weight:500;"></div>
       </div>
 
       <div class="detail-split">
@@ -330,25 +330,41 @@
   let receptData = null;
   let huidigeBijlageIndex = null;
 
-  // --- Meldingen-balk: aparte regel onder de actiebalk, puur voor het
-  // resultaat van een actie ("Order #1234 aangemaakt", "Verstuurd naar
-  // SmartHUB", "Verstuurd naar klant", of een foutmelding). De knoppen in de
+  // --- Meldingen-balk: aparte regel onder de actiebalk, puur voor de
+  // resultaten van acties ("Order #1234 aangemaakt", "Verstuurd naar
+  // SmartHUB", "Verstuurd naar klant", foutmeldingen). De knoppen in de
   // actiebalk zelf houden altijd hun vaste actie-label en veranderen hier
-  // nooit meer in een resultaat-tekst. ---
+  // nooit meer in een resultaat-tekst.
+  // Alle meldingen die tijdens de verwerking van déze e-mail ontstaan
+  // blijven zichtbaar (stapelen onder elkaar), zodat je na bijv. Maak order
+  // aan + SmartHUB versturen + Stuur naar klant alle drie de regels nog
+  // terugziet. wisMelding() leegt de lijst weer bij het selecteren van een
+  // nieuwe e-mail / annuleren van de order-preview. ---
+  window._meldingen = [];
   function setMelding(tekst, soort) {
     const el = document.getElementById('meldingenBalk');
     if (!el) return;
-    if (!tekst) { wisMelding(); return; }
-    const kleur = soort === 'fout' ? 'var(--danger)' : soort === 'warn' ? 'var(--warn)' : 'var(--success)';
-    el.textContent = tekst;
-    el.style.color = kleur;
-    el.style.display = 'block';
+    if (!tekst) return;
+    window._meldingen.push({ tekst, soort });
+    _renderMeldingen();
   }
   function wisMelding() {
+    window._meldingen = [];
+    _renderMeldingen();
+  }
+  function _renderMeldingen() {
     const el = document.getElementById('meldingenBalk');
     if (!el) return;
-    el.textContent = '';
-    el.style.display = 'none';
+    if (window._meldingen.length === 0) {
+      el.innerHTML = '';
+      el.style.display = 'none';
+      return;
+    }
+    const kleurVoor = soort => soort === 'fout' ? 'var(--danger)' : soort === 'warn' ? 'var(--warn)' : 'var(--success)';
+    el.innerHTML = window._meldingen.map(m =>
+      `<div style="color:${kleurVoor(m.soort)};">${m.tekst.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`
+    ).join('');
+    el.style.display = 'flex';
   }
 
   // --- E-mails laden ---
