@@ -2387,6 +2387,147 @@ async def verstuur_order_naar_klant(order_id: int):
         return JSONResponse(status_code=500, content={"ok": False, "fout": str(e)})
 
 
+def _verstuur_smtp_mail(aan: str, onderwerp: str, tekst: str,
+                         bijlage_bytes: bytes | None = None, bijlage_naam: str | None = None) -> None:
+    """
+    Verstuurt één platte-tekst e-mail via SMTP, optioneel met één PDF-bijlage.
+
+    Losse configuratie van de bestaande IMAP-instellingen (die zijn alleen
+    voor het LEZEN van de inbox) — SMTP_SERVER/SMTP_PORT/SMTP_USER/SMTP_PASS
+    moeten apart gezet worden (env vars), want versturen kan op een andere
+    server/poort lopen dan ontvangen. SMTP_FROM is het zichtbare afzender-
+    adres in de mail; valt terug op SMTP_USER als dat niet apart gezet is,
+    en daarna op "info@farmamed.nl" (het adres dat hier altijd bedoeld is).
+    Gooit een Exception door bij een configuratie- of verzendfout — de
+    aanroeper vangt die af en zet 'm in het 'fout'-veld van de response.
+    """
+    import smtplib
+    from email.message import EmailMessage
+
+    smtp_server = os.getenv("SMTP_SERVER", "")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+    smtp_from = os.getenv("SMTP_FROM", "") or smtp_user or "info@farmamed.nl"
+
+    if not all([smtp_server, smtp_user, smtp_pass]):
+        raise ValueError("SMTP niet geconfigureerd — voeg SMTP_SERVER, SMTP_USER en SMTP_PASS toe (env vars)")
+
+    msg = EmailMessage()
+    msg["Subject"] = onderwerp
+    msg["From"] = smtp_from
+    msg["To"] = aan
+    msg.set_content(tekst)
+
+    if bijlage_bytes:
+        msg.add_attachment(bijlage_bytes, maintype="application", subtype="pdf",
+                            filename=bijlage_naam or "factuur.pdf")
+
+    with smtplib.SMTP(smtp_server, smtp_port, timeout=20) as server:
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+
+
+def _haal_wc_factuur_pdf_op(wc_url: str, order_id: int, order_key: str) -> bytes | None:
+    """
+    Haalt de factuur-PDF op bij de 'WooCommerce PDF Invoices & Packing Slips'-
+    plugin (WP Overnight) — de meest gebruikte factuur-plugin voor
+    WooCommerce, en degene die hier verondersteld wordt. Gebruikt dezelfde
+    admin-ajax-URL die ook de klant zelf gebruikt via de 'Factuur bekijken'-
+    link in zijn account (werkt met order_key, dus geen admin-login nodig).
+
+    Geeft None terug als het ophalen om wat voor reden dan ook niet lukt
+    (plugin niet actief, andere plugin, verkeerde URL, ...) — de aanroeper
+    verstuurt de mail dan gewoon zonder bijlage en meldt dat expliciet terug,
+    in plaats van de hele mail te laten mislukken op een factuur die niet
+    beschikbaar blijkt.
+    """
+    try:
+        resp = http_requests.get(
+            f"{wc_url}/wp-admin/admin-ajax.php",
+            params={
+                "action": "generate_wpo_wcpdf",
+                "document_type": "invoice",
+                "order_ids": str(order_id),
+                "order_key": order_key,
+            },
+            timeout=20,
+        )
+        if resp.status_code == 200 and resp.content[:4] == b"%PDF":
+            return resp.content
+        return None
+    except Exception:
+        return None
+
+
+@app.post("/api/order/{order_id}/verstuur-factuurmail")
+async def verstuur_factuurmail(order_id: int):
+    """
+    Verstuurt ÉÉN vaste factuurmail naar de klant vanaf info@farmamed.nl —
+    verving op verzoek van Gijs (11 okt 2026) de oude 5-scenario's-mailkeuze,
+    die hoe dan ook al niet meer werkte (de route waar het scenario-systeem
+    naartoe post'te bestond niet meer in deze codebase). Vaste tekst, geen
+    keuzes meer — als er ooit weer varianten nodig zijn, bouwen we dat dan
+    bewust opnieuw op.
+    """
+    wc_url = os.getenv("WC_URL", ""); wc_key = os.getenv("WC_KEY", ""); wc_secret = os.getenv("WC_SECRET", "")
+    if not (wc_url and wc_key and wc_secret):
+        return JSONResponse(status_code=500, content={"ok": False, "fout": "WooCommerce niet geconfigureerd"})
+
+    try:
+        resp = http_requests.get(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+            headers=_wc_auth(wc_key, wc_secret),
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return JSONResponse(content={"ok": False, "fout": f"Order niet gevonden: HTTP {resp.status_code}"})
+        order = resp.json()
+    except Exception as e:
+        return JSONResponse(content={"ok": False, "fout": f"Kon order niet ophalen: {e}"})
+
+    billing = order.get("billing", {})
+    email_adres = billing.get("email", "")
+    if not email_adres:
+        return JSONResponse(content={"ok": False, "fout": "Geen e-mailadres bekend bij deze order"})
+
+    tekst = (
+        "Geachte meneer / mevrouw,\n\n"
+        "Dank voor uw bestelling, hierbij sturen wij u uw factuur.\n\n"
+        "Met vriendelijke groet,\n"
+        "Gijs de Rooij"
+    )
+
+    bijlage_bytes = None
+    factuur_fout = None
+    order_key = order.get("order_key", "")
+    if order_key:
+        bijlage_bytes = _haal_wc_factuur_pdf_op(wc_url, order_id, order_key)
+        if bijlage_bytes is None:
+            factuur_fout = "kon niet worden opgehaald (factuur-plugin/URL controleren)"
+    else:
+        factuur_fout = "geen order_key bekend bij deze order"
+
+    try:
+        _verstuur_smtp_mail(
+            aan=email_adres,
+            onderwerp=f"Uw factuur — bestelling #{order_id}",
+            tekst=tekst,
+            bijlage_bytes=bijlage_bytes,
+            bijlage_naam=f"factuur_{order_id}.pdf",
+        )
+    except Exception as e:
+        return JSONResponse(content={"ok": False, "fout": str(e)})
+
+    return JSONResponse(content={
+        "ok": True,
+        "naar": email_adres,
+        "factuur_bijgevoegd": bijlage_bytes is not None,
+        "factuur_fout": factuur_fout,
+    })
+
+
 # Volledige productcatalogus Farmamed
 FARMAMED_PRODUCTEN = [
     (3430, "Tretinoïne crème 0.1% FNA - tegen huidveroudering (30 gram)"),
