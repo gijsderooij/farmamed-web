@@ -124,8 +124,8 @@
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .status-tekst { font-size: 12px; margin-left: auto; }
 
-    /* EDIFACT */
-    .edifact-box { background: #0d1b2a; color: #7ec8e3; font-family: 'Courier New', monospace; font-size: 10px; padding: 14px; border-radius: var(--radius); line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
+    /* SmartHUB JSON */
+    .json-box { background: #0d1b2a; color: #7ec8e3; font-family: 'Courier New', monospace; font-size: 10px; padding: 14px; border-radius: var(--radius); line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
     .download-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 16px; background: var(--teal); color: white; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
     .download-btn:hover { background: var(--teal-dk); }
 
@@ -219,15 +219,8 @@
       </div>
       <div style="width:0.5px;align-self:stretch;background:var(--border);"></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <select id="scenarioSelect" style="font-size:12px;padding:5px 6px;border-radius:6px;border:1px solid var(--border);font-family:'DM Sans',sans-serif;color:var(--text);">
-          <option value="1">1. Nieuw + geldig recept</option>
-          <option value="2">2. Nieuw + geen geldig recept</option>
-          <option value="3">3. Bekend + geldig herhaalrecept</option>
-          <option value="4">4. Bekend + geen geldig recept</option>
-          <option value="5">5. Bestelling ≠ recept</option>
-        </select>
-        <button class="btn" onclick="verstuurScenarioMail()" id="btnScenarioMail" style="font-size:12px;padding:6px 14px;border:1px solid var(--teal);background:var(--teal-lt);color:var(--teal-dk);">✉ Mail versturen</button>
-        <span id="scenarioMailStatus" style="font-size:11px;"></span>
+        <button class="btn" onclick="verstuurFactuurMail()" id="btnFactuurMail" style="font-size:12px;padding:6px 14px;border:1px solid var(--teal);background:var(--teal-lt);color:var(--teal-dk);">✉ Factuurmail versturen</button>
+        <span id="factuurMailStatus" style="font-size:11px;"></span>
       </div>
       <div style="width:0.5px;align-self:stretch;background:var(--border);"></div>
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
@@ -252,7 +245,7 @@
       <div class="detail-rechts">
         <div class="tabs">
           <div class="tab actief" onclick="toonTab('vergelijking')">🔎 Vergelijking</div>
-          <div class="tab" onclick="toonTab('edifact')">📡 SmartHUB JSON</div>
+          <div class="tab" onclick="toonTab('smarthub')">📡 SmartHUB JSON</div>
         </div>
 
         <!-- Tab: Vergelijking -->
@@ -276,9 +269,9 @@
           <div id="bsn-email-fout" style="display:none;font-size:11px;color:var(--danger);margin-top:-4px;margin-bottom:4px;">⚠ BSN moet exact 9 cijfers zijn (geen spaties of letters)</div>
         </div>
 
-        <!-- Tab: EDIFACT -->
-        <div class="tab-inhoud" id="tab-edifact">
-          <div id="edifactInhoud">
+        <!-- Tab: SmartHUB JSON -->
+        <div class="tab-inhoud" id="tab-smarthub">
+          <div id="smarthubInhoud">
             <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">SmartHUB JSON — beschikbaar na goedkeuring</p>
           </div>
         </div>
@@ -306,8 +299,7 @@
     laadOrders();
   }
   let huidigeReceptData = null;
-  let huidigeVergelijking = null;  // laatste order-vs-recept score (voor scenario-suggestie in stap 5)
-  let edifactTekst = '';
+  let huidigeVergelijking = null;  // laatste order-vs-recept score (voor de mismatch-banner)
 
   // Bijhouden welke orders lokaal zijn afgerond (overleeft vernieuwen)
   function getAfgerond() {
@@ -388,12 +380,12 @@
     if (btnSH) { btnSH.disabled = false; btnSH.textContent = '📡 SmartHUB versturen'; btnSH.style.background = '#2980b9'; }
     const shStatus = document.getElementById('smartHubStatus');
     if (shStatus) shStatus.textContent = '';
-    const scenarioMailBtn = document.getElementById('btnScenarioMail');
-    if (scenarioMailBtn) { scenarioMailBtn.disabled = false; scenarioMailBtn.textContent = '✉ Mail versturen'; scenarioMailBtn.style.background = 'var(--teal-lt)'; scenarioMailBtn.style.color = 'var(--teal-dk)'; }
-    const scenarioMailStatus = document.getElementById('scenarioMailStatus');
-    if (scenarioMailStatus) scenarioMailStatus.textContent = '';
-    const scenarioSelect = document.getElementById('scenarioSelect');
-    if (scenarioSelect) scenarioSelect.value = '1';
+    // Factuurmail-knop: vaste labeltekst, nooit een status erin laten hangen
+    // van een vorige order (zelfde stale-knop-les als bij de e-mail-stroom).
+    const factuurMailBtn = document.getElementById('btnFactuurMail');
+    if (factuurMailBtn) { factuurMailBtn.disabled = false; factuurMailBtn.textContent = '✉ Factuurmail versturen'; factuurMailBtn.style.background = 'var(--teal-lt)'; factuurMailBtn.style.color = 'var(--teal-dk)'; }
+    const factuurMailStatus = document.getElementById('factuurMailStatus');
+    if (factuurMailStatus) factuurMailStatus.textContent = '';
 
     // Reset — leegmaken alle tabs voor nieuwe order
     document.getElementById('btnGoedkeuren').disabled = true;
@@ -404,7 +396,7 @@
     ['o-voornaam','o-achternaam','o-geboortedatum','o-bsn','o-email','o-telefoon','o-straat','o-postcode_plaats',
      'o-voorschrijver','o-agb_code','o-hoeveelheid','o-gebruiksaanwijzing','o-medicijn','o-iter']
       .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
-    document.getElementById('edifactInhoud').innerHTML = '<p style="font-size:13px;color:var(--muted)">Beschikbaar na goedkeuring</p>';
+    document.getElementById('smarthubInhoud').innerHTML = '<p style="font-size:13px;color:var(--muted)">Beschikbaar na goedkeuring</p>';
 
     // Twee paden, bepaald door of er een recept is aangeleverd. Binnen elk
     // pad bepaalt de database (bekend/onbekend) het vervolg.
@@ -460,7 +452,7 @@
         geldig: recept.geldig, big_nummer: recept.big_nummer || '',
       });
 
-      await genereerEdifact(order, recept);
+      await genereerSmartHubJson(order, recept);
       zetOrderStap(3);
       toonBeslisKnoppenAan();
     } catch(e) {
@@ -554,7 +546,7 @@
         observer.observe(document.getElementById('uitgelezenInhoud'), { childList: true, subtree: true });
       }
 
-      await genereerEdifact(order, null);
+      await genereerSmartHubJson(order, null);
       zetOrderStap(3);
       toonBeslisKnoppenAan();
     } catch(e) {
@@ -656,10 +648,6 @@ Apotheek Farmamed`;
   function toonBeslisKnoppenAan() {
     document.getElementById('btnGoedkeuren').disabled = false;
     document.getElementById('btnAfwijzen').disabled = false;
-    // Nu we weten of de patiënt bekend is en of het recept geldig is, kan de
-    // scenario-dropdown (stap 5) een betere gok doen dan de standaardwaarde.
-    const scenarioSelect = document.getElementById('scenarioSelect');
-    if (scenarioSelect) scenarioSelect.value = String(_bepaalStandaardScenario());
   }
 
   // --- Recept preview laden ---
@@ -684,8 +672,8 @@ Apotheek Farmamed`;
     }
   }
 
-  // --- EDIFACT genereren ---
-  async function genereerEdifact(order, recept) {
+  // --- SmartHUB JSON genereren ---
+  async function genereerSmartHubJson(order, recept) {
     // SmartHUB JSON preview (vervangt EDIFACT). Voorkeur: de door de
     // medewerker bevestigde o-*-velden uit de gedeelde vergelijkingstabel
     // (al gevuld met de standaardkeuze zodra die tabel rendert) — dat is de
@@ -772,9 +760,9 @@ Apotheek Farmamed`;
     html += bouwVerstrekkingsverzoekPreview(json_preview);
     html += `<details style="margin-top:6px;">
         <summary style="font-size:11px;color:var(--muted);cursor:pointer;">Ruwe JSON tonen</summary>
-        <div class="edifact-box" style="margin-top:6px;">${jsonTekst}</div>
+        <div class="json-box" style="margin-top:6px;">${jsonTekst}</div>
       </details>`;
-    document.getElementById('edifactInhoud').innerHTML = html;
+    document.getElementById('smarthubInhoud').innerHTML = html;
   }
 
   // --- Download functies ---
@@ -785,8 +773,8 @@ Apotheek Farmamed`;
     btn.disabled = true;
     btn.textContent = '⏳ Aanmaken…';
     try {
-      await genereerEdifact(huidigeOrder, huidigeReceptData);
-      toonTab('edifact');
+      await genereerSmartHubJson(huidigeOrder, huidigeReceptData);
+      toonTab('smarthub');
       markeerStapKlaar(4);
     } finally {
       btn.disabled = false;
@@ -834,55 +822,43 @@ Apotheek Farmamed`;
     }
   }
 
-  // --- Stap 5: standaard statusmail naar klant — los van de andere stappen
-  // te versturen (bijv. al vóórdat er een SmartHUB JSON is, als er nog geen
-  // (geldig) recept is aangeleverd). ---
-
-  // Gokt een startwaarde voor de scenario-dropdown op basis van wat we al
-  // weten (bekend/nieuw via window._huidigDossierPatientId, receptgeldigheid
-  // via huidigeReceptData.geldig, en een eventuele order-vs-recept-mismatch
-  // via huidigeVergelijking.totaal_score — zelfde drempel als de banner in
-  // bouwOrderReceptBanner). Puur een voorstel: de apotheker kiest zelf en
-  // kan dit altijd overschrijven vóór het versturen.
-  function _bepaalStandaardScenario() {
-    if (huidigeVergelijking && (huidigeVergelijking.totaal_score || 0) < 60) return 5;
-    const bekend = !!window._huidigDossierPatientId;
-    const geldig = huidigeReceptData ? !!huidigeReceptData.geldig : false;
-    if (bekend) return geldig ? 3 : 4;
-    return geldig ? 1 : 2;
-  }
-
-  async function verstuurScenarioMail() {
+  // --- Stap 5: één vaste factuurmail naar de klant — los van de andere
+  // stappen te versturen (bijv. al vóórdat er een SmartHUB JSON is). Dit
+  // verving op verzoek de oude 5-scenario's-mailkeuze (die sowieso niet meer
+  // werkte — de server-route eronder bestond niet meer): altijd dezelfde
+  // vaste tekst, vanaf info@farmamed.nl, met de WooCommerce-factuur als
+  // bijlage (zie /api/order/{id}/verstuur-factuurmail in main.py). ---
+  async function verstuurFactuurMail() {
     if (!huidigeOrder) return;
-    const select = document.getElementById('scenarioSelect');
-    const btn = document.getElementById('btnScenarioMail');
-    const status = document.getElementById('scenarioMailStatus');
-    const scenario = parseInt(select.value, 10);
+    const btn = document.getElementById('btnFactuurMail');
+    const status = document.getElementById('factuurMailStatus');
     btn.disabled = true;
     btn.textContent = '⏳ Versturen…';
     status.textContent = '';
     try {
-      const res = await fetch(`/api/order/${huidigeOrder.id}/verstuur-scenario-mail`, {
+      const res = await fetch(`/api/order/${huidigeOrder.id}/verstuur-factuurmail`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario, medicijn_naam: huidigeOrder.medicijn || null })
       });
       const data = await res.json();
       if (data.ok) {
-        btn.textContent = '✓ Mail verstuurd';
-        btn.style.background = 'var(--success)';
-        btn.style.color = 'white';
+        btn.disabled = false;
+        btn.textContent = '✉ Factuurmail versturen';
+        btn.style.background = 'var(--teal-lt)';
+        btn.style.color = 'var(--teal-dk)';
         status.style.color = 'var(--success)';
-        status.textContent = `Naar ${data.naar}`;
+        status.textContent = data.factuur_bijgevoegd
+          ? `✓ Verstuurd naar ${data.naar} (met factuur)`
+          : `✓ Verstuurd naar ${data.naar} (zonder factuur — ${data.factuur_fout || 'niet gevonden'})`;
         markeerStapKlaar(5);
       } else {
-        btn.textContent = '✗ Mail versturen';
+        btn.textContent = '✗ Factuurmail versturen';
         btn.disabled = false;
         status.style.color = 'var(--danger)';
         status.textContent = data.fout || 'Onbekende fout';
       }
     } catch(e) {
-      btn.textContent = '✗ Mail versturen';
+      btn.textContent = '✗ Factuurmail versturen';
       btn.disabled = false;
       status.style.color = 'var(--danger)';
       status.textContent = e.message;
@@ -915,10 +891,6 @@ Apotheek Farmamed`;
     }
   }
 
-  function downloadEdifact() {
-    // Vervangen door SmartHUB JSON — gebruik de 📡 SmartHUB knop
-  }
-
   // --- Beslissing ---
   async function beslis(beslissing) {
     if (!huidigeOrder) return;
@@ -927,7 +899,7 @@ Apotheek Farmamed`;
     const statusEl = document.getElementById('statusTekst');
 
     if (beslissing === 'goedkeuren') {
-      await genereerEdifact(huidigeOrder, huidigeReceptData);
+      await genereerSmartHubJson(huidigeOrder, huidigeReceptData);
 
       // Sla de bevestigde reconciliatie (patiënt/voorschrijver/medicijn)
       // meteen lokaal op — niet meer pas als bijeffect van het versturen
@@ -951,7 +923,7 @@ Apotheek Farmamed`;
         statusEl.style.color = 'var(--success)';
         statusEl.textContent = '✓ Goedgekeurd en opgeslagen';
       }
-      toonTab('edifact');
+      toonTab('smarthub');
       markeerStapKlaar(3);
     } else {
       statusEl.style.color = 'var(--danger)';
@@ -1017,7 +989,7 @@ Apotheek Farmamed`;
   }
 
   function toonTab(naam) {
-    const tabs = ['vergelijking', 'edifact'];
+    const tabs = ['vergelijking', 'smarthub'];
     document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('actief', tabs[i] === naam));
     tabs.forEach(n => {
       const t = document.getElementById('tab-' + n);
