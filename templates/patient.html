@@ -198,8 +198,12 @@
             <input id="f-adres" value="${p.adres || ''}" placeholder="Straat en huisnummer">
           </div>
           <div class="veld">
-            <label>Postcode · Plaats</label>
-            <input id="f-postcode" value="${(p.postcode || '') + (p.plaats ? ' ' + p.plaats : '')}" placeholder="1234AB Plaatsnaam" readonly style="color:var(--muted)">
+            <label>Postcode</label>
+            <input id="f-postcode" value="${p.postcode || ''}" placeholder="1234AB">
+          </div>
+          <div class="veld">
+            <label>Plaats</label>
+            <input id="f-plaats" value="${p.plaats || ''}" placeholder="Plaatsnaam">
           </div>
         </div>
         <button class="btn-opslaan" onclick="slaOp(${p.id})">Opslaan</button>
@@ -274,6 +278,8 @@
       geboortedatum: document.getElementById('f-geboortedatum').value,
       bsn: document.getElementById('f-bsn').value,
       adres: document.getElementById('f-adres').value,
+      postcode: document.getElementById('f-postcode').value,
+      plaats: document.getElementById('f-plaats').value,
     };
     const resp = await fetch(`/api/patient/${patient_id}`, {
       method: 'PUT',
