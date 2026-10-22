@@ -2301,7 +2301,14 @@ async def maak_order(request: Request):
             # een ongeldig product-ID of een afgewezen veld) — die WEL tonen,
             # zodat dit niet elke keer via de server-log hoeft te worden opgezocht.
             try:
-                wc_detail = response.json().get("message", response.text[:300])
+                _wc_json = response.json()
+                wc_detail = _wc_json.get("message", response.text[:300])
+                # Bij 'Ongeldige parameter(s): billing' zegt WooCommerce pas in
+                # data.params WELK veld fout is (bijv. "billing[email] is geen
+                # geldig e-mailadres") — dat erbij tonen.
+                _params = (_wc_json.get("data") or {}).get("params") or {}
+                if _params:
+                    wc_detail += " — " + "; ".join(f"{k}: {v}" for k, v in _params.items())
             except Exception:
                 wc_detail = response.text[:300]
             return JSONResponse(content={"fout": f"WooCommerce ({response.status_code}): {wc_detail}"})
@@ -2393,25 +2400,31 @@ def _verstuur_smtp_mail(aan: str, onderwerp: str, tekst: str,
     Verstuurt één platte-tekst e-mail via SMTP, optioneel met één PDF-bijlage.
 
     Losse configuratie van de bestaande IMAP-instellingen (die zijn alleen
-    voor het LEZEN van de inbox) — SMTP_SERVER/SMTP_PORT/SMTP_USER/SMTP_PASS
+    voor het LEZEN van de inbox) — SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS
     moeten apart gezet worden (env vars), want versturen kan op een andere
-    server/poort lopen dan ontvangen. SMTP_FROM is het zichtbare afzender-
-    adres in de mail; valt terug op SMTP_USER als dat niet apart gezet is,
-    en daarna op "info@farmamed.nl" (het adres dat hier altijd bedoeld is).
-    Gooit een Exception door bij een configuratie- of verzendfout — de
-    aanroeper vangt die af en zet 'm in het 'fout'-veld van de response.
+    server/poort lopen dan ontvangen. SMTP_PORT bepaalt ook de beveiliging:
+    465 = impliciete SSL, 587 (of elke andere waarde) = STARTTLS. SMTP_FROM
+    is het zichtbare afzenderadres in de mail; valt terug op SMTP_USER als
+    dat niet apart gezet is, en daarna op "info@farmamed.nl" (het adres dat
+    hier altijd bedoeld is). Gooit een Exception door bij een configuratie-
+    of verzendfout — de aanroeper vangt die af en zet 'm in het 'fout'-veld
+    van de response.
     """
     import smtplib
+    import socket
     from email.message import EmailMessage
 
-    smtp_server = os.getenv("SMTP_SERVER", "")
+    # SMTP_HOST is de naam die Gijs er zelf aan gaf (SMTP_SERVER bestond nog
+    # niet in Railway) — allebei ondersteunen, SMTP_HOST wint als beide
+    # gezet zijn.
+    smtp_server = os.getenv("SMTP_HOST", "") or os.getenv("SMTP_SERVER", "")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASS", "")
     smtp_from = os.getenv("SMTP_FROM", "") or smtp_user or "info@farmamed.nl"
 
     if not all([smtp_server, smtp_user, smtp_pass]):
-        raise ValueError("SMTP niet geconfigureerd — voeg SMTP_SERVER, SMTP_USER en SMTP_PASS toe (env vars)")
+        raise ValueError("SMTP niet geconfigureerd — voeg SMTP_HOST, SMTP_USER en SMTP_PASS toe (env vars)")
 
     msg = EmailMessage()
     msg["Subject"] = onderwerp
@@ -2423,53 +2436,42 @@ def _verstuur_smtp_mail(aan: str, onderwerp: str, tekst: str,
         msg.add_attachment(bijlage_bytes, maintype="application", subtype="pdf",
                             filename=bijlage_naam or "factuur.pdf")
 
-    with smtplib.SMTP(smtp_server, smtp_port, timeout=20) as server:
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
-        server.send_message(msg)
-
-
-def _haal_wc_factuur_pdf_op(wc_url: str, order_id: int, order_key: str) -> bytes | None:
-    """
-    Haalt de factuur-PDF op bij de 'WooCommerce PDF Invoices & Packing Slips'-
-    plugin (WP Overnight) — de meest gebruikte factuur-plugin voor
-    WooCommerce, en degene die hier verondersteld wordt. Gebruikt dezelfde
-    admin-ajax-URL die ook de klant zelf gebruikt via de 'Factuur bekijken'-
-    link in zijn account (werkt met order_key, dus geen admin-login nodig).
-
-    Geeft None terug als het ophalen om wat voor reden dan ook niet lukt
-    (plugin niet actief, andere plugin, verkeerde URL, ...) — de aanroeper
-    verstuurt de mail dan gewoon zonder bijlage en meldt dat expliciet terug,
-    in plaats van de hele mail te laten mislukken op een factuur die niet
-    beschikbaar blijkt.
-    """
     try:
-        resp = http_requests.get(
-            f"{wc_url}/wp-admin/admin-ajax.php",
-            params={
-                "action": "generate_wpo_wcpdf",
-                "document_type": "invoice",
-                "order_ids": str(order_id),
-                "order_key": order_key,
-            },
-            timeout=20,
-        )
-        if resp.status_code == 200 and resp.content[:4] == b"%PDF":
-            return resp.content
-        return None
-    except Exception:
-        return None
+        if smtp_port == 465:
+            # Impliciete SSL vanaf de eerste byte (geen STARTTLS-handshake) —
+            # de gangbare combinatie bij poort 465. Verkeerd om op 587 te
+            # proberen (en andersom), dus de poort bepaalt hier de methode.
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=20) as server:
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=20) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+    except (socket.timeout, TimeoutError, ConnectionRefusedError, OSError) as e:
+        # Expliciet onderscheiden van een auth-/login-fout (die geeft een
+        # smtplib.SMTPAuthenticationError, geen OSError) — een time-out hier
+        # betekent vrijwel altijd: verkeerde host/poort-combinatie (bijv. 587
+        # geprobeerd terwijl de server alleen 465/SSL aanbiedt, of andersom),
+        # of de poort wordt door het platform/netwerk geblokkeerd.
+        raise ValueError(
+            f"Kon geen verbinding maken met {smtp_server}:{smtp_port} (time-out). "
+            f"Controleer of dit de juiste SMTP-host/poort is — poort 465 vraagt om "
+            f"SSL (SMTP_PORT=465), poort 587 om STARTTLS (SMTP_PORT=587, de "
+            f"huidige instelling). Oorspronkelijke fout: {e}"
+        ) from e
 
 
-@app.post("/api/order/{order_id}/verstuur-factuurmail")
-async def verstuur_factuurmail(order_id: int):
+@app.post("/api/order/{order_id}/verstuur-bevestigingsmail")
+async def verstuur_bevestigingsmail(order_id: int):
     """
-    Verstuurt ÉÉN vaste factuurmail naar de klant vanaf info@farmamed.nl —
-    verving op verzoek van Gijs (11 okt 2026) de oude 5-scenario's-mailkeuze,
-    die hoe dan ook al niet meer werkte (de route waar het scenario-systeem
-    naartoe post'te bestond niet meer in deze codebase). Vaste tekst, geen
-    keuzes meer — als er ooit weer varianten nodig zijn, bouwen we dat dan
-    bewust opnieuw op.
+    Verstuurt ÉÉN vaste bevestigingsmail naar de klant vanaf info@farmamed.nl
+    — verving op verzoek van Gijs (11-12 okt 2026) eerst de oude 5-scenario's-
+    mailkeuze (die hoe dan ook al niet meer werkte), en daarna — om de SMTP-
+    timeout eerst geïsoleerd te kunnen testen zonder de factuur-PDF-ophaal-
+    stap erbij — de factuur-versie-met-bijlage. Puur tekst, geen bijlage.
+    Vaste tekst, geen keuzes meer.
     """
     wc_url = os.getenv("WC_URL", ""); wc_key = os.getenv("WC_KEY", ""); wc_secret = os.getenv("WC_SECRET", "")
     if not (wc_url and wc_key and wc_secret):
@@ -2493,39 +2495,22 @@ async def verstuur_factuurmail(order_id: int):
         return JSONResponse(content={"ok": False, "fout": "Geen e-mailadres bekend bij deze order"})
 
     tekst = (
-        "Geachte meneer / mevrouw,\n\n"
-        "Dank voor uw bestelling, hierbij sturen wij u uw factuur.\n\n"
+        "Geachte Mevrouw / Mijnheer,\n\n"
+        "Uw bestelling is ontvangen en wordt nu verwerkt.\n\n"
         "Met vriendelijke groet,\n"
         "Gijs de Rooij"
     )
 
-    bijlage_bytes = None
-    factuur_fout = None
-    order_key = order.get("order_key", "")
-    if order_key:
-        bijlage_bytes = _haal_wc_factuur_pdf_op(wc_url, order_id, order_key)
-        if bijlage_bytes is None:
-            factuur_fout = "kon niet worden opgehaald (factuur-plugin/URL controleren)"
-    else:
-        factuur_fout = "geen order_key bekend bij deze order"
-
     try:
         _verstuur_smtp_mail(
             aan=email_adres,
-            onderwerp=f"Uw factuur — bestelling #{order_id}",
+            onderwerp=f"Uw bestelling #{order_id} is ontvangen",
             tekst=tekst,
-            bijlage_bytes=bijlage_bytes,
-            bijlage_naam=f"factuur_{order_id}.pdf",
         )
     except Exception as e:
         return JSONResponse(content={"ok": False, "fout": str(e)})
 
-    return JSONResponse(content={
-        "ok": True,
-        "naar": email_adres,
-        "factuur_bijgevoegd": bijlage_bytes is not None,
-        "factuur_fout": factuur_fout,
-    })
+    return JSONResponse(content={"ok": True, "naar": email_adres})
 
 
 # Volledige productcatalogus Farmamed
