@@ -5413,6 +5413,99 @@ async def rapport_patienten_met_voorschrijver():
     )
 
 
+@app.get("/api/rapport/voorschrijver-orders")
+async def rapport_voorschrijver_orders(naam: str = "kopsky", formaat: str = "xlsx"):
+    """
+    Rapport (wijzigt niets): alle patiënten + hun bestellingen waarbij de
+    voorschrijver (deel van de) naam `naam` heeft — standaard "kopsky" (Dr.
+    Kopsky, hoofdletterongevoelig). Match op de voorschrijver van de ORDER
+    zelf óf op de gekoppelde voorschrijver van de patiënt, zodat ook orders
+    zonder eigen voorschrijver-koppeling meekomen.
+      /api/rapport/voorschrijver-orders                -> Excel (Kopsky)
+      /api/rapport/voorschrijver-orders?formaat=json   -> JSON, om te controleren
+      /api/rapport/voorschrijver-orders?naam=andere    -> andere voorschrijver
+    """
+    if not _DATABASE_URL:
+        return JSONResponse(status_code=500, content={"fout": "Geen database verbinding"})
+
+    zoek = f"%{naam.strip()}%"
+    conn = _pg_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT p.id, p.voornaam, p.achternaam, p.geboortedatum, p.email, p.telefoon,
+                   p.adres, p.postcode, p.plaats,
+                   o.wc_order_id, m.naam_smarthub, o.recept_datum, o.recept_geldig_tot,
+                   o.smarthub_verstuurd, o.smarthub_verstuurd_op,
+                   COALESCE(vo.naam, vp.naam) AS voorschrijver,
+                   COALESCE(vo.agb_code, vp.agb_code) AS agb_code
+            FROM patienten p
+            JOIN orders o ON o.patient_id = p.id
+            LEFT JOIN medicijnen m ON m.id = o.medicijn_id
+            LEFT JOIN voorschrijvers vo ON vo.id = o.voorschrijver_id
+            LEFT JOIN voorschrijvers vp ON vp.id = p.voorschrijver_id
+            WHERE vo.naam ILIKE %s OR vp.naam ILIKE %s
+            ORDER BY p.achternaam, p.voornaam, o.wc_order_id
+        """, (zoek, zoek))
+        cols = ["patient_id", "voornaam", "achternaam", "geboortedatum", "email", "telefoon",
+                "adres", "postcode", "plaats", "wc_order_id", "medicijn", "recept_datum",
+                "recept_geldig_tot", "smarthub_verstuurd", "smarthub_verstuurd_op",
+                "voorschrijver", "agb_code"]
+        rijen = [dict(zip(cols, r)) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+    if formaat == "json":
+        return JSONResponse(content={"naam_filter": naam, "aantal_orders": len(rijen),
+                                     "aantal_patienten": len({r["patient_id"] for r in rijen}),
+                                     "rijen": [{k: (str(v) if v is not None and not isinstance(v, (int, bool)) else v)
+                                                for k, v in r.items()} for r in rijen]})
+
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from io import BytesIO
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Patiënten en orders"
+    headers = ["Patient ID", "Naam", "Geboortedatum", "E-mail", "Telefoon", "Adres", "Postcode",
+               "Plaats", "Order #", "Medicijn", "Receptdatum", "Recept geldig tot",
+               "Naar SmartHUB", "Voorschrijver", "AGB-code"]
+    ws.append(headers)
+    for cel in ws[1]:
+        cel.font = Font(name="Arial", bold=True, color="FFFFFF")
+        cel.fill = PatternFill("solid", fgColor="5A9898")
+        cel.alignment = Alignment(horizontal="left")
+    for r in rijen:
+        ws.append([
+            r["patient_id"], f'{r["voornaam"] or ""} {r["achternaam"] or ""}'.strip(),
+            str(r["geboortedatum"]) if r["geboortedatum"] else "", r["email"] or "",
+            r["telefoon"] or "", r["adres"] or "", r["postcode"] or "", r["plaats"] or "",
+            r["wc_order_id"], r["medicijn"] or "",
+            str(r["recept_datum"]) if r["recept_datum"] else "",
+            str(r["recept_geldig_tot"]) if r["recept_geldig_tot"] else "",
+            "ja" if r["smarthub_verstuurd"] else "nee",
+            r["voorschrijver"] or "", r["agb_code"] or "",
+        ])
+    for kolom, breedte in zip("ABCDEFGHIJKLMNO", [10, 24, 13, 28, 14, 24, 10, 16, 10, 38, 12, 14, 12, 22, 11]):
+        ws.column_dimensions[kolom].width = breedte
+    for row in ws.iter_rows(min_row=2):
+        for cel in row:
+            cel.font = Font(name="Arial", size=10)
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=orders_voorschrijver_{naam.strip().lower() or 'alle'}.xlsx"},
+    )
+
+
 @app.get("/api/debug-tabel-structuur")
 async def debug_tabel_structuur(tabel: str = "voorschrijvers"):
     """TIJDELIJK — toont de daadwerkelijke kolommen (naam, type, nullable) van een tabel."""
