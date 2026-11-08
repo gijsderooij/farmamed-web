@@ -219,8 +219,8 @@
       </div>
       <div style="width:0.5px;align-self:stretch;background:var(--border);"></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <button class="btn" onclick="verstuurFactuurMail()" id="btnFactuurMail" style="font-size:12px;padding:6px 14px;border:1px solid var(--teal);background:var(--teal-lt);color:var(--teal-dk);">✉ Factuurmail versturen</button>
-        <span id="factuurMailStatus" style="font-size:11px;"></span>
+        <button class="btn" onclick="verstuurInBehandelingMail()" id="btnInBehandelingMail" style="font-size:12px;padding:6px 14px;border:1px solid var(--teal);background:var(--teal-lt);color:var(--teal-dk);">✉ Mail ‘In behandeling’ versturen</button>
+        <span id="inBehandelingMailStatus" style="font-size:11px;"></span>
       </div>
       <div style="width:0.5px;align-self:stretch;background:var(--border);"></div>
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
@@ -380,12 +380,12 @@
     if (btnSH) { btnSH.disabled = false; btnSH.textContent = '📡 SmartHUB versturen'; btnSH.style.background = '#2980b9'; }
     const shStatus = document.getElementById('smartHubStatus');
     if (shStatus) shStatus.textContent = '';
-    // Factuurmail-knop: vaste labeltekst, nooit een status erin laten hangen
+    // In-behandeling-mail-knop: vaste labeltekst, nooit een status erin laten hangen
     // van een vorige order (zelfde stale-knop-les als bij de e-mail-stroom).
-    const factuurMailBtn = document.getElementById('btnFactuurMail');
-    if (factuurMailBtn) { factuurMailBtn.disabled = false; factuurMailBtn.textContent = '✉ Factuurmail versturen'; factuurMailBtn.style.background = 'var(--teal-lt)'; factuurMailBtn.style.color = 'var(--teal-dk)'; }
-    const factuurMailStatus = document.getElementById('factuurMailStatus');
-    if (factuurMailStatus) factuurMailStatus.textContent = '';
+    const inBehandelingMailBtn = document.getElementById('btnInBehandelingMail');
+    if (inBehandelingMailBtn) { inBehandelingMailBtn.disabled = false; inBehandelingMailBtn.textContent = '✉ Mail ‘In behandeling’ versturen'; inBehandelingMailBtn.style.background = 'var(--teal-lt)'; inBehandelingMailBtn.style.color = 'var(--teal-dk)'; }
+    const inBehandelingMailStatus = document.getElementById('inBehandelingMailStatus');
+    if (inBehandelingMailStatus) inBehandelingMailStatus.textContent = '';
 
     // Reset — leegmaken alle tabs voor nieuwe order
     document.getElementById('btnGoedkeuren').disabled = true;
@@ -822,43 +822,40 @@ Apotheek Farmamed`;
     }
   }
 
-  // --- Stap 5: één vaste factuurmail naar de klant — los van de andere
-  // stappen te versturen (bijv. al vóórdat er een SmartHUB JSON is). Dit
-  // verving op verzoek de oude 5-scenario's-mailkeuze (die sowieso niet meer
-  // werkte — de server-route eronder bestond niet meer): altijd dezelfde
-  // vaste tekst, vanaf info@farmamed.nl, met de WooCommerce-factuur als
-  // bijlage (zie /api/order/{id}/verstuur-factuurmail in main.py). ---
-  async function verstuurFactuurMail() {
+  // --- Stap 5: de standaard WooCommerce-mail 'Bestelling in behandeling'
+  // (customer_processing_order, inhoud uit de WooCommerce e-mailcustomizer)
+  // naar de klant — los van de andere stappen te versturen. Verving op
+  // verzoek de eigen mail vanaf info@farmamed.nl (zie
+  // /api/order/{id}/verstuur-in-behandeling-mail in main.py). ---
+  async function verstuurInBehandelingMail() {
     if (!huidigeOrder) return;
-    const btn = document.getElementById('btnFactuurMail');
-    const status = document.getElementById('factuurMailStatus');
+    const btn = document.getElementById('btnInBehandelingMail');
+    const status = document.getElementById('inBehandelingMailStatus');
     btn.disabled = true;
     btn.textContent = '⏳ Versturen…';
     status.textContent = '';
     try {
-      const res = await fetch(`/api/order/${huidigeOrder.id}/verstuur-factuurmail`, {
+      const res = await fetch(`/api/order/${huidigeOrder.id}/verstuur-in-behandeling-mail`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
       if (data.ok) {
         btn.disabled = false;
-        btn.textContent = '✉ Factuurmail versturen';
+        btn.textContent = '✉ Mail ‘In behandeling’ versturen';
         btn.style.background = 'var(--teal-lt)';
         btn.style.color = 'var(--teal-dk)';
         status.style.color = 'var(--success)';
-        status.textContent = data.factuur_bijgevoegd
-          ? `✓ Verstuurd naar ${data.naar} (met factuur)`
-          : `✓ Verstuurd naar ${data.naar} (zonder factuur — ${data.factuur_fout || 'niet gevonden'})`;
+        status.textContent = '✓ Verstuurd naar de klant';
         markeerStapKlaar(5);
       } else {
-        btn.textContent = '✗ Factuurmail versturen';
+        btn.textContent = '✗ Mail ‘In behandeling’ versturen';
         btn.disabled = false;
         status.style.color = 'var(--danger)';
         status.textContent = data.fout || 'Onbekende fout';
       }
     } catch(e) {
-      btn.textContent = '✗ Factuurmail versturen';
+      btn.textContent = '✗ Mail ‘In behandeling’ versturen';
       btn.disabled = false;
       status.style.color = 'var(--danger)';
       status.textContent = e.message;
