@@ -2394,123 +2394,61 @@ async def verstuur_order_naar_klant(order_id: int):
         return JSONResponse(status_code=500, content={"ok": False, "fout": str(e)})
 
 
-def _verstuur_smtp_mail(aan: str, onderwerp: str, tekst: str,
-                         bijlage_bytes: bytes | None = None, bijlage_naam: str | None = None) -> None:
+@app.post("/api/order/{order_id}/verstuur-in-behandeling-mail")
+async def verstuur_in_behandeling_mail(order_id: int):
     """
-    Verstuurt één platte-tekst e-mail via SMTP, optioneel met één PDF-bijlage.
+    Verstuurt WooCommerce's eigen standaardmail 'Bestelling in behandeling'
+    (template customer_processing_order, de inhoud uit de WooCommerce
+    e-mailcustomizer) naar de klant — via het WooCommerce-endpoint
+    POST .../orders/{id}/actions/send_email (WooCommerce 9.5+). Verving op
+    verzoek van Gijs (8 nov 2026) de eigen SMTP-mail vanaf info@farmamed.nl;
+    de SMTP-code is daarmee overbodig en verwijderd.
 
-    Losse configuratie van de bestaande IMAP-instellingen (die zijn alleen
-    voor het LEZEN van de inbox) — SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS
-    moeten apart gezet worden (env vars), want versturen kan op een andere
-    server/poort lopen dan ontvangen. SMTP_PORT bepaalt ook de beveiliging:
-    465 = impliciete SSL, 587 (of elke andere waarde) = STARTTLS. SMTP_FROM
-    is het zichtbare afzenderadres in de mail; valt terug op SMTP_USER als
-    dat niet apart gezet is, en daarna op "info@farmamed.nl" (het adres dat
-    hier altijd bedoeld is). Gooit een Exception door bij een configuratie-
-    of verzendfout — de aanroeper vangt die af en zet 'm in het 'fout'-veld
-    van de response.
-    """
-    import smtplib
-    import socket
-    from email.message import EmailMessage
-
-    # SMTP_HOST is de naam die Gijs er zelf aan gaf (SMTP_SERVER bestond nog
-    # niet in Railway) — allebei ondersteunen, SMTP_HOST wint als beide
-    # gezet zijn.
-    smtp_server = os.getenv("SMTP_HOST", "") or os.getenv("SMTP_SERVER", "")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_pass = os.getenv("SMTP_PASS", "")
-    smtp_from = os.getenv("SMTP_FROM", "") or smtp_user or "info@farmamed.nl"
-
-    if not all([smtp_server, smtp_user, smtp_pass]):
-        raise ValueError("SMTP niet geconfigureerd — voeg SMTP_HOST, SMTP_USER en SMTP_PASS toe (env vars)")
-
-    msg = EmailMessage()
-    msg["Subject"] = onderwerp
-    msg["From"] = smtp_from
-    msg["To"] = aan
-    msg.set_content(tekst)
-
-    if bijlage_bytes:
-        msg.add_attachment(bijlage_bytes, maintype="application", subtype="pdf",
-                            filename=bijlage_naam or "factuur.pdf")
-
-    try:
-        if smtp_port == 465:
-            # Impliciete SSL vanaf de eerste byte (geen STARTTLS-handshake) —
-            # de gangbare combinatie bij poort 465. Verkeerd om op 587 te
-            # proberen (en andersom), dus de poort bepaalt hier de methode.
-            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=20) as server:
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_server, smtp_port, timeout=20) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
-    except (socket.timeout, TimeoutError, ConnectionRefusedError, OSError) as e:
-        # Expliciet onderscheiden van een auth-/login-fout (die geeft een
-        # smtplib.SMTPAuthenticationError, geen OSError) — een time-out hier
-        # betekent vrijwel altijd: verkeerde host/poort-combinatie (bijv. 587
-        # geprobeerd terwijl de server alleen 465/SSL aanbiedt, of andersom),
-        # of de poort wordt door het platform/netwerk geblokkeerd.
-        raise ValueError(
-            f"Kon geen verbinding maken met {smtp_server}:{smtp_port} (time-out). "
-            f"Controleer of dit de juiste SMTP-host/poort is — poort 465 vraagt om "
-            f"SSL (SMTP_PORT=465), poort 587 om STARTTLS (SMTP_PORT=587, de "
-            f"huidige instelling). Oorspronkelijke fout: {e}"
-        ) from e
-
-
-@app.post("/api/order/{order_id}/verstuur-bevestigingsmail")
-async def verstuur_bevestigingsmail(order_id: int):
-    """
-    Verstuurt ÉÉN vaste bevestigingsmail naar de klant vanaf info@farmamed.nl
-    — verving op verzoek van Gijs (11-12 okt 2026) eerst de oude 5-scenario's-
-    mailkeuze (die hoe dan ook al niet meer werkte), en daarna — om de SMTP-
-    timeout eerst geïsoleerd te kunnen testen zonder de factuur-PDF-ophaal-
-    stap erbij — de factuur-versie-met-bijlage. Puur tekst, geen bijlage.
-    Vaste tekst, geen keuzes meer.
+    Geen statuswijziging: de order staat in deze flow al op 'processing'
+    (betaald), dus alleen de mail wordt (opnieuw) getriggerd. Let op: WooCommerce
+    triggert hiervoor de hook woocommerce_order_status_pending_to_processing_
+    notification, waar standaard ook de 'Nieuwe bestelling'-mail aan de
+    winkeleigenaar aan hangt — die kan dus ook (opnieuw) binnenkomen.
     """
     wc_url = os.getenv("WC_URL", ""); wc_key = os.getenv("WC_KEY", ""); wc_secret = os.getenv("WC_SECRET", "")
     if not (wc_url and wc_key and wc_secret):
         return JSONResponse(status_code=500, content={"ok": False, "fout": "WooCommerce niet geconfigureerd"})
 
     try:
-        resp = http_requests.get(
-            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
+        resp = http_requests.post(
+            f"{wc_url}/wp-json/wc/v3/orders/{order_id}/actions/send_email",
             headers=_wc_auth(wc_key, wc_secret),
-            timeout=10,
+            json={"template_id": "customer_processing_order"},
+            timeout=20,
         )
-        if resp.status_code != 200:
-            return JSONResponse(content={"ok": False, "fout": f"Order niet gevonden: HTTP {resp.status_code}"})
-        order = resp.json()
     except Exception as e:
-        return JSONResponse(content={"ok": False, "fout": f"Kon order niet ophalen: {e}"})
+        return JSONResponse(content={"ok": False, "fout": f"Kon WooCommerce niet bereiken: {e}"})
 
-    billing = order.get("billing", {})
-    email_adres = billing.get("email", "")
-    if not email_adres:
-        return JSONResponse(content={"ok": False, "fout": "Geen e-mailadres bekend bij deze order"})
-
-    tekst = (
-        "Geachte Mevrouw / Mijnheer,\n\n"
-        "Uw bestelling is ontvangen en wordt nu verwerkt.\n\n"
-        "Met vriendelijke groet,\n"
-        "Gijs de Rooij"
-    )
+    print(f"[in-behandeling-mail] order {order_id}: HTTP {resp.status_code}: {resp.text[:300]}")
+    if resp.status_code in (200, 201):
+        try:
+            melding = resp.json().get("message", "")
+        except Exception:
+            melding = ""
+        return JSONResponse(content={"ok": True, "melding": melding})
 
     try:
-        _verstuur_smtp_mail(
-            aan=email_adres,
-            onderwerp=f"Uw bestelling #{order_id} is ontvangen",
-            tekst=tekst,
-        )
-    except Exception as e:
-        return JSONResponse(content={"ok": False, "fout": str(e)})
+        detail = resp.json()
+        wc_code = detail.get("code", "")
+        wc_bericht = detail.get("message", resp.text[:300])
+    except Exception:
+        wc_code, wc_bericht = "", resp.text[:300]
 
-    return JSONResponse(content={"ok": True, "naar": email_adres})
+    if resp.status_code == 404 and wc_code in ("rest_no_route", ""):
+        fout = ("Dit WooCommerce kent het endpoint 'send_email' niet (nodig: WooCommerce 9.5 of nieuwer) "
+                f"— {wc_bericht}")
+    elif wc_code == "woocommerce_rest_invalid_email_template":
+        fout = ("WooCommerce staat de mail 'Bestelling in behandeling' voor deze order niet toe "
+                f"(staat de order op 'in behandeling' en is die mail ingeschakeld bij WooCommerce > "
+                f"Instellingen > E-mails?) — {wc_bericht}")
+    else:
+        fout = f"WooCommerce ({resp.status_code}): {wc_bericht}"
+    return JSONResponse(content={"ok": False, "fout": fout})
 
 
 # Volledige productcatalogus Farmamed
