@@ -6282,6 +6282,129 @@ async def update_order_status(request: Request):
 
 
 # ------------------------------------------------------------------
+# Bulk: lijst ordernummers op 'afgehandeld' (completed) zetten
+# ------------------------------------------------------------------
+
+# Statussen waarvan we een order WEL naar 'completed' zetten. Alles anders
+# (al afgehandeld, geannuleerd, terugbetaald, mislukt, prullenbak) laten we
+# bewust staan en melden we terug, zodat een typfout in de lijst niets sloopt.
+_BULK_AFHANDELBARE_STATUSSEN = {"processing", "pending", "on-hold"}
+
+
+@app.post("/api/orders-afhandelen")
+async def orders_afhandelen(request: Request):
+    """
+    Zet een lijst WooCommerce-orders op 'afgehandeld' (completed).
+    Body: {"ordernummers": [4053, ...], "uitvoeren": false}
+      uitvoeren=false (standaard) -> alleen controleren: toont per order de
+                                     huidige status, wijzigt NIETS.
+      uitvoeren=true              -> zet de afhandelbare orders echt op completed.
+    De pagina /orders-afhandelen roept dit in stukjes van 10 aan.
+    """
+    wc_url = os.getenv("WC_URL", ""); wc_key = os.getenv("WC_KEY", ""); wc_secret = os.getenv("WC_SECRET", "")
+    if not (wc_url and wc_key and wc_secret):
+        return JSONResponse(status_code=500, content={"fout": "WooCommerce niet geconfigureerd"})
+
+    body = await request.json()
+    uitvoeren = bool(body.get("uitvoeren"))
+    nummers = []
+    for n in body.get("ordernummers", []):
+        try:
+            n = int(str(n).strip())
+        except ValueError:
+            continue
+        if n not in nummers:
+            nummers.append(n)
+
+    resultaten = []
+    for n in nummers:
+        r = {"order": n, "naam": "", "status_voor": "", "actie": "", "ok": False}
+        try:
+            resp = http_requests.get(f"{wc_url}/wp-json/wc/v3/orders/{n}",
+                                     headers=_wc_auth(wc_key, wc_secret), timeout=15)
+            if resp.status_code == 404:
+                r["actie"] = "niet gevonden"
+            elif resp.status_code != 200:
+                r["actie"] = f"fout bij ophalen: HTTP {resp.status_code}"
+            else:
+                o = resp.json()
+                b = o.get("billing", {})
+                r["naam"] = f'{b.get("first_name", "")} {b.get("last_name", "")}'.strip()
+                r["status_voor"] = o.get("status", "")
+                if r["status_voor"] == "completed":
+                    r["actie"] = "al afgehandeld"; r["ok"] = True
+                elif r["status_voor"] not in _BULK_AFHANDELBARE_STATUSSEN:
+                    r["actie"] = f'overgeslagen (status "{r["status_voor"]}")'
+                elif not uitvoeren:
+                    r["actie"] = "wordt afgehandeld"; r["ok"] = True
+                else:
+                    put = http_requests.put(f"{wc_url}/wp-json/wc/v3/orders/{n}",
+                                            headers=_wc_auth(wc_key, wc_secret),
+                                            json={"status": "completed"}, timeout=30)
+                    if put.status_code == 200:
+                        r["actie"] = "afgehandeld"; r["ok"] = True
+                    else:
+                        try: det = put.json().get("message", put.text[:150])
+                        except Exception: det = put.text[:150]
+                        r["actie"] = f"mislukt: HTTP {put.status_code} {det}"
+        except Exception as e:
+            r["actie"] = f"fout: {e}"
+        resultaten.append(r)
+    return JSONResponse(content={"uitgevoerd": uitvoeren, "resultaten": resultaten})
+
+
+@app.get("/orders-afhandelen", response_class=HTMLResponse)
+async def orders_afhandelen_pagina():
+    return HTMLResponse(content="""<!DOCTYPE html>
+<html lang="nl"><head><meta charset="UTF-8"><title>Farmamed — Orders afhandelen</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:860px;margin:24px auto;padding:0 16px;color:#2c3e50}
+ textarea{width:100%;height:160px;font-family:monospace;padding:8px;box-sizing:border-box}
+ button{padding:8px 16px;border:0;border-radius:8px;background:#2a7f7f;color:#fff;cursor:pointer;margin-right:8px}
+ button:disabled{opacity:.4;cursor:default} button.rood{background:#c0392b}
+ table{border-collapse:collapse;width:100%;margin-top:14px;font-size:13px}
+ td,th{border-bottom:1px solid #dde8e8;padding:6px 8px;text-align:left}
+ .ok{color:#27ae60}.nee{color:#c0392b}.mid{color:#e67e22}
+</style></head><body>
+<h2>Orders afhandelen (completed)</h2>
+<p>Plak ordernummers (één per regel, of gescheiden door spaties/komma's). Eerst <b>Controleren</b>: dat wijzigt niets.</p>
+<textarea id="inv" placeholder="4053&#10;4056&#10;..."></textarea><br><br>
+<button id="bc" onclick="run(false)">1. Controleren</button>
+<button id="bu" class="rood" onclick="run(true)" disabled>2. Afhandelen</button>
+<span id="st"></span>
+<table id="tb"></table>
+<script>
+let laatste = "";
+function nummers(){ return [...new Set((document.getElementById('inv').value.match(/\\d{3,6}/g)||[]))]; }
+async function run(uitvoeren){
+  const nrs = nummers(); if(!nrs.length) return;
+  if(uitvoeren && !confirm(nrs.length+" orders op 'afgehandeld' zetten?")) return;
+  document.getElementById('bc').disabled = document.getElementById('bu').disabled = true;
+  const tb = document.getElementById('tb');
+  tb.innerHTML = '<tr><th>Order</th><th>Klant</th><th>Status nu</th><th>Resultaat</th></tr>';
+  let tel = {ok:0, rest:0};
+  for(let i=0;i<nrs.length;i+=10){
+    document.getElementById('st').textContent = (uitvoeren?'Bezig: ':'Controleren: ')+Math.min(i+10,nrs.length)+' / '+nrs.length;
+    const res = await fetch('/api/orders-afhandelen',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ordernummers:nrs.slice(i,i+10),uitvoeren})});
+    const d = await res.json();
+    (d.resultaten||[]).forEach(r=>{
+      r.ok?tel.ok++:tel.rest++;
+      const cls = r.ok?'ok':(r.actie.startsWith('overgeslagen')?'mid':'nee');
+      tb.insertAdjacentHTML('beforeend',`<tr><td>${r.order}</td><td>${r.naam}</td><td>${r.status_voor}</td><td class="${cls}">${r.actie}</td></tr>`);
+    });
+    if(d.fout){ document.getElementById('st').textContent = d.fout; break; }
+  }
+  document.getElementById('st').textContent = (uitvoeren?'Klaar: ':'Gecontroleerd: ')+tel.ok+' in orde/afgehandeld, '+tel.rest+' niet';
+  laatste = nrs.join(',');
+  document.getElementById('bc').disabled = false;
+  document.getElementById('bu').disabled = uitvoeren;
+}
+document.getElementById('inv').addEventListener('input',()=>{document.getElementById('bu').disabled=true;});
+</script></body></html>""")
+
+
+# ------------------------------------------------------------------
 # E-mail pagina en IMAP endpoints
 # ------------------------------------------------------------------
 
