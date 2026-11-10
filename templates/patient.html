@@ -240,6 +240,7 @@
       <!-- Orders -->
       <div class="sectie">
         <h3>Bestellingen (${p.orders?.length || 0})</h3>
+        ${p.wc_fout ? `<div style="background:#fef9e7;border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:10px;">⚠ WooCommerce gaf een fout bij het ophalen van de bestellingen (${p.wc_fout}). Hieronder staat wat in de eigen database bekend is; status en bedrag ontbreken dan.</div>` : ''}
         ${!p.orders?.length ? '<div style="color:var(--muted);font-size:13px;">Geen orders gevonden</div>' : `
         <table class="orders-tabel">
           <thead>
