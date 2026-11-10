@@ -1593,6 +1593,7 @@ async def get_patient(patient_id: int):
                 })
                 gezien_ids.add(o["id"])
 
+        wc_fouten = []
         if email:
             try:
                 resp_o = http_requests.get(
@@ -1604,6 +1605,7 @@ async def get_patient(patient_id: int):
                 resp_o.raise_for_status()
                 _voeg_wc_orders_toe(resp_o.json() if isinstance(resp_o.json(), list) else [], email)
             except Exception as e:
+                wc_fouten.append(f"zoeken op e-mail: {e}")
                 print(f"[patient] WC orders (email) fout: {e}")
 
         # Fallback: als het opgeslagen e-mailadres fout/verouderd is (bijv. per ongeluk
@@ -1620,9 +1622,38 @@ async def get_patient(patient_id: int):
                 resp_c.raise_for_status()
                 _voeg_wc_orders_toe(resp_c.json() if isinstance(resp_c.json(), list) else [], "")
             except Exception as e:
+                wc_fouten.append(f"zoeken op klant-ID: {e}")
                 print(f"[patient] WC orders (customer_id) fout: {e}")
 
+        # Terugval: orders die wél in onze eigen database staan maar niet uit
+        # WooCommerce kwamen (WooCommerce traag/onbereikbaar/foutmelding, of
+        # afwijkend e-mailadres) tonen we alsnog, met de gegevens die wij zelf
+        # hebben. Eerder bleef de lijst dan leeg ('Geen orders gevonden').
+        _bekend = {o["wc_order_id"] for o in orders}
+        for wc_id, db in db_orders.items():
+            if wc_id in _bekend:
+                continue
+            orders.append({
+                "id": int(wc_id) if str(wc_id).isdigit() else None,
+                "wc_order_id": wc_id,
+                "wc_status": "",
+                "wc_datum": str(db.get("recept_datum") or "")[:10],
+                "wc_totaal": "",
+                "medicijn": db.get("medicijn_db") or "",
+                "voorschrijver": db.get("voorschrijver") or "",
+                "agb_code": db.get("agb_code") or "",
+                "hoeveelheid": "", "iter": "", "gebruiksaanwijzing": "",
+                "smarthub_verstuurd": db.get("smarthub_verstuurd", 0),
+                "smarthub_verstuurd_op": db.get("smarthub_verstuurd_op", ""),
+                "recept_datum": db.get("recept_datum", ""),
+                "recept_geldig_tot": db.get("recept_geldig_tot", ""),
+                "recept_opgeslagen_naam": db.get("recept_opgeslagen_naam", ""),
+                "alleen_lokaal": True,
+            })
+        orders.sort(key=lambda o: int(o["wc_order_id"]) if str(o["wc_order_id"]).isdigit() else 0, reverse=True)
+
         patient["orders"] = orders
+        patient["wc_fout"] = "; ".join(wc_fouten) if wc_fouten else ""
         return JSONResponse(content=patient)
     finally:
         cur.close()
