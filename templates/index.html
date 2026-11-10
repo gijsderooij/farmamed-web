@@ -219,18 +219,22 @@
     <div class="stap-item inactief" id="balie-stap4">
       <div class="stap-info">
         <span class="stap-nr" id="balie-nr4">4</span>
-        <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + EDIFACT</div></div>
+        <div><div style="font-size:12px;font-weight:500;">Order aanmaken</div><div style="font-size:10px;color:var(--muted);">WooCommerce + SmartHUB</div></div>
       </div>
     </div>
   </div>
   <div class="stap-acties" id="balie-acties">
     <div id="balie-order-melding" style="font-size:12px;color:var(--success);"></div>
-    <div style="margin-left:auto;display:flex;gap:8px;">
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
       <button class="btn" onclick="downloadReceptBalie()" id="btnDownloadReceptBalie" style="font-size:12px;padding:6px 12px;">⬇ Recept opslaan</button>
-      <button class="btn" onclick="downloadEdifactBalie()" style="font-size:12px;padding:6px 12px;">📤 EDIFACT downloaden</button>
+      <button class="btn" onclick="genereerSmartHubJsonBalie()" id="btnMaakSmartHubJsonBalie" style="font-size:12px;padding:6px 12px;">📄 SmartHUB JSON aanmaken</button>
+      <button onclick="verstuurSmartHubBalie()" id="btnSmartHubVersturenBalie" style="font-size:12px;padding:7px 14px;background:#2980b9;color:white;border:none;border-radius:8px;cursor:pointer;font-family:'DM Sans',sans-serif;">📡 SmartHUB versturen</button>
       <button class="btn" onclick="nieuweBalieSessie()" style="font-size:12px;padding:6px 12px;">➕ Nieuwe patiënt</button>
     </div>
   </div>
+  <!-- SmartHUB JSON-preview komt hier, boven de rest — zelfde idee als
+       orderMelding in emails.html. -->
+  <div id="balieSmartHubPreview"></div>
   <!-- Altijd beschikbaar zodra er een bestand is geüpload — ook als er nog
        geen (of geen nieuwe) order bij hoort, bijv. een recept dat je nu al
        wilt opslaan onder een ordernummer dat je zelf weet/invult, terwijl de
@@ -563,7 +567,6 @@
       const data = await res.json();
       if (data.order_id) {
         window._balieOrderId = data.order_id;
-        if (data.edifact) { window._edifactBalie = data.edifact; window._edifactBalieId = data.order_id; }
 
         el('orderMelding').innerHTML = `
           <div class="melding melding-ok">✓ Order #${data.order_id} aangemaakt
@@ -577,6 +580,12 @@
 
         status.textContent = `✓ Order #${data.order_id} aangemaakt`;
         status.style.color = 'var(--success)';
+        // Order staat in WooCommerce, maar het opslaan in de eigen database (patiënt,
+        // voorschrijver) kan apart mislukt zijn — dat niet stilzwijgend laten verdwijnen.
+        if (data.db_fout) {
+          el('orderMelding').insertAdjacentHTML('beforeend',
+            `<div class="melding melding-fout">⚠ Order is aangemaakt, maar NIET goed opgeslagen in de database: ${data.db_fout}</div>`);
+        }
         btn.textContent = '✓ Aangemaakt';
         balieAllesKlaar();
       } else {
@@ -663,15 +672,122 @@
     await _downloadOrigineelBestandAlsPdf(bestandsnaam);
   }
 
-  function downloadEdifactBalie() {
-    if (!window._edifactBalie) return;
-    const blob = new Blob([window._edifactBalie], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const naam = (el('o-achternaam')?.value || 'patient').replace(/\s/g, '_');
-    a.href = url; a.download = `${window._edifactBalieId}_farmamed_${naam}.edi`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // SmartHUB JSON opbouwen uit de bevestigde o-*-velden — zelfde aanpak als
+  // genereerSmartHubJsonEmail() in emails.html / genereerSmartHubJson() in
+  // orders.html. Vervangt de oude lokale EDIFACT-download volledig.
+  async function genereerSmartHubJsonBalie() {
+    const _veld = (id, terugval) => el(id)?.value || terugval || '';
+
+    const voornaam = _veld('o-voornaam');
+    const achternaam = _veld('o-achternaam');
+    const naam = `${voornaam} ${achternaam}`.trim();
+    const voorschrijver_naam = _veld('o-voorschrijver') || 'Onbekende voorschrijver';
+    const agb_code = _veld('o-agb_code') || '00000000';
+    const email = _veld('o-email');
+    const telefoon = _veld('o-telefoon');
+    const geboortedatum = _veld('o-geboortedatum');
+    const bsn = _veld('o-bsn');
+    const medicijn = _veld('o-medicijn');
+    const straat = _veld('o-straat');
+    const hoeveelheid = _veld('o-hoeveelheid');
+
+    const postcodePlaatsRuw = _veld('o-postcode_plaats');
+    const pcMatch = postcodePlaatsRuw.match(/^(\d{4}\s?[A-Za-z]{2})\s*(.*)$/i);
+    const postalCode = (pcMatch ? pcMatch[1] : '').replace(/\s+/g, '').toUpperCase();
+    const stad = (pcMatch && pcMatch[2]) ? pcMatch[2].trim() : '';
+
+    let artikel = { code: 'ONBEKEND', name: (medicijn || '').toUpperCase() };
+    try {
+      const artikelRes = await fetch('/api/zoek-artikel?naam=' + encodeURIComponent(medicijn || ''));
+      artikel = await artikelRes.json();
+    } catch (e) { /* val terug op ONBEKEND hierboven — niet blokkerend */ }
+
+    let aantal = 1;
+    const permutaties = (typeof _vindPermutaties === 'function') ? _vindPermutaties(medicijn) : null;
+    const hoeveelheidNum = parseFloat(hoeveelheid) || 0;
+    if (permutaties && permutaties.verpakkingsgrootte && hoeveelheidNum > 0) {
+      aantal = Math.round(hoeveelheidNum / permutaties.verpakkingsgrootte) || 1;
+    }
+
+    const json_preview = {
+      organizationCode: "SMARTMED",
+      code: String(window._balieOrderId || ''),
+      system: "Farmamed",
+      client: {
+        code: email || String(window._balieOrderId || ''),
+        initials: voornaam ? voornaam[0].toUpperCase() + '.' : '',
+        firstname: voornaam, surname: achternaam, name: naam,
+        dateOfBirth: geboortedatum || "", socialSecurityNumber: bsn || "",
+        contacts: email ? [
+          {type: "Email", value: email},
+          ...(telefoon ? [{type: "Phone", value: telefoon}] : [])
+        ] : []
+      },
+      items: [{
+        article: {code: artikel.code || 'ONBEKEND', name: artikel.name || (medicijn || '').toUpperCase(), system: "CUSTOM.Article"},
+        quantity: {type: "Package", value: aantal},
+        prescription: {
+          code: String(window._balieOrderId || ''),
+          date: new Date().toISOString().slice(0,19).replace('T',' '),
+          prescriber: {code: agb_code, name: voorschrijver_naam, system: "NL_AGB"}
+        }
+      }],
+      delivery: {
+        type: "Shipper", code: "SendCloud",
+        address: { line: straat || "", postalCode: postalCode || "", city: stad || "" }
+      }
+    };
+
+    window._smarthubBerichtBalie = json_preview;
+
+    const jsonTekst = JSON.stringify(json_preview, null, 2);
+    let html = `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:white;margin-bottom:12px;">`;
+    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;">Controleer dit verstrekkingsverzoek voordat je op 📡 SmartHUB versturen drukt:</div>`;
+    if (artikel.code === 'ONBEKEND') {
+      html += `<div class="melding melding-fout" style="margin-bottom:8px;">⚠ Geen SmartHUB-artikel gevonden voor "${medicijn || '—'}" — controleer de artikelcode handmatig vóór het versturen.</div>`;
+    }
+    html += (typeof bouwVerstrekkingsverzoekPreview === 'function') ? bouwVerstrekkingsverzoekPreview(json_preview) : '';
+    html += `<details style="margin-top:6px;">
+        <summary style="font-size:11px;color:var(--muted);cursor:pointer;">Ruwe JSON tonen</summary>
+        <div class="json-box" style="margin-top:6px;background:#0d1b2a;color:#7ec8e3;font-family:'Courier New',monospace;font-size:10px;padding:14px;border-radius:8px;line-height:1.6;white-space:pre-wrap;word-break:break-all;">${jsonTekst}</div>
+      </details>`;
+    html += `</div>`;
+    el('balieSmartHubPreview').innerHTML = html;
+  }
+
+  async function verstuurSmartHubBalie() {
+    if (!window._balieOrderId) return;
+    const btn = el('btnSmartHubVersturenBalie');
+    const status = el('statusTekst');
+    btn.disabled = true;
+    btn.textContent = '⏳ Versturen…';
+    try {
+      const res = await fetch('/api/verstuur-smarthub', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: window._balieOrderId,
+          bericht: window._smarthubBerichtBalie || null,
+          patient_id: window._huidigDossierPatientId || null,
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        btn.textContent = '✓ SmartHUB versturen';
+        btn.style.background = 'var(--success)';
+        if (status) { status.textContent = '✓ Verstuurd naar SmartHUB'; status.style.color = 'var(--success)'; }
+      } else {
+        btn.textContent = '✗ SmartHUB versturen';
+        btn.style.background = 'var(--danger)';
+        btn.disabled = false;
+        if (status) { status.textContent = data.fout || `HTTP ${data.status_code}`; status.style.color = 'var(--danger)'; }
+      }
+    } catch(e) {
+      btn.textContent = '✗ SmartHUB versturen';
+      btn.style.background = 'var(--danger)';
+      btn.disabled = false;
+      if (status) { status.textContent = e.message; status.style.color = 'var(--danger)'; }
+    }
   }
 
   // ---------- Nieuwe sessie (reset naar startscherm) ----------
@@ -711,7 +827,10 @@
 
     const stappenEl = el('balie-stappen'); if (stappenEl) stappenEl.classList.remove('zichtbaar');
     const actiesEl = el('balie-acties'); if (actiesEl) actiesEl.classList.remove('zichtbaar');
-    window._edifactBalie = null; window._edifactBalieId = null; window._balieOrderId = null;
+    window._smarthubBerichtBalie = null; window._balieOrderId = null;
+    const smartHubPreview = el('balieSmartHubPreview'); if (smartHubPreview) smartHubPreview.innerHTML = '';
+    const btnSH = el('btnSmartHubVersturenBalie');
+    if (btnSH) { btnSH.disabled = false; btnSH.textContent = '📡 SmartHUB versturen'; btnSH.style.background = '#2980b9'; }
   }
 
   // Permutatiedata (D/- en S/-opties per medicijn) — zelfde als emails.html
