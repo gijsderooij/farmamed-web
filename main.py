@@ -92,8 +92,27 @@ def _zoek_of_maak_patient(billing: dict, bsn: str = "", geboortedatum: str = "")
         conn.close()
 
 
+_VOORSCHRIJVER_PLACEHOLDERS = {"onbekende voorschrijver", "onbekend", "specialist", ""}
+
+
 def _zoek_of_maak_voorschrijver(naam: str, agb_code: str = "") -> int | None:
-    """Zoekt of maakt voorschrijver in PostgreSQL."""
+    """
+    Zoekt of maakt een voorschrijver in PostgreSQL. Geeft het id terug, of
+    None als er niets bruikbaars is (leeg, of alleen een placeholder als
+    'Onbekende voorschrijver' — daar maken we geen rij voor, en dan blijft
+    een eventueel al gekoppelde voorschrijver op de order ook staan).
+
+    Volgorde: 1) AGB-code, 2) naam (hoofdletter-/spatie-ongevoelig),
+    3) nieuw aanmaken. Eerder werd zonder AGB-code bij ELKE order een nieuwe
+    rij met dezelfde naam aangemaakt (NULL botst nooit op de unieke AGB-
+    kolom, en de naam-zoekopdracht stond ná de INSERT en werd dus nooit
+    bereikt). Een bestaande rij zonder AGB-code krijgt nu alsnog de AGB-code
+    zodra die ergens binnenkomt.
+    """
+    naam = " ".join((naam or "").split())
+    agb_code = (agb_code or "").strip()
+    if naam.lower() in _VOORSCHRIJVER_PLACEHOLDERS:
+        naam = ""
     if not naam and not agb_code:
         return None
     if not _DATABASE_URL:
@@ -106,16 +125,23 @@ def _zoek_of_maak_voorschrijver(naam: str, agb_code: str = "") -> int | None:
             row = cur.fetchone()
             if row:
                 return row[0]
-        naam = naam or "Onbekende voorschrijver"
+        if naam:
+            cur.execute(
+                "SELECT id, agb_code FROM voorschrijvers "
+                "WHERE LOWER(REGEXP_REPLACE(TRIM(naam), '\\s+', ' ', 'g')) = %s ORDER BY id LIMIT 1",
+                (naam.lower(),),
+            )
+            row = cur.fetchone()
+            if row:
+                if agb_code and not row[1]:
+                    cur.execute("UPDATE voorschrijvers SET agb_code = %s WHERE id = %s", (agb_code, row[0]))
+                    conn.commit()
+                return row[0]
         cur.execute(
-            "INSERT INTO voorschrijvers (agb_code, naam) VALUES (%s,%s) ON CONFLICT (agb_code) DO UPDATE SET naam=EXCLUDED.naam RETURNING id",
-            (agb_code or None, naam)
+            "INSERT INTO voorschrijvers (agb_code, naam) VALUES (%s,%s) "
+            "ON CONFLICT (agb_code) DO UPDATE SET naam=voorschrijvers.naam RETURNING id",
+            (agb_code or None, naam or "Onbekende voorschrijver")
         )
-        row = cur.fetchone()
-        if row:
-            conn.commit()
-            return row[0]
-        cur.execute("SELECT id FROM voorschrijvers WHERE naam = %s", (naam,))
         row = cur.fetchone()
         conn.commit()
         return row[0] if row else None
@@ -345,6 +371,7 @@ def _sla_order_op(wc_order_id: str, patient_id, voorschrijver_id, medicijn_id,
                 bijgewerkt_op=NOW()
                 WHERE wc_order_id=%s""",
                 (patient_id, voorschrijver_id, medicijn_id, wc_order_id))
+            _zet_patient_voorschrijver(cur, patient_id, voorschrijver_id)
             conn.commit()
             return row[0]
         cur.execute("""INSERT INTO orders
@@ -356,11 +383,27 @@ def _sla_order_op(wc_order_id: str, patient_id, voorschrijver_id, medicijn_id,
              recept_origineel_naam or None, recept_opgeslagen_naam or None,
              recept_geldig_tot or None))
         order_id = cur.fetchone()[0]
+        _zet_patient_voorschrijver(cur, patient_id, voorschrijver_id)
         conn.commit()
         return order_id
     finally:
         cur.close()
         conn.close()
+
+
+def _zet_patient_voorschrijver(cur, patient_id, voorschrijver_id) -> None:
+    """Houdt patienten.voorschrijver_id (de 'laatst bekende voorschrijver' die
+    op de patiëntpagina staat) bij met de voorschrijver van de order die we
+    net opsloegen. Eerder werd alleen orders.voorschrijver_id gezet, waardoor
+    de patiëntpagina bij alle nieuw aangemaakte orders 'Geen voorschrijver
+    bekend' liet zien. Alleen bij een echte voorschrijver én patiënt."""
+    if not patient_id or not voorschrijver_id:
+        return
+    cur.execute(
+        "UPDATE patienten SET voorschrijver_id = %s, voorschrijver_datum = NOW() "
+        "WHERE id = %s AND voorschrijver_id IS DISTINCT FROM %s",
+        (voorschrijver_id, patient_id, voorschrijver_id),
+    )
 
 
 def _wc_auth(wc_key: str, wc_secret: str) -> dict:
@@ -2314,17 +2357,31 @@ async def maak_order(request: Request):
             return JSONResponse(content={"fout": f"WooCommerce ({response.status_code}): {wc_detail}"})
         order = response.json()
 
-        # Sla patiënt + order op in PostgreSQL
+        # Sla patiënt + order + voorschrijver op in PostgreSQL. Eerder gebeurde dit
+        # alléén als er een patiënt gevonden/aangemaakt kon worden — een Balie-klant
+        # zonder e-mailadres gaf dus GEEN opslag van order en voorschrijver. Nu wordt
+        # de order altijd opgeslagen (patient_id mag dan leeg zijn), en een mislukte
+        # opslag wordt in de response teruggegeven in plaats van alleen geprint.
+        db_fout = None
         if _DATABASE_URL:
             try:
+                import re as _re2
                 _voornaam_lokaal, _achternaam_lokaal = _splits_voornaam_achternaam(data.get("patient_naam") or "")
-                _bil = {"email":data.get("email",""),"first_name":_voornaam_lokaal,"last_name":_achternaam_lokaal,"phone":data.get("telefoon",""),"address_1":data.get("straat",""),"postcode":data.get("postcode",""),"city":data.get("woonplaats","")}
-                _gbd = _nl_naar_amerikaans(data.get("geboortedatum",""))
-                _pid = _zoek_of_maak_patient(_bil, data.get("bsn",""), _gbd)
-                if _pid:
-                    _vid = _zoek_of_maak_voorschrijver(data.get("voorschrijver",""), data.get("agb_code","")) if (data.get("voorschrijver") or data.get("agb_code")) else None
-                    _sla_order_op(wc_order_id=str(order["id"]),patient_id=_pid,voorschrijver_id=_vid,medicijn_id=_zoek_medicijn_id(data.get("medicijn","")),hoeveelheid=1,recept_datum=data.get("recept_datum",""))
+                _pcm = _re2.match(r"(\d{4}\s*[A-Za-z]{2})\s*(.*)", (data.get("postcode_plaats") or "").strip())
+                _bil = {"email": data.get("email", ""), "first_name": _voornaam_lokaal, "last_name": _achternaam_lokaal,
+                        "phone": data.get("telefoon", ""), "address_1": data.get("straat", ""),
+                        "postcode": _pcm.group(1).strip() if _pcm else data.get("postcode", ""),
+                        "city": _pcm.group(2).strip() if _pcm else (data.get("woonplaats", "") or "")}
+                _gbd = _nl_naar_amerikaans(data.get("geboortedatum", ""))
+                _pid = _zoek_of_maak_patient(_bil, data.get("bsn", ""), _gbd)
+                _vid = _zoek_of_maak_voorschrijver(data.get("voorschrijver", ""), data.get("agb_code", ""))
+                _sla_order_op(wc_order_id=str(order["id"]), patient_id=_pid, voorschrijver_id=_vid,
+                              medicijn_id=_zoek_medicijn_id(data.get("medicijn", "")),
+                              hoeveelheid=1, recept_datum=data.get("recept_datum", ""))
+                print(f"[maak-order] #{order['id']} opgeslagen: patient={_pid} voorschrijver={_vid} "
+                      f"(naam={data.get('voorschrijver','')!r}, agb={data.get('agb_code','')!r})")
             except Exception as _e:
+                db_fout = str(_e)
                 print(f"[maak-order] DB fout: {_e}")
 
         # Sla order_id op bij e-mail maar markeer NIET als verwerkt
@@ -2338,6 +2395,7 @@ async def maak_order(request: Request):
         return JSONResponse(content={
             "order_id": order["id"],
             "status": order["status"],
+            "db_fout": db_fout,
         })
     except Exception as e:
         return JSONResponse(content={"fout": str(e)})
@@ -6347,6 +6405,20 @@ async def orders_afhandelen(request: Request):
                         try: det = put.json().get("message", put.text[:150])
                         except Exception: det = put.text[:150]
                         r["actie"] = f"mislukt: HTTP {put.status_code} {det}"
+                        # Een fatale fout in een WordPress-plugin kan NA het opslaan van de
+                        # status optreden: dan staat de order wél op completed. Opnieuw nalezen.
+                        try:
+                            na = http_requests.get(f"{wc_url}/wp-json/wc/v3/orders/{n}",
+                                                   headers=_wc_auth(wc_key, wc_secret), timeout=15)
+                            if na.status_code == 200:
+                                r["status_na"] = na.json().get("status", "")
+                                if r["status_na"] == "completed":
+                                    r["actie"] = f"afgehandeld, maar WooCommerce gaf HTTP {put.status_code} (plugin-fout na opslaan)"
+                                    r["ok"] = True
+                                else:
+                                    r["actie"] += f' — status blijft "{r["status_na"]}"'
+                        except Exception:
+                            pass
         except Exception as e:
             r["actie"] = f"fout: {e}"
         resultaten.append(r)
