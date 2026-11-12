@@ -1483,6 +1483,12 @@ async def get_patient(patient_id: int):
         for k in ["aangemaakt_op", "bijgewerkt_op", "voorschrijver_datum"]:
             if patient[k]:
                 patient[k] = str(patient[k])[:16]
+        # Hoeveel patiënten delen deze voorschrijver? (een wijziging aan de
+        # voorschrijver geldt voor al die patiënten — de pagina waarschuwt daarvoor)
+        patient["voorschrijver_aantal_patienten"] = 0
+        if patient.get("voorschrijver_id"):
+            cur.execute("SELECT COUNT(*) FROM patienten WHERE voorschrijver_id = %s", (patient["voorschrijver_id"],))
+            patient["voorschrijver_aantal_patienten"] = cur.fetchone()[0]
 
         # Verrijk patiëntgegevens met meest recente WooCommerce order
         email = patient.get("email", "")
@@ -1687,6 +1693,87 @@ async def update_patient(patient_id: int, request: Request):
     finally:
         cur.close()
         conn.close()
+
+
+@app.put("/api/patient/{patient_id}/voorschrijver")
+async def update_patient_voorschrijver(patient_id: int, request: Request):
+    """
+    Maakt/wijzigt de voorschrijver van een patiënt (naam, AGB-code, e-mail,
+    telefoon) vanaf de patiëntenpagina.
+      - Patiënt heeft nog GEEN voorschrijver: zoek een bestaande (AGB-code,
+        daarna naam) of maak er een aan, en koppel die aan de patiënt.
+      - Patiënt HEEFT er al een: werk die voorschrijver zelf bij. Let op: die
+        rij kan door meer patiënten gedeeld worden — de wijziging geldt voor
+        allemaal (dat is bedoeld: je corrigeert de arts, niet één dossier).
+    Een AGB-code die al bij een ándere voorschrijver hoort geeft een duidelijke
+    fout (dan zijn het in feite twee dubbele rijen: voeg ze samen via de
+    bestaande samenvoeg-tools of koppel de patiënt aan die ene voorschrijver).
+    """
+    if not _DATABASE_URL:
+        return JSONResponse(status_code=500, content={"ok": False, "fout": "Geen database verbinding"})
+    data = await request.json()
+    naam = " ".join((data.get("naam") or "").split())
+    agb = (data.get("agb_code") or "").strip()
+    email = (data.get("email") or "").strip() or None
+    telefoon = (data.get("telefoon") or "").strip() or None
+    if not naam and not agb:
+        return JSONResponse(content={"ok": False, "fout": "Vul minimaal een naam of een AGB-code in"})
+
+    conn = _pg_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT voorschrijver_id FROM patienten WHERE id = %s", (patient_id,))
+        rij = cur.fetchone()
+        if not rij:
+            return JSONResponse(status_code=404, content={"ok": False, "fout": "Patiënt niet gevonden"})
+        vid = rij[0]
+        gekoppeld_aan_bestaande = False
+
+        if vid is None:
+            # Nog geen voorschrijver: zoek of maak (dedupe op AGB-code en naam)
+            conn.close(); conn = None
+            vid = _zoek_of_maak_voorschrijver(naam, agb)
+            if not vid:
+                return JSONResponse(content={"ok": False, "fout": "Kon geen voorschrijver aanmaken"})
+            conn = _pg_conn(); cur = conn.cursor()
+            cur.execute("SELECT naam, email, telefoon FROM voorschrijvers WHERE id = %s", (vid,))
+            bestaand = cur.fetchone()
+            # Bestond hij al met andere gegevens? Dan alleen LEGE velden aanvullen
+            # (niet stilletjes andermans gegevens overschrijven).
+            gekoppeld_aan_bestaande = bool(bestaand and bestaand[0] and naam and bestaand[0].strip().lower() != naam.lower())
+            cur.execute(
+                "UPDATE voorschrijvers SET email = COALESCE(NULLIF(email,''), %s), "
+                "telefoon = COALESCE(NULLIF(telefoon,''), %s) WHERE id = %s",
+                (email, telefoon, vid))
+            cur.execute("UPDATE patienten SET voorschrijver_id = %s, voorschrijver_datum = NOW(), "
+                        "bijgewerkt_op = NOW() WHERE id = %s", (vid, patient_id))
+        else:
+            if agb:
+                cur.execute("SELECT id, naam FROM voorschrijvers WHERE agb_code = %s AND id <> %s", (agb, vid))
+                andere = cur.fetchone()
+                if andere:
+                    return JSONResponse(content={"ok": False, "fout":
+                        f"AGB-code {agb} hoort al bij een andere voorschrijver ('{andere[1]}', id {andere[0]}). "
+                        f"Voeg die twee samen, of laat de AGB-code hier leeg."})
+            cur.execute(
+                "UPDATE voorschrijvers SET naam = COALESCE(NULLIF(%s,''), naam), agb_code = %s, "
+                "email = %s, telefoon = %s WHERE id = %s",
+                (naam, agb or None, email, telefoon, vid))
+        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM patienten WHERE voorschrijver_id = %s", (vid,))
+        aantal = cur.fetchone()[0]
+        return JSONResponse(content={"ok": True, "voorschrijver_id": vid,
+                                     "gekoppeld_aan_bestaande": gekoppeld_aan_bestaande,
+                                     "aantal_patienten": aantal})
+    except Exception as e:
+        if conn: conn.rollback()
+        import traceback
+        print(f"[update_patient_voorschrijver] Fout: {e}\n{traceback.format_exc()}")
+        return JSONResponse(status_code=500, content={"ok": False, "fout": str(e)})
+    finally:
+        if conn:
+            cur.close()
+            conn.close()
 
 
 @app.delete("/api/patient/{patient_id}")
