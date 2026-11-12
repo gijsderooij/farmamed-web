@@ -11,68 +11,81 @@
     --success: #27ae60; --warn: #e67e22; --danger: #c0392b;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: #2c3e50; }
-  nav { background: var(--teal-dk); color: white; display: flex; align-items: center; height: 48px; }
-  nav a { color: white; text-decoration: none; padding: 0 18px; height: 100%; display: flex; align-items: center; font-size: 13px; transition: background 0.15s; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: #2c3e50; font-size: 12px; }
+  nav { background: var(--teal-dk); color: white; display: flex; align-items: center; height: 40px; }
+  nav a { color: white; text-decoration: none; padding: 0 14px; height: 100%; display: flex; align-items: center; font-size: 12px; transition: background 0.15s; }
   nav a:hover, nav a.actief { background: rgba(255,255,255,0.15); }
-  nav .logo { font-family: 'Cormorant Garamond', serif; font-size: 18px; padding: 0 20px; border-right: 1px solid rgba(255,255,255,0.2); }
+  nav .logo { font-family: 'Cormorant Garamond', serif; font-size: 17px; padding: 0 16px; border-right: 1px solid rgba(255,255,255,0.2); }
 
-  .layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 48px); }
-
-  /* Linker kolom: zoeken */
-  .zoek-paneel { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: white; }
-  .zoek-header { padding: 16px; border-bottom: 1px solid var(--border); }
-  .zoek-header h2 { font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 400; margin-bottom: 10px; }
-  .zoek-input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; }
+  .layout { display: grid; grid-template-columns: 220px 1fr; height: calc(100vh - 40px); }
+  .zoek-paneel { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: white; min-height: 0; }
+  .zoek-header { padding: 10px; border-bottom: 1px solid var(--border); }
+  .zoek-header h2 { font-family: 'Cormorant Garamond', serif; font-size: 17px; font-weight: 500; margin-bottom: 6px; }
+  .zoek-input { width: 100%; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 12px; outline: none; }
   .zoek-input:focus { border-color: var(--teal); }
-  .zoek-hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
-
+  .zoek-hint { font-size: 10px; color: var(--muted); margin-top: 4px; }
   .patient-lijst { flex: 1; overflow-y: auto; }
-  .patient-item { padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+  .patient-item { padding: 7px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
   .patient-item:hover { background: var(--teal-lt); }
   .patient-item.actief { background: var(--teal-lt); border-left: 3px solid var(--teal); }
-  .patient-item .naam { font-size: 13px; font-weight: 600; }
-  .patient-item .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .patient-item .bsn-badge { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 4px; margin-top: 3px; }
+  .patient-item .naam { font-size: 12px; font-weight: 600; }
+  .patient-item .sub { font-size: 10px; color: var(--muted); }
+  .bsn-badge { display: inline-block; font-size: 9px; padding: 0 4px; border-radius: 3px; margin-top: 2px; }
   .bsn-ja { background: #eafaf1; color: var(--success); }
   .bsn-nee { background: #fef9e7; color: var(--warn); }
 
-  /* Rechter kolom: datasheet */
-  .datasheet { overflow-y: auto; padding: 24px; }
-  .leeg { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: 14px; }
+  .datasheet { overflow-y: auto; padding: 10px 14px; min-height: 0; }
+  .leeg { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: 13px; }
 
-  .patient-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
-  .patient-naam { font-family: 'Cormorant Garamond', serif; font-size: 28px; font-weight: 400; }
-  .patient-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
-
-  .sectie { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-  .sectie h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 12px; }
-  .velden-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .veld { }
-  .veld label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px; }
-  .veld input { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--cream); }
-  .veld input:focus { outline: none; border-color: var(--teal); background: white; }
-  .veld input.ontbreekt { border-color: var(--warn); background: #fffbf0; }
-
-  .btn-opslaan { padding: 8px 16px; background: var(--teal); color: white; border: none; border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px; margin-top: 12px; }
-  .btn-opslaan:hover { background: var(--teal-dk); }
-  .btn-verwijderen { padding: 8px 16px; background: white; color: var(--danger); border: 1px solid var(--danger); border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 13px; margin-top: 12px; margin-left: 8px; }
-  .btn-verwijderen:hover { background: #fdecea; }
-
-  /* Orders tabel */
-  .orders-tabel { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .orders-tabel th { text-align: left; padding: 8px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 2px solid var(--border); }
-  .orders-tabel td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  .orders-tabel tr:hover td { background: var(--teal-lt); }
-  .status-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
-  .status-completed { background: #eafaf1; color: var(--success); }
-  .status-pending { background: #fef9e7; color: var(--warn); }
-  .status-cancelled { background: #fdecea; color: var(--danger); }
-  .smarthub-ja { color: var(--success); }
-  .smarthub-nee { color: #ccc; }
-
+  .patient-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .patient-naam { font-family: 'Cormorant Garamond', serif; font-size: 22px; font-weight: 500; line-height: 1; }
+  .nr-badge { background: var(--teal-dk); color: white; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .patient-sub { font-size: 11px; color: var(--muted); flex: 1; }
   .wc-link { color: var(--teal); text-decoration: none; font-size: 11px; }
   .wc-link:hover { text-decoration: underline; }
+
+  .kolommen { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; margin-bottom: 10px; }
+  @media (max-width: 1000px) { .kolommen { grid-template-columns: 1fr; } }
+  .sectie { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .sectie h3 { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .velden-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px 8px; }
+  .velden-grid.twee { grid-template-columns: 1fr 1fr; }
+  .veld.breed { grid-column: span 2; }
+  .veld label { font-size: 10px; color: var(--muted); display: block; margin-bottom: 1px; }
+  .veld input { width: 100%; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; font-size: 12px; background: var(--cream); }
+  .veld input:focus { outline: none; border-color: var(--teal); background: white; }
+  .veld input.ontbreekt { border-color: var(--warn); background: #fffbf0; }
+  .veld input[readonly] { color: var(--muted); }
+
+  .rij-acties { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+  .btn { padding: 4px 11px; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 11px; border: 1px solid var(--teal); background: var(--teal); color: white; }
+  .btn:hover { background: var(--teal-dk); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.licht { background: white; color: var(--teal); }
+  .btn.licht:hover { background: var(--teal-lt); }
+  .btn.gevaar { background: white; color: var(--danger); border-color: var(--danger); }
+  .btn.gevaar:hover { background: #fdecea; }
+  .status-txt { font-size: 11px; }
+  .vs-info { font-size: 10px; color: var(--muted); margin-top: 5px; }
+  .vs-geen { font-size: 11px; color: var(--warn); margin-bottom: 5px; }
+
+  .orders-tabel { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .orders-tabel th { text-align: left; padding: 3px 6px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 2px solid var(--border); }
+  .orders-tabel td { padding: 3px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .orders-tabel tr:hover td { background: var(--teal-lt); }
+  .orders-tabel tr.nieuw td { background: #eafaf1; }
+  .orders-scroll { max-height: calc(100vh - 330px); min-height: 90px; overflow-y: auto; }
+  .status-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #eee; }
+  .status-completed { background: #eafaf1; color: var(--success); }
+  .status-pending { background: #fef9e7; color: var(--warn); }
+  .status-processing { background: #e8f0fb; color: #2c6fbb; }
+  .status-cancelled { background: #fdecea; color: var(--danger); }
+  .smarthub-ja { color: var(--success); } .smarthub-nee { color: #ccc; }
+  .melding { border-radius: 6px; padding: 6px 10px; font-size: 11px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .melding.ok { background: #eafaf1; border: 1px solid var(--success); color: #1e8449; }
+  .melding.fout { background: #fdecea; border: 1px solid var(--danger); color: var(--danger); }
+  .melding.waarsch { background: #fef9e7; border: 1px solid var(--warn); color: #b9650f; }
+  .melding .x { margin-left: auto; cursor: pointer; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -142,132 +155,170 @@
       </div>`;
   }
 
-  async function toonPatient(id) {
-    // Markeer actief in lijst
-    document.querySelectorAll('.patient-item').forEach(el => el.classList.remove('actief'));
-    event.currentTarget.classList.add('actief');
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function fmtDatum(d) { return d ? String(d).slice(0, 10) : '—'; }
 
+  async function toonPatient(id) {
+    document.querySelectorAll('.patient-item').forEach(el => el.classList.remove('actief'));
+    if (typeof event !== 'undefined' && event && event.currentTarget && event.currentTarget.classList) {
+      event.currentTarget.classList.add('actief');
+    }
+    await laadPatient(id);
+  }
+
+  async function laadPatient(id, melding) {
     const resp = await fetch(`/api/patient/${id}`);
     const p = await resp.json();
     huidigePatient = p;
+    const orders = p.orders || [];
+    const naam = `${p.voornaam || ''} ${p.achternaam || ''}`.trim();
+    const naamJs = esc(naam).replace(/'/g, "\\'");
 
-    const ds = document.getElementById('datasheet');
-    ds.innerHTML = `
+    document.getElementById('datasheet').innerHTML = `
       <div class="patient-header">
-        <div>
-          <div class="patient-naam">${p.voornaam || ''} ${p.achternaam || ''}</div>
-          <div class="patient-sub">
-            ${p.email || '—'} &nbsp;·&nbsp; ${p.telefoon || '—'}
-            &nbsp;·&nbsp; ${p.orders?.length || 0} order${(p.orders?.length || 0) !== 1 ? 's' : ''}
-          </div>
-        </div>
-        <a href="https://farmamed.nl/wp-admin/edit.php?post_type=shop_order&s=${encodeURIComponent(p.email || '')}"
-           target="_blank" class="wc-link">Bekijk in WooCommerce ↗</a>
+        <div class="patient-naam">${esc(naam) || '(naam onbekend)'}</div>
+        <span class="nr-badge" title="Patiëntnummer in de database">Patiënt #${p.id}</span>
+        <div class="patient-sub">${esc(p.email) || '—'} · ${esc(p.telefoon) || '—'} · ${orders.length} order${orders.length !== 1 ? 's' : ''}</div>
+        <a href="https://farmamed.nl/wp-admin/edit.php?post_type=shop_order&s=${encodeURIComponent(p.email || '')}" target="_blank" class="wc-link">WooCommerce ↗</a>
       </div>
 
-      <!-- Patiëntgegevens -->
-      <div class="sectie">
-        <h3>Patiëntgegevens</h3>
-        <div class="velden-grid">
-          <div class="veld">
-            <label>Voornaam</label>
-            <input id="f-voornaam" value="${p.voornaam || ''}" placeholder="Voornaam">
+      <div id="meldingen"></div>
+
+      <div class="kolommen">
+        <div class="sectie">
+          <h3>Patiëntgegevens</h3>
+          <div class="velden-grid">
+            <div class="veld"><label>Voornaam</label><input id="f-voornaam" value="${esc(p.voornaam)}"></div>
+            <div class="veld"><label>Achternaam</label><input id="f-achternaam" value="${esc(p.achternaam)}"></div>
+            <div class="veld"><label>Geboortedatum</label><input id="f-geboortedatum" value="${esc(p.geboortedatum)}" placeholder="YYYY-MM-DD" class="${!p.geboortedatum ? 'ontbreekt' : ''}"></div>
+            <div class="veld"><label>E-mail</label><input value="${esc(p.email)}" readonly></div>
+            <div class="veld"><label>Telefoon</label><input id="f-telefoon" value="${esc(p.telefoon)}"></div>
+            <div class="veld"><label>BSN</label><input id="f-bsn" value="${esc(p.bsn)}" class="${!p.bsn ? 'ontbreekt' : ''}"></div>
+            <div class="veld"><label>Adres</label><input id="f-adres" value="${esc(p.adres)}"></div>
+            <div class="veld"><label>Postcode</label><input id="f-postcode" value="${esc(p.postcode)}" placeholder="1234AB"></div>
+            <div class="veld"><label>Plaats</label><input id="f-plaats" value="${esc(p.plaats)}"></div>
           </div>
-          <div class="veld">
-            <label>Achternaam</label>
-            <input id="f-achternaam" value="${p.achternaam || ''}" placeholder="Achternaam">
-          </div>
-          <div class="veld">
-            <label>E-mailadres</label>
-            <input value="${p.email || ''}" readonly style="color:var(--muted)">
-          </div>
-          <div class="veld">
-            <label>Telefoon</label>
-            <input id="f-telefoon" value="${p.telefoon || ''}" placeholder="Telefoonnummer">
-          </div>
-          <div class="veld">
-            <label>Geboortedatum</label>
-            <input id="f-geboortedatum" value="${p.geboortedatum || ''}" placeholder="YYYY-MM-DD" class="${!p.geboortedatum ? 'ontbreekt' : ''}">
-          </div>
-          <div class="veld">
-            <label>BSN</label>
-            <input id="f-bsn" value="${p.bsn || ''}" placeholder="BSN nummer" class="${!p.bsn ? 'ontbreekt' : ''}">
-          </div>
-          <div class="veld">
-            <label>Adres</label>
-            <input id="f-adres" value="${p.adres || ''}" placeholder="Straat en huisnummer">
-          </div>
-          <div class="veld">
-            <label>Postcode</label>
-            <input id="f-postcode" value="${p.postcode || ''}" placeholder="1234AB">
-          </div>
-          <div class="veld">
-            <label>Plaats</label>
-            <input id="f-plaats" value="${p.plaats || ''}" placeholder="Plaatsnaam">
+          <div class="rij-acties">
+            <button class="btn" onclick="slaOp(${p.id})">Opslaan</button>
+            <button class="btn gevaar" onclick="verwijderPatient(${p.id}, '${naamJs}')">Verwijderen</button>
+            <span id="opslaan-status" class="status-txt"></span>
           </div>
         </div>
-        <button class="btn-opslaan" onclick="slaOp(${p.id})">Opslaan</button>
-        <button class="btn-verwijderen" onclick="verwijderPatient(${p.id}, '${(p.voornaam || '').replace(/'/g, "\\'")} ${(p.achternaam || '').replace(/'/g, "\\'")}')">Verwijderen</button>
-        <span id="opslaan-status" style="font-size:12px;margin-left:10px;"></span>
-      </div>
 
-      <!-- Voorschrijver -->
-      <div class="sectie">
-        <h3>Voorschrijver</h3>
-        ${!p.voorschrijver_id ? '<div style="color:var(--muted);font-size:13px;">Geen voorschrijver bekend</div>' : `
-        <div class="velden-grid">
-          <div class="veld">
-            <label>Naam</label>
-            <input value="${p.voorschrijver_naam || ''}" readonly style="color:var(--muted)">
+        <div class="sectie">
+          <h3>Voorschrijver ${p.voorschrijver_id ? `<span style="font-weight:400;text-transform:none;letter-spacing:0;">id ${p.voorschrijver_id}</span>` : ''}</h3>
+          ${!p.voorschrijver_id ? '<div class="vs-geen">Nog geen voorschrijver bekend — vul in om er een te koppelen.</div>' : ''}
+          <div class="velden-grid twee">
+            <div class="veld breed"><label>Naam</label><input id="v-naam" value="${esc(p.voorschrijver_naam)}" placeholder="Naam voorschrijver"></div>
+            <div class="veld"><label>AGB-code</label><input id="v-agb" value="${esc(p.voorschrijver_agb_code)}" placeholder="AGB-code"></div>
+            <div class="veld"><label>Telefoon</label><input id="v-telefoon" value="${esc(p.voorschrijver_telefoon)}"></div>
+            <div class="veld breed"><label>E-mail</label><input id="v-email" value="${esc(p.voorschrijver_email)}"></div>
           </div>
-          <div class="veld">
-            <label>AGB-code</label>
-            <input value="${p.voorschrijver_agb_code || '—'}" readonly style="color:var(--muted)">
+          <div class="rij-acties">
+            <button class="btn" onclick="slaVoorschrijverOp(${p.id})">${p.voorschrijver_id ? 'Voorschrijver opslaan' : 'Voorschrijver koppelen'}</button>
+            <span id="vs-status" class="status-txt"></span>
           </div>
-          <div class="veld">
-            <label>Email</label>
-            <input value="${p.voorschrijver_email || '—'}" readonly style="color:var(--muted)">
-          </div>
-          <div class="veld">
-            <label>Telefoon</label>
-            <input value="${p.voorschrijver_telefoon || '—'}" readonly style="color:var(--muted)">
-          </div>
+          <div class="vs-info">Laatst bekend: ${fmtDatum(p.voorschrijver_datum)}${p.voorschrijver_aantal_patienten > 1 ? ` · ⚠ gedeeld met ${p.voorschrijver_aantal_patienten} patiënten (wijziging geldt voor allen)` : ''}</div>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:8px;">Laatst bekend op: ${p.voorschrijver_datum || '—'}</div>
-        `}
       </div>
 
-      <!-- Orders -->
       <div class="sectie">
-        <h3>Bestellingen (${p.orders?.length || 0})</h3>
-        ${p.wc_fout ? `<div style="background:#fef9e7;border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:10px;">⚠ WooCommerce gaf een fout bij het ophalen van de bestellingen (${p.wc_fout}). Hieronder staat wat in de eigen database bekend is; status en bedrag ontbreken dan.</div>` : ''}
-        ${!p.orders?.length ? '<div style="color:var(--muted);font-size:13px;">Geen orders gevonden</div>' : `
-        <table class="orders-tabel">
-          <thead>
-            <tr>
-              <th>Order</th>
-              <th>Datum</th>
-              <th>Medicijn</th>
-              <th>Bedrag</th>
-              <th>Status</th>
-              <th>SmartHUB</th>
-            </tr>
-          </thead>
+        <h3><span>Bestellingen (${orders.length})</span><span style="font-weight:400;text-transform:none;letter-spacing:0;">Klonen maakt een nieuwe order (in afwachting); daarna kun je de bestelmail sturen</span></h3>
+        ${p.wc_fout ? `<div class="melding waarsch">⚠ WooCommerce gaf een fout (${esc(p.wc_fout)}). Hieronder staat wat in de eigen database bekend is; status en bedrag ontbreken dan.</div>` : ''}
+        ${!orders.length ? '<div style="color:var(--muted);">Geen orders gevonden</div>' : `
+        <div class="orders-scroll"><table class="orders-tabel">
+          <thead><tr><th>Order</th><th>Datum</th><th>Medicijn</th><th>Bedrag</th><th>Status</th><th>SH</th><th></th></tr></thead>
           <tbody>
-            ${p.orders.map(o => `
+            ${orders.map(o => `
               <tr>
                 <td><a href="https://farmamed.nl/wp-admin/post.php?post=${o.wc_order_id}&action=edit" target="_blank" class="wc-link">#${o.wc_order_id}</a></td>
-                <td>${o.wc_datum || '—'}</td>
-                <td style="max-width:160px;font-size:11px;">${o.medicijn || '—'}</td>
-                <td>€${o.wc_totaal || '—'}</td>
-                <td><span class="status-badge status-${o.wc_status}">${o.wc_status || '—'}</span></td>
+                <td>${fmtDatum(o.wc_datum)}</td>
+                <td style="max-width:260px;">${esc(o.medicijn) || '—'}</td>
+                <td>${o.wc_totaal ? '€' + esc(o.wc_totaal) : '—'}</td>
+                <td><span class="status-badge status-${esc(o.wc_status)}">${esc(o.wc_status) || '—'}</span></td>
                 <td class="${o.smarthub_verstuurd ? 'smarthub-ja' : 'smarthub-nee'}">${o.smarthub_verstuurd ? '✓' : '○'}</td>
-              </tr>
-            `).join('')}
+                <td style="text-align:right;white-space:nowrap;"><button class="btn licht" onclick="kloonOrder(${o.wc_order_id}, this)">Klonen</button></td>
+              </tr>`).join('')}
           </tbody>
-        </table>`}
+        </table></div>`}
       </div>
     `;
+    if (melding) toonMelding(melding.type, melding.html);
+  }
+
+  function toonMelding(type, html) {
+    const m = document.getElementById('meldingen');
+    if (!m) return;
+    m.innerHTML = `<div class="melding ${type}">${html}<span class="x" onclick="this.parentNode.remove()">✕</span></div>`;
+  }
+
+  async function kloonOrder(orderId, knop) {
+    if (!huidigePatient) return;
+    knop.disabled = true; knop.textContent = '…';
+    try {
+      const resp = await fetch(`/api/order/${orderId}/kloon`, { method: 'POST' });
+      const r = await resp.json();
+      if (!resp.ok || r.fout || !r.order_id) {
+        knop.disabled = false; knop.textContent = 'Klonen';
+        toonMelding('fout', `✕ Klonen van #${orderId} mislukt: ${esc(r.fout || r.detail || resp.status)}`);
+        return;
+      }
+      // Herlaad de patiënt zodat de nieuwe order in de lijst staat; toon daarna de bestelmail-knop
+      await laadPatient(huidigePatient.id, {
+        type: 'ok',
+        html: `✓ Order #${r.order_id} aangemaakt als kloon van #${orderId} (${esc(r.status || 'pending')}). ` +
+              `<button class="btn" id="mailKnop" onclick="stuurBestelmail(${r.order_id}, this)">Bestelmail sturen</button>`
+      });
+      // Markeer de nieuwe rij
+      document.querySelectorAll('.orders-tabel tbody tr').forEach(tr => {
+        if (tr.textContent.includes('#' + r.order_id)) tr.classList.add('nieuw');
+      });
+    } catch (e) {
+      knop.disabled = false; knop.textContent = 'Klonen';
+      toonMelding('fout', '✕ Klonen mislukt: ' + esc(e.message));
+    }
+  }
+
+  async function stuurBestelmail(orderId, knop) {
+    knop.disabled = true; knop.textContent = 'Versturen…';
+    try {
+      const resp = await fetch(`/api/order/${orderId}/verstuur-naar-klant`, { method: 'POST' });
+      const r = await resp.json();
+      if (r.ok) {
+        toonMelding('ok', `✓ Bestelmail voor #${orderId} verstuurd naar ${esc(huidigePatient?.email || 'de klant')}${r.methode ? ' (' + esc(r.methode) + ')' : ''}.`);
+      } else {
+        toonMelding('fout', `✕ Bestelmail voor #${orderId} mislukt: ${esc(r.fout || resp.status)} <button class="btn licht" onclick="stuurBestelmail(${orderId}, this)">Opnieuw</button>`);
+      }
+    } catch (e) {
+      toonMelding('fout', '✕ Bestelmail mislukt: ' + esc(e.message));
+    }
+  }
+
+  async function slaVoorschrijverOp(patient_id) {
+    const st = document.getElementById('vs-status');
+    const data = {
+      naam: document.getElementById('v-naam').value,
+      agb_code: document.getElementById('v-agb').value,
+      email: document.getElementById('v-email').value,
+      telefoon: document.getElementById('v-telefoon').value,
+    };
+    const resp = await fetch(`/api/patient/${patient_id}/voorschrijver`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    });
+    const r = await resp.json();
+    if (r.ok) {
+      await laadPatient(patient_id, {
+        type: r.gekoppeld_aan_bestaande ? 'waarsch' : 'ok',
+        html: r.gekoppeld_aan_bestaande
+          ? '✓ Gekoppeld aan een bestaande voorschrijver met deze AGB-code/naam (bestaande gegevens zijn niet overschreven, alleen lege velden aangevuld).'
+          : '✓ Voorschrijver opgeslagen.'
+      });
+    } else {
+      st.style.color = 'var(--danger)';
+      st.textContent = '✗ ' + (r.fout || 'Fout');
+    }
   }
 
   async function slaOp(patient_id) {
