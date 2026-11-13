@@ -148,6 +148,7 @@
     <a href="/">Balie</a>
     <a href="/orders">Orders</a>
     <a href="/emails" class="actief">E-mails</a>
+    <a href="/zorgmail">Zorgmail</a>
     <a href="/status">Werklijst</a>
     <a href="/bank">Bank</a>
     <a href="/patient">Patiënten</a>
@@ -842,7 +843,7 @@
     let html = `<div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:white;margin-bottom:12px;">`;
     html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px;">Controleer dit verstrekkingsverzoek voordat je op 📡 SmartHUB versturen drukt:</div>`;
     if (artikel.code === 'ONBEKEND') {
-      html += `<div class="melding melding-warn" style="margin-bottom:8px;">⚠ Geen SmartHUB-artikel gevonden voor "${medicijn || '—'}" — controleer de artikelcode handmatig vóór het versturen.</div>`;
+      html += `<div class="melding melding-fout" style="margin-bottom:8px;">✕ Geen SmartHUB-artikel gevonden voor "${medicijn || '—'}" — SmartHUB wijst dit bericht gegarandeerd af ("Article NotFound") zolang de artikelcode "ONBEKEND" is. Versturen is daarom geblokkeerd; neem contact op (SmartHUB-beheer) om de juiste artikelcode voor dit medicijn toe te voegen aan de database, of kies een ander medicijn dat wél een bekende code heeft.</div>`;
     }
     html += bouwVerstrekkingsverzoekPreview(json_preview);
     html += `<details style="margin-top:6px;">
@@ -861,6 +862,20 @@
     // meldingen-balk (setMelding), niet naar de knoptekst.
     const basistekst = '📡 SmartHUB versturen';
     const basisKleur = '#2980b9';
+
+    // Harde blokkade: zonder bekende SmartHUB-artikelcode wijst SmartHUB het
+    // bericht altijd af ("Article ... NotFound" — zie de HTTP 400 hieronder
+    // bij een onbekend artikel). Dan gewoon laten versturen levert alleen
+    // een foutmelding op en vervuilt de meldingen-balk; beter is vooraf
+    // blokkeren met een duidelijke uitleg. Gebruik het al opgebouwde bericht
+    // (genereerSmartHubJsonEmail hierboven) zodat dit precies dezelfde
+    // artikel-matching gebruikt die ook echt verstuurd zou worden.
+    const bestaandArtikel = window._smarthubBericht?.items?.[0]?.article;
+    if (!bestaandArtikel || bestaandArtikel.code === 'ONBEKEND' || !bestaandArtikel.code) {
+      setMelding('✕ Niet verstuurd: onbekend SmartHUB-artikel voor dit medicijn — zie de melding bij "SmartHUB JSON aanmaken".', 'fout');
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = '⏳ Versturen…';
     try {
@@ -943,6 +958,7 @@
 
         document.getElementById('orderMelding').innerHTML = '';
         setMelding(`✓ Order #${data.order_id} aangemaakt`, 'ok');
+        if (data.db_fout) setMelding(`⚠ Niet goed opgeslagen in de database (patiënt/voorschrijver): ${data.db_fout}`, 'fout');
         // Werklijst: markeer WC Order als gedaan
         if (huidigeEmail) slaWerklijstStatusOp('email_' + huidigeEmail.uid, 'order', true);
       } else {

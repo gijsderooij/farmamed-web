@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farmamed — Zorgmail</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --teal: #2a7f7f; --teal-dk: #1d5c5c; --teal-lt: #e8f5f5;
+    --border: #dde8e8; --muted: #7a9a9a; --cream: #f7fafa;
+    --success: #27ae60; --warn: #e67e22; --danger: #c0392b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: #2c3e50; font-size: 13px; }
+  nav { background: var(--teal-dk); color: white; display: flex; align-items: center; height: 44px; }
+  nav a { color: white; text-decoration: none; padding: 0 16px; height: 100%; display: flex; align-items: center; font-size: 13px; gap: 6px; }
+  nav a:hover, nav a.actief { background: rgba(255,255,255,0.15); }
+  nav .logo { font-family: 'Cormorant Garamond', serif; font-size: 18px; padding: 0 20px; border-right: 1px solid rgba(255,255,255,0.2); }
+  .nav-badge { background: #e74c3c; color: white; font-size: 10px; font-weight: 600; border-radius: 9px; padding: 1px 6px; display: none; }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: white; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .pill { font-size: 11px; padding: 3px 9px; border-radius: 10px; background: #eee; color: #555; }
+  .pill.ok { background: #eafaf1; color: var(--success); }
+  .pill.fout { background: #fdecea; color: var(--danger); }
+  .pill.waarsch { background: #fef9e7; color: var(--warn); }
+  .spacer { flex: 1; }
+  .btn { padding: 6px 13px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; border: 1px solid var(--teal); background: var(--teal); color: white; }
+  .btn:hover { background: var(--teal-dk); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.licht { background: white; color: var(--teal); }
+  .btn.licht:hover { background: var(--teal-lt); }
+  .btn.grijs { background: white; color: #666; border-color: var(--border); }
+  .btn.klein { padding: 3px 9px; font-size: 11px; }
+  select.filter { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 12px; background: white; }
+
+  .layout { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 44px - 45px); }
+  .lijst { border-right: 1px solid var(--border); overflow-y: auto; background: white; }
+  .item { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; position: relative; }
+  .item:hover { background: var(--teal-lt); }
+  .item.actief { background: var(--teal-lt); border-left: 3px solid var(--teal); padding-left: 11px; }
+  .item.nieuw::before { content: ''; position: absolute; left: 4px; top: 16px; width: 7px; height: 7px; border-radius: 50%; background: #e74c3c; }
+  .item.actief.nieuw::before { left: 1px; }
+  .item .t1 { display: flex; justify-content: space-between; gap: 6px; font-weight: 600; font-size: 13px; }
+  .item .t1 span.tijd { font-weight: 400; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .item .t2 { font-size: 12px; color: #555; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .t3 { font-size: 11px; color: var(--muted); margin-top: 2px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: #eee; color: #666; }
+  .tag.verwerkt { background: #eafaf1; color: var(--success); }
+  .tag.genegeerd { background: #f0f0f0; color: #999; }
+  .tag.waarsch { background: #fef9e7; color: var(--warn); }
+  .leeg { padding: 40px 20px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  .detail { overflow-y: auto; padding: 14px 18px 40px; }
+  .detail h2 { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 500; }
+  .kop { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 8px 0 12px; }
+  .tab { padding: 7px 14px; cursor: pointer; font-size: 12px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tab.actief { color: var(--teal-dk); border-bottom-color: var(--teal); font-weight: 600; }
+
+  .melding { border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .melding.ok { background: #eafaf1; border: 1px solid var(--success); color: #1e8449; }
+  .melding.fout { background: #fdecea; border: 1px solid var(--danger); color: var(--danger); }
+  .melding.waarsch { background: #fef9e7; border: 1px solid var(--warn); color: #b9650f; }
+  .melding.info { background: var(--teal-lt); border: 1px solid var(--teal); color: var(--teal-dk); }
+  .melding .x { margin-left: auto; cursor: pointer; color: var(--muted); }
+
+  .actiebalk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; padding: 8px 10px; background: white; border: 1px solid var(--border); border-radius: 8px; }
+  .keuzes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { padding: 4px 10px; border: 1px solid var(--border); border-radius: 14px; cursor: pointer; font-size: 12px; background: white; }
+  .chip.actief { background: var(--teal); color: white; border-color: var(--teal); }
+  .chip .ok { color: #7be0a3; }
+
+  .sectie { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .sectie h3 { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 10px; }
+  .grid.twee { grid-template-columns: repeat(2, 1fr); }
+  .veld.breed { grid-column: span 2; }
+  .veld.vol { grid-column: 1 / -1; }
+  .veld label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+  .veld input, .veld textarea { width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; font-family: inherit; font-size: 13px; background: var(--cream); }
+  .veld textarea { resize: vertical; min-height: 44px; }
+  .veld input:focus, .veld textarea:focus { outline: none; border-color: var(--teal); background: white; }
+  .veld input.ontbreekt { border-color: var(--warn); background: #fffbf0; }
+  .veld .hint { font-size: 10px; color: var(--warn); margin-top: 2px; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 280px 1fr; } .grid { grid-template-columns: repeat(2, 1fr); } }
+
+  table.tabel { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.tabel th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 4px 8px; border-bottom: 2px solid var(--border); }
+  table.tabel td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  pre.edi { background: #1e2a2a; color: #d6f0e8; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+  pre.edi .tag-seg { color: #7fd1c7; font-weight: 600; }
+  .match { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .match:last-child { border-bottom: none; }
+  .toast { position: fixed; right: 18px; bottom: 18px; background: var(--teal-dk); color: white; padding: 12px 16px; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.25); font-size: 13px; cursor: pointer; z-index: 50; max-width: 320px; }
+  .toast b { display: block; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">Farmamed</div>
+  <a href="/">Balie</a>
+  <a href="/orders">Orders</a>
+  <a href="/emails">E-mails</a>
+  <a href="/zorgmail" class="actief">Zorgmail <span class="nav-badge" id="navBadge"></span></a>
+  <a href="/status">Werklijst</a>
+  <a href="/bank">Bank</a>
+  <a href="/patient">Patiënten</a>
+</nav>
+
+<div class="toolbar">
+  <span class="pill" id="statusPill">Status laden…</span>
+  <span class="pill" id="pollPill" style="display:none"></span>
+  <span class="spacer"></span>
+  <select class="filter" id="filter" onchange="laadLijst()">
+    <option value="open">Open (nieuw + gelezen)</option>
+    <option value="nieuw">Alleen nieuw</option>
+    <option value="verwerkt">Verwerkt</option>
+    <option value="genegeerd">Genegeerd</option>
+    <option value="">Alles</option>
+  </select>
+  <button class="btn" id="btnOphalen" onclick="nuOphalen()">↻ Nu ophalen</button>
+  <button class="btn licht" onclick="testVerbinding()">Verbinding testen</button>
+  <button class="btn licht" onclick="document.getElementById('edifile').click()">⬆ .edi importeren</button>
+  <input type="file" id="edifile" accept=".edi,.txt,*/*" style="display:none" onchange="importeer(this)">
+</div>
+
+<div class="layout">
+  <div class="lijst" id="lijst"><div class="leeg">Laden…</div></div>
+  <div class="detail" id="detail"><div class="leeg">← Kies een bericht uit de inbox</div></div>
+</div>
+
+<script>
+  let huidig = null;          // volledig geopend bericht
+  let receptIdx = 0, regelIdx = 0;
+  let tab = 'order';
+  let laatsteIdBekend = null; // voor 'nieuw bericht'-melding
+  let gemaakt = {};           // `${berichtId}:${recept}:${regel}` -> order_id
+  let statusGeladen = false;
+
+  function esc(v) { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fmtTijd(iso) {
+    if (!iso) return '';
+    const d = new Date(iso); if (isNaN(d)) return esc(iso);
+    const nu = new Date();
+    const zelfdeDag = d.toDateString() === nu.toDateString();
+    return zelfdeDag ? d.toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'})
+                     : d.toLocaleDateString('nl-NL', {day:'2-digit', month:'2-digit'}) + ' ' + d.toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit'});
+  }
+  function bsnOk(b) {
+    b = String(b || '').replace(/\D/g, ''); if (b.length !== 9) return false;
+    let s = 0; for (let i = 0; i < 8; i++) s += (9 - i) * +b[i];
+    s -= +b[8]; return s % 11 === 0;
+  }
+
+  // ---------- Statusbalk + nieuw-bericht-melding ----------
+  async function laadStatus() {
+    try {
+      const s = await (await fetch('/api/zorgmail/status')).json();
+      const p = document.getElementById('statusPill');
+      if (!s.geconfigureerd) { p.className = 'pill waarsch'; p.textContent = 'ZorgMail nog niet gekoppeld — zie instructie hieronder'; }
+      else if (s.laatste_fout) { p.className = 'pill fout'; p.textContent = '⚠ ' + s.laatste_fout.slice(0, 90); p.title = s.laatste_fout; }
+      else { p.className = 'pill ok'; p.textContent = '● Gekoppeld'; p.title = ''; }
+      const pp = document.getElementById('pollPill');
+      if (s.laatste_poll) { pp.style.display = ''; pp.textContent = 'laatst gecontroleerd ' + fmtTijd(s.laatste_poll); }
+      const nb = document.getElementById('navBadge');
+      nb.style.display = s.nieuw ? '' : 'none'; nb.textContent = s.nieuw;
+      document.title = (s.nieuw ? `(${s.nieuw}) ` : '') + 'Farmamed — Zorgmail';
+      if (laatsteIdBekend !== null && s.nieuwste_id > laatsteIdBekend) {
+        nieuwBericht(s.nieuwste_id - laatsteIdBekend);
+        laadLijst(true);
+      }
+      laatsteIdBekend = s.nieuwste_id;
+      if (!statusGeladen) { statusGeladen = true; toonUitleg(s); }
+    } catch (e) {
+      const p = document.getElementById('statusPill'); p.className = 'pill fout'; p.textContent = 'Geen verbinding met server';
+    }
+  }
+  function toonUitleg(s) {
+    if (s.geconfigureerd) return;
+    document.getElementById('lijst').dataset.uitleg = '1';
+  }
+  function piep() {
+    try {
+      const c = new (window.AudioContext || window.webkitAudioContext)(), o = c.createOscillator(), g = c.createGain();
+      o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.08;
+      o.start(); o.stop(c.currentTime + 0.18);
+    } catch (e) {}
+  }
+  function nieuwBericht(n) {
+    piep();
+    const t = document.createElement('div'); t.className = 'toast';
+    t.innerHTML = `<b>📨 ${n} nieuw Zorgmail-bericht${n > 1 ? 'en' : ''}</b>Klik om de inbox te bekijken`;
+    t.onclick = () => { document.getElementById('filter').value = 'open'; laadLijst(); t.remove(); };
+    document.body.appendChild(t); setTimeout(() => t.remove(), 12000);
+    if ('Notification' in window && Notification.permission === 'granted') new Notification('Farmamed Zorgmail', { body: `${n} nieuw bericht${n > 1 ? 'en' : ''}` });
+  }
+
+  // ---------- Acties in de toolbar ----------
+  async function nuOphalen() {
+    const b = document.getElementById('btnOphalen'); b.disabled = true; b.textContent = '⏳ Ophalen…';
+    try {
+      const r = await (await fetch('/api/zorgmail/ophalen', { method: 'POST' })).json();
+      if (r.fouten && r.fouten.length) meld('fout', '✕ ' + esc(r.fouten.join(' · ')));
+      else meld('ok', `✓ Inbox opgehaald: ${r.nieuw} nieuw bericht${r.nieuw === 1 ? '' : 'en'}.`);
+      await laadLijst(true); await laadStatus();
+    } catch (e) { meld('fout', '✕ ' + esc(e.message)); }
+    b.disabled = false; b.textContent = '↻ Nu ophalen';
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  }
+  async function testVerbinding() {
+    const r = await (await fetch('/api/zorgmail/test', { method: 'POST' })).json();
+    meld(r.ok ? 'ok' : 'fout', r.ok ? `✓ Verbinding met ZorgMail werkt — ${r.berichten_in_inbox} bericht(en) in de inbox.` : '✕ ' + esc(r.fout));
+  }
+  async function importeer(inp) {
+    const f = inp.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append('bestand', f);
+    const r = await (await fetch('/api/zorgmail/importeer', { method: 'POST', body: fd })).json();
+    inp.value = '';
+    if (r.ok) { meld('ok', '✓ Bestand geïmporteerd.'); await laadLijst(true); await laadStatus(); if (r.id) openBericht(r.id); }
+    else meld('fout', '✕ ' + esc(r.fout));
+  }
+  function meld(type, html) {
+    const m = document.getElementById('meldingen');
+    const doel = m || document.getElementById('detail');
+    const el = document.createElement('div'); el.className = 'melding ' + type;
+    el.innerHTML = html + '<span class="x" onclick="this.parentNode.remove()">✕</span>';
+    if (m) { m.innerHTML = ''; m.appendChild(el); }
+    else { doel.innerHTML = ''; doel.appendChild(el); }
+  }
+
+  // ---------- Inbox-lijst ----------
+  async function laadLijst(stil) {
+    const f = document.getElementById('filter').value;
+    const r = await (await fetch('/api/zorgmail/berichten?status=' + encodeURIComponent(f))).json();
+    const lijst = document.getElementById('lijst');
+    const b = r.berichten || [];
+    if (!b.length) {
+      lijst.innerHTML = `<div class="leeg">${f === 'open' || f === 'nieuw' ? 'Geen openstaande berichten 🎉' : 'Geen berichten'}</div>`;
+      return;
+    }
+    lijst.innerHTML = b.map(x => {
+      const s = x.samenvatting || {};
+      const titel = s.patient || x.onderwerp || '(onbekend)';
+      const med = (s.medicijnen || []).join(', ') + (s.aantal_regels > 3 ? ' …' : '');
+      return `<div class="item ${x.status === 'nieuw' ? 'nieuw' : ''} ${huidig && huidig.id === x.id ? 'actief' : ''}" onclick="openBericht(${x.id})">
+        <div class="t1"><span>${esc(titel)}</span><span class="tijd">${fmtTijd(x.ontvangen_op)}</span></div>
+        <div class="t2">${esc(med || x.onderwerp || x.document_type || '')}</div>
+        <div class="t3">
+          ${s.voorschrijver ? `<span>${esc(s.voorschrijver)}</span>` : ''}
+          <span class="tag">${esc(x.document_type || 'bericht')}</span>
+          ${s.functie && s.functie !== 'Origineel' ? `<span class="tag waarsch">${esc(s.functie)}</span>` : ''}
+          ${x.status === 'verwerkt' ? '<span class="tag verwerkt">verwerkt</span>' : ''}
+          ${x.status === 'genegeerd' ? '<span class="tag genegeerd">genegeerd</span>' : ''}
+          ${(x.wc_order_ids || []).length ? `<span class="tag verwerkt">order ${(x.wc_order_ids).map(o => '#' + esc(o)).join(', ')}</span>` : ''}
+          ${x.parse_fout ? '<span class="tag waarsch">uitlezen mislukt</span>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---------- Bericht openen ----------
+  async function openBericht(id) {
+    const r = await fetch('/api/zorgmail/bericht/' + id);
+    if (!r.ok) { meld('fout', '✕ Bericht kon niet worden geladen'); return; }
+    huidig = await r.json(); receptIdx = 0; regelIdx = 0; tab = 'order';
+    renderDetail(); laadLijst(true); laadStatus();
+  }
+
+  function recept() { return huidig && huidig.parsed && huidig.parsed.recepten ? huidig.parsed.recepten[receptIdx] : null; }
+  function regel() { const r = recept(); return r && r.regels ? r.regels[regelIdx] : null; }
+  const sleutel = () => `${huidig.id}:${receptIdx}:${regelIdx}`;
+
+  function renderDetail() {
+    const h = huidig, p = h.parsed;
+    const s = (p && p.recepten && p.recepten[0] && p.recepten[0].patient) ? p.recepten[0].patient.naam : '';
+    let html = `
+      <div class="kop"><h2>${esc(s || h.onderwerp || 'Bericht #' + h.id)}</h2>
+        <span class="tag">${esc(h.document_type || '')}</span>
+        ${p && p.functie_tekst && p.functie_tekst !== 'Origineel' ? `<span class="tag waarsch">${esc(p.functie_tekst)}</span>` : ''}
+        <span class="tag ${h.status === 'verwerkt' ? 'verwerkt' : h.status === 'genegeerd' ? 'genegeerd' : ''}">${esc(h.status)}</span></div>
+      <div class="sub">Ontvangen ${esc(new Date(h.ontvangen_op).toLocaleString('nl-NL'))}${h.bron === 'upload' ? ' · handmatig geïmporteerd' : ''}${h.afzender ? ' · van ' + esc(h.afzender) : ''}${p && p.bronsysteem ? ' · systeem ' + esc(p.bronsysteem) : ''}</div>
+      <div id="meldingen"></div>`;
+    if (h.parse_fout) html += `<div class="melding fout">✕ ${esc(h.parse_fout)} <button class="btn klein licht" onclick="opnieuwUitlezen()">Opnieuw uitlezen</button></div>`;
+    if (p && p.waarschuwingen) p.waarschuwingen.forEach(w => html += `<div class="melding waarsch">⚠ ${esc(w)}</div>`);
+    if (p && p.functie === '1') html += `<div class="melding waarsch">⚠ Dit is een <b>annulering</b> van een eerder bericht${recept() && recept().referentie ? ' (referentie ' + esc(recept().referentie) + ')' : ''} — maak hier geen order van.</div>`;
+    html += `<div class="tabs">
+      <div class="tab ${tab === 'order' ? 'actief' : ''}" onclick="zetTab('order')">Order maken</div>
+      <div class="tab ${tab === 'inhoud' ? 'actief' : ''}" onclick="zetTab('inhoud')">Berichtinhoud</div>
+      <div class="tab ${tab === 'details' ? 'actief' : ''}" onclick="zetTab('details')">Details</div></div>
+      <div id="tabInhoud"></div>`;
+    document.getElementById('detail').innerHTML = html;
+    renderTab();
+  }
+  function zetTab(t) { tab = t; renderDetail(); }
+  function renderTab() {
+    const el = document.getElementById('tabInhoud');
+    if (tab === 'order') el.innerHTML = orderTabHtml();
+    else if (tab === 'inhoud') el.innerHTML = inhoudTabHtml();
+    else el.innerHTML = detailsTabHtml();
+    if (tab === 'order') valideerVelden();
+  }
+
+  // ---------- Tab: Order maken ----------
+  function orderTabHtml() {
+    const p = huidig.parsed, rc = recept(), rg = regel();
+    if (!p || !p.ondersteund || !rc || !rg) {
+      return `<div class="melding info">Van dit bericht kan geen order worden gemaakt. Bekijk de inhoud op het tabblad “Berichtinhoud”, en markeer het als genegeerd of verwerkt.</div>${statusKnoppen()}`;
+    }
+    // Keuze recept / regel
+    let keuze = '';
+    const aantalR = p.recepten.length;
+    const totaal = p.recepten.reduce((n, r) => n + r.regels.length, 0);
+    if (totaal > 1) {
+      keuze = '<div class="keuzes">';
+      p.recepten.forEach((r, ri) => r.regels.forEach((g, gi) => {
+        const k = `${huidig.id}:${ri}:${gi}`;
+        keuze += `<div class="chip ${ri === receptIdx && gi === regelIdx ? 'actief' : ''}" onclick="kiesRegel(${ri},${gi})">${aantalR > 1 ? esc((r.patient && r.patient.naam) || 'Recept ' + (ri + 1)) + ' · ' : ''}${esc(g.naam || 'Regel ' + (gi + 1))} ${gemaakt[k] ? '<span class="ok">✓ #' + gemaakt[k] + '</span>' : ''}</div>`;
+      }));
+      keuze += '</div>';
+    }
+    const pt = rc.patient || {};
+    const vs = rg.voorschrijver || {};
+    const m = (rc.patient_matches || []);
+    const bsnGoed = bsnOk(pt.bsn);
+    const eenh = rg.eenheid ? ' ' + rg.eenheid : '';
+    const pcPlaats = [pt.postcode, pt.plaats].filter(Boolean).join(' ');
+    // Geautomatiseerd invullen vanuit exacte (BSN) match als iets ontbreekt
+    const exact = m.find(x => x.match_op === 'bsn');
+    const email = (exact && exact.email) || '';
+    const tel = (exact && exact.telefoon) || '';
+
+    let matchHtml = '';
+    if (m.length) {
+      matchHtml = `<div class="sectie"><h3>Bekende patiënt in de database</h3>` + m.map(x => `
+        <div class="match"><div><b>${esc(x.voornaam)} ${esc(x.achternaam)}</b> <span class="tag">#${x.id}</span> <span style="color:var(--muted);font-size:11px;">via ${esc(x.match_op)} · ${x.aantal_orders} order${x.aantal_orders === 1 ? '' : 's'} · ${esc(x.email || 'geen e-mail')} · ${esc(x.telefoon || 'geen telefoon')}</span></div>
+          <button class="btn klein licht" onclick="neemOver(${m.indexOf(x)})">Gegevens overnemen</button>
+          <a class="btn klein grijs" href="/patient" target="_blank" style="text-decoration:none">Dossier ↗</a></div>`).join('') + `</div>`;
+    } else {
+      matchHtml = `<div class="melding info">Geen bestaande patiënt gevonden op BSN/naam+geboortedatum — er wordt een nieuw patiëntdossier aangemaakt zodra je een e-mailadres invult.</div>`;
+    }
+
+    return `
+      ${keuze}
+      <div class="actiebalk">
+        <button class="btn licht" id="btnSamenvatten" onclick="samenvatten()">📊 Order samenvatten</button>
+        <span style="font-size:11px;color:var(--muted)">Controleer eerst de gegevens; daarna kun je de order aanmaken en de bestelmail sturen.</span>
+      </div>
+      <div id="orderMelding"></div>
+      ${matchHtml}
+      <div class="sectie"><h3>Patiënt <span style="font-weight:400;text-transform:none;letter-spacing:0">uit bericht · lokaal nr ${esc(pt.lokaal_id || '—')} ${rc.verzekering ? '· verzekeraar ' + esc(rc.verzekering.verzekeraar_agb) : ''}</span></h3>
+        <div class="grid">
+          <div class="veld"><label>Voornaam</label><input id="o-voornaam" value="${esc(pt.voornaam_volledig)}"></div>
+          <div class="veld"><label>Achternaam</label><input id="o-achternaam" value="${esc(pt.achternaam_volledig)}"></div>
+          <div class="veld"><label>Geboortedatum (DD-MM-JJJJ)</label><input id="o-geboortedatum" value="${esc(pt.geboortedatum)}"></div>
+          <div class="veld"><label>BSN</label><input id="o-bsn" value="${esc(pt.bsn)}" oninput="valideerVelden()"><div class="hint" id="h-bsn"></div></div>
+          <div class="veld"><label>E-mail (nodig voor bestelmail)</label><input id="o-email" value="${esc(email)}" oninput="valideerVelden()"><div class="hint" id="h-email"></div></div>
+          <div class="veld"><label>Telefoon</label><input id="o-telefoon" value="${esc(tel)}"></div>
+          <div class="veld breed"><label>Straat + huisnummer</label><input id="o-straat" value="${esc(pt.straat)}"></div>
+          <div class="veld"><label>Postcode + plaats</label><input id="o-postcode_plaats" value="${esc(pcPlaats)}"></div>
+        </div></div>
+      <div class="sectie"><h3>Medicijn <span style="font-weight:400;text-transform:none;letter-spacing:0">${esc(rg.codelijst ? rg.codelijst + ' ' + rg.code : '')}${rc.locatie ? ' · ' + esc(rc.locatie) : ''}</span></h3>
+        <div class="grid">
+          <div class="veld vol"><label>Medicijn</label><input id="o-medicijn" value="${esc(rg.naam)}"></div>
+          <div class="veld"><label>Hoeveelheid</label><input id="o-hoeveelheid" value="${esc((rg.hoeveelheid || '') + eenh)}">${rg.hoeveelheid && !rg.eenheid ? `<div class="hint">Eenheid onbekend (code ${esc(rg.eenheid_code)}) — vul aan, bijv. “gram”</div>` : ''}</div>
+          <div class="veld"><label>Herhalingen (iter)</label><input id="o-iter" value="${esc(rg.herhalingen)}"></div>
+          <div class="veld"><label>Receptdatum</label><input id="o-recept_datum" value="${esc(rg.startdatum || (huidig.parsed && huidig.parsed.bericht_datum) || '')}"></div>
+          <div class="veld vol"><label>Gebruiksaanwijzing</label><textarea id="o-gebruiksaanwijzing">${esc([rg.gebruiksaanwijzing, rg.opmerkingen].filter(Boolean).join(' — '))}</textarea></div>
+        </div></div>
+      <div class="sectie"><h3>Voorschrijver</h3>
+        <div class="grid">
+          <div class="veld breed"><label>Naam</label><input id="o-voorschrijver" value="${esc(vs.naam)}"></div>
+          <div class="veld"><label>AGB-code</label><input id="o-agb_code" value="${esc(vs.agb)}"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">${esc([vs.straat, [vs.postcode, vs.plaats].filter(Boolean).join(' ')].filter(Boolean).join(', '))}${vs.telefoon ? ' · ' + esc(vs.telefoon) : ''}</div></div>
+      ${statusKnoppen()}`;
+  }
+  function statusKnoppen() {
+    return `<div class="actiebalk">
+      <span style="font-size:12px;color:var(--muted)">Bericht afhandelen:</span>
+      <button class="btn licht" onclick="zetStatus('verwerkt')">✓ Markeer als verwerkt</button>
+      <button class="btn grijs" onclick="zetStatus('genegeerd')">Negeren</button>
+      ${huidig.status === 'verwerkt' || huidig.status === 'genegeerd' ? `<button class="btn grijs" onclick="zetStatus('gelezen')">Terug naar inbox</button>` : ''}
+    </div>`;
+  }
+  function kiesRegel(ri, gi) { receptIdx = ri; regelIdx = gi; renderTab(); }
+  function valideerVelden() {
+    const bsn = document.getElementById('o-bsn'), em = document.getElementById('o-email');
+    if (!bsn) return;
+    const hb = document.getElementById('h-bsn'), he = document.getElementById('h-email');
+    const bsnTxt = bsn.value.trim();
+    bsn.classList.toggle('ontbreekt', !bsnTxt || !bsnOk(bsnTxt));
+    hb.textContent = !bsnTxt ? 'BSN ontbreekt' : (!bsnOk(bsnTxt) ? 'Ongeldig BSN (11-proef)' : '');
+    const eTxt = em.value.trim();
+    const geldig = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(eTxt);
+    em.classList.toggle('ontbreekt', !geldig);
+    he.textContent = !eTxt ? 'Geen e-mail: order krijgt onbekend@farmamed.nl en er kan geen bestelmail worden gestuurd' : (!geldig ? 'Geen geldig e-mailadres' : '');
+  }
+  function neemOver(idx) {
+    const x = (recept().patient_matches || [])[idx]; if (!x) return;
+    const zet = (id, w, overschrijf) => { const e = document.getElementById(id); if (e && w && (overschrijf || !e.value.trim())) e.value = w; };
+    zet('o-email', x.email, true); zet('o-telefoon', x.telefoon, false);
+    zet('o-straat', x.adres, false);
+    zet('o-postcode_plaats', [x.postcode, x.plaats].filter(Boolean).join(' '), false);
+    zet('o-bsn', x.bsn, false);
+    valideerVelden();
+  }
+
+  // ---------- Order: samenvatten → aanmaken → bestelmail ----------
+  function payload() {
+    const v = id => (document.getElementById(id) || {}).value || '';
+    return {
+      patient_naam: `${v('o-voornaam')} ${v('o-achternaam')}`.trim(),
+      geboortedatum: v('o-geboortedatum'), bsn: v('o-bsn'), email: v('o-email'), telefoon: v('o-telefoon'),
+      straat: v('o-straat'), postcode_plaats: v('o-postcode_plaats'),
+      medicijn: v('o-medicijn'), hoeveelheid: v('o-hoeveelheid'), iter: v('o-iter'),
+      gebruiksaanwijzing: v('o-gebruiksaanwijzing'), recept_datum: v('o-recept_datum'),
+      voorschrijver: v('o-voorschrijver'), agb_code: v('o-agb_code'),
+      bron: 'zorgmail', zorgmail_id: huidig.id,
+    };
+  }
+  function orderMeld(type, html) {
+    document.getElementById('orderMelding').innerHTML = `<div class="melding ${type}">${html}</div>`;
+    document.getElementById('orderMelding').scrollIntoView({ block: 'nearest' });
+  }
+  async function samenvatten() {
+    const b = document.getElementById('btnSamenvatten'); b.disabled = true; b.textContent = '⏳ Voorbeeld ophalen…';
+    const pl = payload(); window._pending = pl;
+    try {
+      const r = await (await fetch('/api/preview-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pl) })).json();
+      if (r.fout) throw new Error(r.fout);
+      const regelsHtml = (r.regels || []).map(x => `<tr><td>${esc(x.naam)}</td><td>${x.aantal}×</td><td style="text-align:right">€${x.bedrag.toFixed(2)}</td></tr>`).join('');
+      const k = sleutel();
+      document.getElementById('orderMelding').innerHTML = `<div class="sectie" style="border-color:var(--teal)">
+        <h3>Samenvatting order</h3>
+        ${r.medicijn_gevonden ? '' : '<div class="melding waarsch">⚠ Medicijn niet gevonden in de webshop — er wordt alleen het WMG-tarief besteld. Pas de medicijnnaam aan of kies het product handmatig na aanmaken.</div>'}
+        <div style="margin-bottom:6px"><b>${esc(r.patient_naam)}</b> · ${esc(r.email)} · ${esc(r.medicijn)} (${r.aantal_tubes}× ${r.verpakkingsgrootte})</div>
+        <table class="tabel"><tbody>${regelsHtml}<tr><td colspan="2"><b>Totaal</b></td><td style="text-align:right"><b>€${r.totaal.toFixed(2)}</b></td></tr></tbody></table>
+        ${r.coulance_van_toepassing ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">Coulanceregeling toegepast.</div>' : ''}
+        <div style="margin-top:8px;display:flex;gap:8px"><button class="btn" id="btnBevestig" onclick="maakOrderAan()">✓ Bevestig en maak order aan</button>
+        <button class="btn grijs" onclick="document.getElementById('orderMelding').innerHTML=''">Annuleren</button></div></div>`;
+      if (gemaakt[k]) orderMeld('waarsch', `⚠ Voor deze regel is al order #${gemaakt[k]} aangemaakt. Controleer of je er niet een dubbele van maakt.`);
+    } catch (e) { orderMeld('fout', '✕ Kon geen voorbeeld ophalen: ' + esc(e.message)); }
+    b.disabled = false; b.textContent = '📊 Order samenvatten';
+  }
+  async function maakOrderAan() {
+    const k = sleutel();
+    if (gemaakt[k] && !confirm(`Er is voor deze regel al order #${gemaakt[k]} aangemaakt. Toch nog een order aanmaken?`)) return;
+    const b = document.getElementById('btnBevestig'); b.disabled = true; b.textContent = '⏳ Aanmaken…';
+    try {
+      const r = await (await fetch('/api/maak-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window._pending || payload()) })).json();
+      if (r.fout) throw new Error(r.fout);
+      gemaakt[k] = r.order_id;
+      (huidig.wc_order_ids = huidig.wc_order_ids || []).push(String(r.order_id));
+      const p = huidig.parsed, totaal = p.recepten.reduce((n, x) => n + x.regels.length, 0);
+      const klaar = p.recepten.every((rc, ri) => rc.regels.every((_, gi) => gemaakt[`${huidig.id}:${ri}:${gi}`]));
+      orderMeld('ok', `✓ Order <a href="https://farmamed.nl/wp-admin/post.php?post=${r.order_id}&action=edit" target="_blank">#${r.order_id}</a> aangemaakt (${esc(r.status)}).
+        <button class="btn klein" id="btnMail" onclick="stuurBestelmail(${r.order_id})">✉ Bestelmail sturen</button>
+        ${klaar ? '<button class="btn klein licht" onclick="zetStatus(\'verwerkt\')">✓ Alle regels klaar — markeer bericht als verwerkt</button>' : ''}
+        ${r.db_fout ? `<br><span style="color:var(--warn)">⚠ Opslaan in eigen database mislukte: ${esc(r.db_fout)}</span>` : ''}`);
+      laadLijst(true);
+    } catch (e) { orderMeld('fout', '✕ Order aanmaken mislukt: ' + esc(e.message)); }
+  }
+  async function stuurBestelmail(orderId) {
+    const b = document.getElementById('btnMail'); if (b) { b.disabled = true; b.textContent = 'Versturen…'; }
+    try {
+      const r = await (await fetch(`/api/order/${orderId}/verstuur-naar-klant`, { method: 'POST' })).json();
+      if (r.ok) orderMeld('ok', `✓ Bestelmail voor #${orderId} verstuurd.`);
+      else orderMeld('fout', `✕ Bestelmail mislukt: ${esc(r.fout || 'onbekende fout')} <button class="btn klein licht" onclick="stuurBestelmail(${orderId})">Opnieuw</button>`);
+    } catch (e) { orderMeld('fout', '✕ ' + esc(e.message)); }
+  }
+  async function zetStatus(st) {
+    await fetch(`/api/zorgmail/bericht/${huidig.id}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: st }) });
+    huidig.status = st; renderDetail(); laadLijst(true); laadStatus();
+  }
+  async function opnieuwUitlezen() {
+    const r = await (await fetch(`/api/zorgmail/bericht/${huidig.id}/opnieuw-uitlezen`, { method: 'POST' })).json();
+    if (r.ok) openBericht(huidig.id); else meld('fout', '✕ ' + esc(r.fout));
+  }
+
+  // ---------- Tab: Berichtinhoud ----------
+  function inhoudTabHtml() {
+    const t = huidig.ruwe_tekst;
+    const dl = `<a class="btn klein licht" style="text-decoration:none" href="/api/zorgmail/bericht/${huidig.id}/ruw">⬇ Download origineel</a>
+                <button class="btn klein grijs" onclick="opnieuwUitlezen()">Opnieuw uitlezen</button>`;
+    if (t == null) return `<div class="melding info">Dit berichtformaat (${esc(huidig.document_format || huidig.content_type || 'onbekend')}, ${huidig.grootte_bytes} bytes) kan niet als tekst getoond worden. ${dl}</div>`;
+    const net = esc(t).split(/'\s*(?:\r?\n)?/).filter(x => x.trim()).map(seg => {
+      const i = seg.search(/[+:]/); const tag = i > 0 ? seg.slice(0, i) : seg;
+      return `<span class="tag-seg">${tag.trim()}</span>${seg.slice(tag.length)}'`;
+    }).join('\n');
+    return `<div style="margin-bottom:8px;display:flex;gap:8px">${dl}</div><pre class="edi">${net}</pre>`;
+  }
+
+  // ---------- Tab: Details ----------
+  function detailsTabHtml() {
+    const p = huidig.parsed, md = huidig.metadata || {};
+    let h = `<div class="sectie"><h3>ZorgMail-gegevens</h3><table class="tabel"><tbody>` +
+      Object.keys(md).map(k => `<tr><td style="color:var(--muted);width:200px">${esc(k)}</td><td>${esc(md[k])}</td></tr>`).join('') + `</tbody></table></div>`;
+    if (p && p.partijen && p.partijen.length) {
+      const rol = { MS: 'Zender', MR: 'Ontvanger', BV: 'Contactpersoon / huisarts' };
+      h += `<div class="sectie"><h3>Partijen</h3><table class="tabel"><thead><tr><th>Rol</th><th>Naam</th><th>AGB</th><th>Adres</th><th>Telefoon</th></tr></thead><tbody>` +
+        p.partijen.map(x => `<tr><td>${esc(rol[x.rol] || x.rol)}</td><td>${esc(x.naam)}</td><td>${esc(x.agb)} <span style="color:var(--muted)">${esc(x.codelijst)}</span></td><td>${esc([x.straat, x.postcode + ' ' + x.plaats].filter(s => s.trim()).join(', '))}</td><td>${esc(x.telefoon)}</td></tr>`).join('') + `</tbody></table></div>`;
+    }
+    (p && p.recepten || []).forEach((rc, i) => {
+      if (rc.contra_indicaties && rc.contra_indicaties.length)
+        h += `<div class="sectie"><h3>Recept ${i + 1}${rc.referentie ? ' · ref ' + esc(rc.referentie) : ''} — klinische gegevens</h3><table class="tabel"><tbody>` +
+          rc.contra_indicaties.map(c => `<tr><td style="width:80px;color:var(--muted)">${esc(c.soort)}</td><td>${esc(c.omschrijving)}</td></tr>`).join('') + `</tbody></table></div>`;
+    });
+    return h;
+  }
+
+  // ---------- Start ----------
+  (async function () {
+    await laadStatus();
+    await laadLijst();
+    setInterval(laadStatus, 10000);
+    // Uitleg als er nog niets gekoppeld is
+    const s = await (await fetch('/api/zorgmail/status')).json();
+    if (!s.geconfigureerd) {
+      document.getElementById('detail').innerHTML = `<div class="sectie" style="max-width:640px"><h3>ZorgMail koppelen</h3>
+        <p style="line-height:1.6">Zet de volgende variabelen in Railway (Variables) en herstart de service:</p>
+        <table class="tabel" style="margin:8px 0"><tbody>
+          <tr><td><code>ZORGMAIL_ACCOUNT_ID</code></td><td>je 9-cijferige ZorgMail-klantnummer (de inbox)</td></tr>
+          <tr><td><code>ZORGMAIL_USER</code></td><td>gebruikersnaam</td></tr>
+          <tr><td><code>ZORGMAIL_PASSWORD</code></td><td>EDI-wachtwoord</td></tr>
+          <tr><td><code>ZORGMAIL_POLL_SECONDS</code></td><td>optioneel, standaard 60 (minimaal 15)</td></tr></tbody></table>
+        <p style="line-height:1.6">Test daarna met <b>Verbinding testen</b>. Zonder koppeling kun je de pagina uitproberen met <b>⬆ .edi importeren</b>.</p></div>`;
+    }
+  })();
+</script>
+</body>
+</html>
