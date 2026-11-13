@@ -7266,9 +7266,9 @@ def _zm_ophalen_eenmalig(max_berichten: int = 100) -> dict:
         _ZM_STATE["laatste_poll"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
         try:
             uids = _zm_list()
-        except _ZorgmailFout as e:
+        except Exception as e:
             _ZM_STATE["laatste_fout"] = str(e)
-            resultaat["fouten"].append(str(e))
+            resultaat["fouten"].append(f"Inbox ophalen mislukt: {e}")
             return resultaat
         for uid in uids[:max_berichten]:
             try:
@@ -7322,6 +7322,20 @@ async def _zorgmail_poller_loop():
 # ---------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------
+@app.middleware("http")
+async def _zorgmail_json_fouten(request: Request, call_next):
+    """Een onverwachte fout in een Zorgmail-endpoint geeft JSON met de echte reden terug
+    (in plaats van de platte tekst 'Internal Server Error') — en komt in de log."""
+    try:
+        return await call_next(request)
+    except Exception as e:
+        if request.url.path.startswith("/api/zorgmail"):
+            import traceback
+            print(f"[zorgmail] onverwachte fout in {request.url.path}: {e}\n{traceback.format_exc()}")
+            return JSONResponse(status_code=500, content={"ok": False, "fout": f"{type(e).__name__}: {e}"})
+        raise
+
+
 @app.get("/zorgmail", response_class=HTMLResponse)
 async def zorgmail_pagina():
     return HTMLResponse(content=(BASE_DIR / "templates" / "zorgmail.html").read_text(encoding="utf-8"))
