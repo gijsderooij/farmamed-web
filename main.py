@@ -604,6 +604,11 @@ async def startup_event():
         except Exception as e:
             print(f"[startup] Backfill SMARTHUB_MEDICIJNEN -> database fout: {e}")
     asyncio.create_task(_email_poller_loop())
+    asyncio.create_task(_zorgmail_poller_loop())
+    try:
+        _zm_init_db()
+    except Exception as e:
+        print(f"[startup] Zorgmail-tabel fout: {e}")
 
 
 def _backfill_smarthub_codes_naar_db():
@@ -2303,7 +2308,7 @@ async def _bereken_order_details(data: dict, wc_url: str, wc_key: str, wc_secret
     stad = pc_match.group(2).strip() if pc_match else postcode_plaats
 
     bron = data.get("bron", "balie")
-    oorsprong = "E-Mail" if bron == "email" else "Balie"
+    oorsprong = {"email": "E-Mail", "zorgmail": "Zorgmail"}.get(bron, "Balie")
 
     billing = {
         "first_name": voornaam,
@@ -2509,6 +2514,18 @@ async def maak_order(request: Request):
             if email_cached:
                 email_cached["order_id"] = order["id"]
                 _sla_email_op(email_cached)
+
+        # Order vanuit een Zorgmail-bericht: koppel het order-nummer aan het bericht
+        if data.get("bron") == "zorgmail" and data.get("zorgmail_id"):
+            try:
+                _zm_init_db()
+                _zc = _pg_conn(); _zcur = _zc.cursor()
+                _zcur.execute("""UPDATE zorgmail_berichten SET wc_order_ids = COALESCE(wc_order_ids,'[]'::jsonb) || to_jsonb(%s::text)
+                                 WHERE id=%s AND NOT (COALESCE(wc_order_ids,'[]'::jsonb) ? %s)""",
+                              (str(order["id"]), int(data["zorgmail_id"]), str(order["id"])))
+                _zc.commit(); _zcur.close(); _zc.close()
+            except Exception as _e:
+                print(f"[maak-order] Zorgmail-koppeling mislukt: {_e}")
 
         return JSONResponse(content={
             "order_id": order["id"],
@@ -6597,6 +6614,936 @@ document.getElementById('inv').addEventListener('input',()=>{document.getElement
 # ------------------------------------------------------------------
 # E-mail pagina en IMAP endpoints
 # ------------------------------------------------------------------
+
+# =====================================================================
+# ZORGMAIL (EDI) — inbox via het ZorgMail SOAP 1.2 MTOM webservice
+# =====================================================================
+# Stroom: List → Retrieve → OPSLAAN in PostgreSQL → pas daarná Delete.
+# (De ZorgMail-inbox is een wachtrij, geen opslag: berichten moeten direct na
+# het ophalen verwijderd worden — daarom wordt een bericht nooit verwijderd
+# voordat het aantoonbaar in onze eigen database staat.)
+# Binnenkomende MEDREC-berichten (receptaanvragen, EDIFACT) worden uitgelezen
+# tot patiënt / voorschrijver / medicijnregels, zodat er vanaf de pagina
+# /zorgmail een order van gemaakt kan worden — net als bij de Balie vanuit PDF.
+#
+# Omgevingsvariabelen (Railway):
+#   ZORGMAIL_USER, ZORGMAIL_PASSWORD   – gebruikersnaam/EDI-wachtwoord (HTTP Basic)
+#   ZORGMAIL_ACCOUNT_ID                – 9-cijferig ZorgMail klantnummer (inbox)
+#   ZORGMAIL_URL                       – optioneel, standaard de productie-URL
+#   ZORGMAIL_POLL_SECONDS              – optioneel, standaard 60 (minimaal 15)
+#   ZORGMAIL_AUTO_POLL                 – "0" zet de achtergrond-poller uit
+#   ZORGMAIL_CLIENT_CERT / _CLIENT_KEY – optioneel, pad naar X.509 clientcertificaat
+import threading as _zm_threading
+import re as _zm_re
+from xml.sax.saxutils import escape as _zm_xml_escape
+import xml.etree.ElementTree as _zm_ET
+
+_ZM_NS = "http://www.enovation.nl/ems/mailwebservice"
+_ZM_STANDAARD_URL = "https://lms.lifeline.nl/mailwebservice/mtom/"
+_ZM_LOCK = _zm_threading.Lock()
+_ZM_STATE = {"laatste_poll": None, "laatste_succes": None, "laatste_fout": None, "bezig": False}
+_ZM_DB_KLAAR = False
+
+
+class _ZorgmailFout(Exception):
+    pass
+
+
+def _zm_cfg() -> dict:
+    return {
+        "url": os.getenv("ZORGMAIL_URL", "").strip() or _ZM_STANDAARD_URL,
+        "user": os.getenv("ZORGMAIL_USER", "").strip(),
+        "password": os.getenv("ZORGMAIL_PASSWORD", ""),
+        "account": os.getenv("ZORGMAIL_ACCOUNT_ID", "").strip(),
+        "cert": os.getenv("ZORGMAIL_CLIENT_CERT", "").strip(),
+        "key": os.getenv("ZORGMAIL_CLIENT_KEY", "").strip(),
+    }
+
+
+def _zm_geconfigureerd() -> bool:
+    c = _zm_cfg()
+    return bool(c["account"] and ((c["user"] and c["password"]) or c["cert"]))
+
+
+# ---------------------------------------------------------------------
+# SOAP-client
+# ---------------------------------------------------------------------
+def _zm_soap(body_xml: str, verwacht_antwoord: bool = True):
+    """Stuurt één SOAP 1.2-request. Geeft het requests-antwoord terug.
+    Gooit _ZorgmailFout bij een HTTP- of SOAP-fout (met de reden van ZorgMail)."""
+    c = _zm_cfg()
+    envelope = (
+        '<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" '
+        f'xmlns:mail="{_ZM_NS}"><soap:Header/><soap:Body>{body_xml}</soap:Body></soap:Envelope>'
+    )
+    headers = {
+        "Content-Type": "application/soap+xml; charset=utf-8",
+        "Accept": "multipart/related, application/soap+xml, text/xml, */*",
+        "User-Agent": "Farmamed-Zorgmail/1.0",
+    }
+    kwargs = {"headers": headers, "data": envelope.encode("utf-8"), "timeout": 40}
+    if c["user"] and c["password"]:
+        kwargs["auth"] = (c["user"], c["password"])
+    if c["cert"]:
+        kwargs["cert"] = (c["cert"], c["key"]) if c["key"] else c["cert"]
+    try:
+        r = http_requests.post(c["url"], **kwargs)
+    except Exception as e:
+        raise _ZorgmailFout(f"Geen verbinding met ZorgMail: {e}")
+    if r.status_code >= 400:
+        raise _ZorgmailFout(_zm_fault_tekst(r) or f"HTTP {r.status_code}")
+    # Een SOAP-fault kan ook met HTTP 200 terugkomen
+    ct = (r.headers.get("Content-Type") or "").lower()
+    if "multipart" not in ct and b"Fault" in r.content[:4000]:
+        t = _zm_fault_tekst(r)
+        if t:
+            raise _ZorgmailFout(t)
+    return r
+
+
+def _zm_fault_tekst(r) -> str:
+    """Haalt de leesbare reden uit een SOAP-fault of HTTP-fout."""
+    try:
+        root = _zm_ET.fromstring(r.content)
+        teksten = [(e.text or "").strip() for e in root.iter() if e.tag.split("}")[-1] in ("Text", "faultstring") and (e.text or "").strip()]
+        if teksten:
+            return " | ".join(teksten)
+    except Exception:
+        pass
+    return (r.text or "")[:200].strip()
+
+
+def _zm_stat() -> int:
+    r = _zm_soap(f"<mail:StatRequest><mail:accountId>{_zm_xml_escape(_zm_cfg()['account'])}</mail:accountId></mail:StatRequest>")
+    root = _zm_ET.fromstring(r.content)
+    for e in root.iter():
+        if e.tag.split("}")[-1] == "count":
+            return int((e.text or "0").strip())
+    return 0
+
+
+def _zm_list() -> list:
+    r = _zm_soap(f"<mail:ListRequest><mail:accountId>{_zm_xml_escape(_zm_cfg()['account'])}</mail:accountId></mail:ListRequest>")
+    root = _zm_ET.fromstring(r.content)
+    return [(e.text or "").strip() for e in root.iter() if e.tag.split("}")[-1] == "uniqueIds" and (e.text or "").strip()]
+
+
+def _zm_parse_retrieve(content_type: str, body: bytes) -> tuple:
+    """Leest een Retrieve-antwoord (SOAP + MTOM-bijlage). Geeft (metadata, inhoud_bytes).
+    Werkt voor zowel multipart/related (MTOM) als een gewoon SOAP-antwoord met base64-inhoud."""
+    import email as _em
+    from urllib.parse import unquote as _unq
+    delen = []
+    if "multipart" in (content_type or "").lower():
+        msg = _em.message_from_bytes(b"Content-Type: " + content_type.encode("latin-1", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + body)
+        delen = [p for p in msg.walk() if not p.is_multipart()]
+        if not delen:
+            raise _ZorgmailFout("Leeg MTOM-antwoord van ZorgMail")
+        root_deel = None
+        for p in delen:
+            if "xml" in (p.get_content_type() or "").lower():
+                root_deel = p
+                break
+        root_deel = root_deel or delen[0]
+        xml_bytes = root_deel.get_payload(decode=True) or b""
+    else:
+        xml_bytes = body
+    root = _zm_ET.fromstring(xml_bytes)
+
+    meta, content_el = {}, None
+    for e in root.iter():
+        naam = e.tag.split("}")[-1]
+        if naam == "content":
+            content_el = e
+        elif naam in ("messageId", "sourceAccountId", "sourceAddress", "receiveTimestamp", "headerMessageId",
+                      "headerSubject", "headerFrom", "headerTo", "documentFormat", "documentType", "documentCount",
+                      "documentItemCount", "documentId", "documentTimestamp", "documentSender", "documentRecipient",
+                      "documentSubject", "documentTypeVersion", "documentSubType", "contentType"):
+            meta[naam] = (e.text or "").strip()
+
+    inhoud = None
+    if content_el is not None:
+        include = next((c for c in content_el if c.tag.split("}")[-1] == "Include"), None)
+        if include is not None and (include.get("href") or "").lower().startswith("cid:"):
+            cid = _unq(include.get("href")[4:]).strip("<>")
+            for p in delen:
+                pcid = (p.get("Content-ID") or "").strip().strip("<>")
+                if pcid == cid:
+                    inhoud = p.get_payload(decode=True)
+                    break
+            if inhoud is None:
+                # Terugval: eerste niet-XML deel
+                for p in delen:
+                    if "xml" not in (p.get_content_type() or "").lower():
+                        inhoud = p.get_payload(decode=True)
+                        break
+        elif (content_el.text or "").strip():
+            inhoud = base64.b64decode("".join(content_el.text.split()))
+    if inhoud is None:
+        raise _ZorgmailFout("Geen berichtinhoud gevonden in het ZorgMail-antwoord")
+    return meta, inhoud
+
+
+def _zm_retrieve(unique_id: str, rfc822: bool = False) -> tuple:
+    soort = "RetrieveRfc822Request" if rfc822 else "RetrieveRequest"
+    r = _zm_soap(f"<mail:{soort}><mail:uniqueId>{_zm_xml_escape(unique_id)}</mail:uniqueId></mail:{soort}>")
+    return _zm_parse_retrieve(r.headers.get("Content-Type", ""), r.content)
+
+
+def _zm_delete(unique_id: str):
+    _zm_soap(f"<mail:DeleteRequest><mail:uniqueId>{_zm_xml_escape(unique_id)}</mail:uniqueId></mail:DeleteRequest>")
+
+
+# ---------------------------------------------------------------------
+# EDIFACT-parser (MEDREC 3.2H aanvraagbericht)
+# ---------------------------------------------------------------------
+def _edi_splits(tekst: str) -> list:
+    """Splitst EDIFACT in segmenten: [(tag, [element=[component,...], ...]), ...].
+    Respecteert UNA-header en het release-teken (standaard '?')."""
+    comp, elem, rel, term = ":", "+", "?", "'"
+    t = tekst.lstrip("﻿ \r\n\t")
+    if t.startswith("UNA") and len(t) >= 9:
+        comp, elem, rel, term = t[3], t[4], t[6], t[8]
+        t = t[9:]
+    segmenten, elementen, comps, buf, esc = [], [], [], [], False
+    for ch in t:
+        if esc:
+            buf.append(ch); esc = False
+        elif ch == rel:
+            esc = True
+        elif ch == comp:
+            comps.append("".join(buf)); buf = []
+        elif ch == elem:
+            comps.append("".join(buf)); buf = []
+            elementen.append(comps); comps = []
+        elif ch == term:
+            comps.append("".join(buf)); buf = []
+            elementen.append(comps)
+            tag = elementen[0][0].strip() if elementen and elementen[0] else ""
+            if tag:
+                segmenten.append((tag, elementen[1:]))
+            elementen, comps = [], []
+        else:
+            buf.append(ch)
+    return segmenten
+
+
+def _e(elementen, i, j=0) -> str:
+    """Veilige toegang: element i, component j (leeg als het er niet is)."""
+    try:
+        return (elementen[i][j] or "").strip()
+    except (IndexError, TypeError):
+        return ""
+
+
+def _edi_datum(waarde: str) -> str:
+    """CCYYMMDD[HHMM] → DD-MM-YYYY."""
+    w = _zm_re.sub(r"\D", "", waarde or "")
+    return f"{w[6:8]}-{w[4:6]}-{w[0:4]}" if len(w) >= 8 else ""
+
+
+def _edi_unit_label(code: str) -> str:
+    return {"245": "stuk(s)", "222": "ml"}.get(code, "")
+
+
+def _edi_adres(elementen) -> dict:
+    """ADR: [functie] [formaat:straat:huisnr(:locatie)] [plaats] [postcode]."""
+    straat = _e(elementen, 1, 1)
+    nr = _e(elementen, 1, 2)
+    if "*" in nr:
+        n, toev = nr.split("*", 1)
+        nr = n + (("-" + toev) if toev.isdigit() else toev)
+    postcode, plaats = "", ""
+    for el in elementen[2:]:
+        for c in el:
+            c = (c or "").strip()
+            if not c:
+                continue
+            if _zm_re.fullmatch(r"\d{4}\s?[A-Za-z]{2}", c):
+                postcode = c.replace(" ", "").upper()
+            elif not plaats:
+                plaats = c
+    return {"straat": f"{straat} {nr}".strip(), "postcode": postcode, "plaats": plaats}
+
+
+def _edi_ftx_tekst(elementen) -> str:
+    delen = []
+    for el in elementen[3:] if len(elementen) > 3 else elementen[1:]:
+        delen += [c.strip() for c in el if c and c.strip()]
+    return " ".join(delen).strip()
+
+
+def _edi_persoonsnaam(achter: str, voorletters: str, voornaam: str, organisatie: bool) -> str:
+    if organisatie:
+        return " ".join(x for x in (achter, voorletters) if x).strip()
+    initialen, voorvoegsel = voorletters, ""
+    if "*" in voorletters:
+        initialen, voorvoegsel = voorletters.split("*", 1)
+    return " ".join(x for x in (initialen or voornaam, voorvoegsel, achter) if x).strip()
+
+
+def _edi_dosering(dsg_lijsten: list, ftx_s07: list) -> str:
+    """Zet DSG-codes (WCIA tabel 25) om in leesbare tekst, bijv. '1 tabletten per dag voor de nacht'."""
+    zinnen = []
+    for groep in dsg_lijsten:
+        d = {}
+        bijz = []
+        for soort, tekst in groep:
+            if soort == "B":
+                bijz.append(tekst.lower())
+            else:
+                d[soort] = tekst
+        x, y = d.get("X", ""), d.get("Y", "")
+        try:
+            if y and x and float(y.replace(",", ".")) > float(x.replace(",", ".")):
+                x = f"{x}-{y}"
+        except ValueError:
+            pass
+        delen = [x, d.get("A", "").lower(), d.get("T", "").lower()] + bijz
+        zin = " ".join(p for p in delen if p).strip()
+        if zin:
+            zinnen.append(zin)
+    zinnen += [t for t in ftx_s07 if t]
+    return "; ".join(zinnen)
+
+
+def _edi_parse_medrec(tekst: str) -> dict:
+    """Leest een MEDREC-bericht (receptaanvraag). Geeft een dict met 'ondersteund',
+    'partijen', en 'recepten' (elk met patiënt + 'regels')."""
+    segs = _edi_splits(tekst)
+    res = {"ondersteund": False, "berichttype": "", "bericht_naam": "", "bronsysteem": "",
+           "functie": "", "functie_tekst": "", "bericht_datum": "", "afzender_id": "", "ontvanger_id": "",
+           "partijen": [], "recepten": [], "waarschuwingen": []}
+    partijen = {}            # sequentie → partij
+    huidige_partij = None
+    recept = None
+    patient = None
+    regel = None
+    comp_groep = None        # lopende S06-component
+    dsg_groepen = []
+    huidige_dsg = None
+    ftx_s07 = []
+    groep = ""
+
+    def sluit_regel():
+        nonlocal regel, dsg_groepen, huidige_dsg, ftx_s07
+        if regel is not None and recept is not None:
+            if huidige_dsg:
+                dsg_groepen.append(huidige_dsg)
+            regel["gebruiksaanwijzing"] = _edi_dosering(dsg_groepen, ftx_s07)
+            recept["regels"].append(regel)
+        regel, dsg_groepen, huidige_dsg, ftx_s07 = None, [], None, []
+
+    def sluit_recept():
+        nonlocal recept, patient
+        sluit_regel()
+        if recept is not None:
+            res["recepten"].append(recept)
+        recept, patient = None, None
+
+    for tag, el in segs:
+        if tag == "UNB":
+            res["afzender_id"] = _e(el, 1, 0)
+            res["ontvanger_id"] = _e(el, 2, 0)
+        elif tag == "UNH":
+            res["berichttype"] = _e(el, 1, 0)
+            res["ondersteund"] = res["berichttype"].upper() == "MEDREC"
+        elif tag == "BGM":
+            res["bericht_naam"] = _e(el, 0, 0)
+            res["bronsysteem"] = _e(el, 0, 3)
+            res["functie"] = _e(el, 2, 0)
+            res["functie_tekst"] = {"1": "Annulering", "2": "Aanvulling", "4": "Wijziging", "9": "Origineel"}.get(res["functie"], "")
+        elif tag == "DTM" and not recept and _e(el, 0, 0) == "137":
+            res["bericht_datum"] = _edi_datum(_e(el, 0, 1))
+        elif tag == "S01":
+            sluit_recept()
+            groep = "S01"
+            huidige_partij = {"seq": _e(el, 0, 0), "rol": "", "agb": "", "codelijst": "", "naam": "",
+                              "straat": "", "postcode": "", "plaats": "", "telefoon": "", "email": "", "contact": ""}
+            partijen[huidige_partij["seq"]] = huidige_partij
+            res["partijen"].append(huidige_partij)
+        elif tag == "NAD" and huidige_partij is not None and groep == "S01":
+            huidige_partij["rol"] = _e(el, 0, 0)
+            huidige_partij["agb"] = _e(el, 1, 0)
+            huidige_partij["codelijst"] = _e(el, 1, 1)
+            achter, vl, vn = _e(el, 3, 0), _e(el, 3, 1), _e(el, 3, 2)
+            org = huidige_partij["codelijst"] in ("PHA", "ZVI") or (not vn and not vl.replace(".", "").replace("*", "").isalpha()) or (not vn and len(vl) > 6)
+            if huidige_partij["codelijst"] in ("CGP", "CMS") and (vn or vl):
+                org = False
+            huidige_partij["naam"] = _edi_persoonsnaam(achter, vl, vn, org)
+        elif tag == "ADR" and groep == "S01" and huidige_partij is not None:
+            a = _edi_adres(el)
+            huidige_partij.update({"straat": a["straat"], "postcode": a["postcode"], "plaats": a["plaats"]})
+        elif tag == "CTA" and groep == "S01" and huidige_partij is not None:
+            huidige_partij["contact"] = " ".join(x for x in (_e(el, 1, 1), _e(el, 1, 0)) if x)
+        elif tag == "COM" and groep == "S01" and huidige_partij is not None:
+            if _e(el, 0, 1) in ("TE", ""):
+                huidige_partij["telefoon"] = huidige_partij["telefoon"] or _e(el, 0, 0)
+        elif tag == "FTX" and groep == "S01" and huidige_partij is not None:
+            tkst = _edi_ftx_tekst(el)
+            m = _zm_re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", tkst)
+            if m:
+                huidige_partij["email"] = m.group(0)
+        elif tag == "S02":
+            sluit_recept()
+            groep = "S02"
+            recept = {"referentie": "", "locatie": "", "bezorgadres": None, "patient": None,
+                      "verzekering": None, "contra_indicaties": [], "regels": [], "huisarts_ref": ""}
+            patient = None
+        elif tag == "RFF" and recept is not None and groep == "S02":
+            if _e(el, 0, 0) == "ROI":
+                recept["referentie"] = _e(el, 0, 1)
+        elif tag == "LOC" and recept is not None and groep == "S02":
+            recept["locatie"] = {"D": "Afhalen (uitdeelpost)", "H": "Thuis", "N": "Verpleeghuis"}.get(_e(el, 1, 0), _e(el, 1, 0))
+        elif tag == "ADR" and recept is not None and groep == "S02":
+            recept["bezorgadres"] = _edi_adres(el)
+        elif tag == "S03":
+            groep = "S03"
+            patient = {"lokaal_id": "", "bsn": "", "achternaam": "", "voorletters": "", "voorvoegsel": "", "voornaam": "",
+                       "partner_achternaam": "", "partner_voorvoegsel": "", "geboortedatum": "", "geslacht": "",
+                       "straat": "", "postcode": "", "plaats": "", "naam": "", "voornaam_volledig": "", "achternaam_volledig": ""}
+            if recept is not None:
+                recept["patient"] = patient
+        elif tag == "RFF" and groep == "S03" and recept is not None:
+            recept["huisarts_ref"] = _e(el, 0, 1)
+        elif tag == "PNA" and patient is not None:
+            patient["lokaal_id"] = _e(el, 1, 0)
+            patient["bsn"] = _zm_re.sub(r"\D", "", _e(el, 1, 2))
+            for c in el[4:]:
+                q, v = (c[0] if c else "").strip(), (c[1] if len(c) > 1 else "").strip()
+                if q == "NAN": patient["achternaam"] = v
+                elif q == "NVV":
+                    if "*" in v:
+                        patient["voorletters"], patient["voorvoegsel"] = v.split("*", 1)
+                    else:
+                        patient["voorletters"] = v
+                elif q == "NVN": patient["voornaam"] = v
+                elif q == "NEA": patient["partner_achternaam"] = v
+                elif q == "NEV": patient["partner_voorvoegsel"] = v
+            vn = patient["voornaam"] or patient["voorletters"]
+            eigen = " ".join(x for x in (patient["voorvoegsel"], patient["achternaam"]) if x)
+            if patient["partner_achternaam"]:
+                partner = " ".join(x for x in (patient["partner_voorvoegsel"], patient["partner_achternaam"]) if x)
+                achter = f"{partner}-{eigen}" if eigen else partner
+            else:
+                achter = eigen
+            patient["voornaam_volledig"], patient["achternaam_volledig"] = vn, achter
+            patient["naam"] = f"{vn} {achter}".strip()
+        elif tag == "ADR" and patient is not None and groep == "S03":
+            a = _edi_adres(el)
+            patient.update({"straat": a["straat"], "postcode": a["postcode"], "plaats": a["plaats"]})
+        elif tag == "DTM" and patient is not None and groep == "S03" and _e(el, 0, 0) == "329":
+            patient["geboortedatum"] = _edi_datum(_e(el, 0, 1))
+        elif tag == "PDI" and patient is not None and groep == "S03":
+            patient["geslacht"] = {"1": "M", "2": "V"}.get(_e(el, 0, 0), "")
+        elif tag == "FCA" and recept is not None and groep == "S03":
+            recept["verzekering"] = {"soort": _e(el, 0, 0), "verzekeraar_agb": _e(el, 1, 0), "polisnummer": _e(el, 1, 3)}
+        elif tag == "S04":
+            groep = "S04"
+        elif tag == "CIN" and recept is not None and groep == "S04":
+            recept["contra_indicaties"].append({"soort": _e(el, 0, 0), "code": _e(el, 1, 0), "omschrijving": _e(el, 1, 3)})
+        elif tag == "S05":
+            sluit_regel()
+            groep = "S05"
+            comp_groep = None
+            regel = {"regel": "", "soort": "", "code": "", "codelijst": "", "naam": "", "hoeveelheid": "", "eenheid": "",
+                     "eenheid_code": "", "herhalingen": "", "startdatum": "", "einddatum": "", "gebruiksaanwijzing": "",
+                     "opmerkingen": "", "componenten": [], "voorschrijver_ref": ""}
+        elif regel is not None and groep == "S05":
+            if tag == "LIN":
+                regel["regel"] = _e(el, 0, 0)
+            elif tag == "RFF":
+                regel["voorschrijver_ref"] = _e(el, 0, 1) or _e(el, 0, 0)
+            elif tag == "CLI":
+                regel["soort"] = _e(el, 0, 0)
+                regel["code"] = _e(el, 1, 0)
+                regel["codelijst"] = _e(el, 1, 1)
+                regel["naam"] = _e(el, 1, 3)
+            elif tag == "QTY":
+                q, v = _e(el, 0, 0), _e(el, 0, 1)
+                if q == "143":
+                    regel["herhalingen"] = v
+                elif q in ("AED", "46"):
+                    try:
+                        getal = float(v) / (1000.0 if q == "AED" else 1.0)
+                        regel["hoeveelheid"] = ("%g" % round(getal, 3))
+                    except ValueError:
+                        regel["hoeveelheid"] = v
+                    regel["eenheid_code"] = _e(el, 1, 0)
+                    regel["eenheid"] = _edi_unit_label(regel["eenheid_code"])
+            elif tag == "FTX":
+                t2 = _edi_ftx_tekst(el)
+                if t2:
+                    regel["opmerkingen"] = (regel["opmerkingen"] + " " + t2).strip()
+            elif tag == "DTM":
+                q, d = _e(el, 0, 0), _edi_datum(_e(el, 0, 1))
+                if q == "7": regel["startdatum"] = d
+                elif q in ("36", "206"): regel["einddatum"] = regel["einddatum"] or d
+            elif tag == "S06":
+                groep = "S06"
+                comp_groep = {"naam": "", "hoeveelheid": "", "eenheid": ""}
+                regel["componenten"].append(comp_groep)
+            elif tag == "S07":
+                if huidige_dsg:
+                    dsg_groepen.append(huidige_dsg)
+                huidige_dsg = []
+                groep = "S07"
+        elif regel is not None and groep == "S06" and comp_groep is not None:
+            if tag == "CLI":
+                comp_groep["naam"] = _e(el, 1, 3) or comp_groep["naam"]
+            elif tag == "FTX":
+                comp_groep["naam"] = comp_groep["naam"] or _edi_ftx_tekst(el)
+            elif tag == "QTY":
+                comp_groep["hoeveelheid"] = _e(el, 0, 1)
+                comp_groep["eenheid"] = _edi_unit_label(_e(el, 1, 0)) or _e(el, 1, 0)
+            elif tag == "S06":
+                comp_groep = {"naam": "", "hoeveelheid": "", "eenheid": ""}
+                regel["componenten"].append(comp_groep)
+            elif tag == "S07":
+                if huidige_dsg:
+                    dsg_groepen.append(huidige_dsg)
+                huidige_dsg = []
+                groep = "S07"; comp_groep = None
+            elif tag == "S05":
+                pass
+        elif regel is not None and groep == "S07":
+            if tag == "DSG":
+                huidige_dsg.append((_e(el, 0, 0), _e(el, 1, 3) or _e(el, 1, 0)))
+            elif tag == "FTX":
+                t2 = _edi_ftx_tekst(el)
+                if t2:
+                    ftx_s07.append(t2)
+            elif tag == "S07":
+                if huidige_dsg:
+                    dsg_groepen.append(huidige_dsg)
+                huidige_dsg = []
+        elif tag == "S08":
+            groep = "S08"
+        elif tag in ("UNT", "UNZ"):
+            sluit_recept()
+    sluit_recept()
+
+    # Magistrale receptuur: naam uit de componenten opbouwen als CLI geen tekst bevat
+    for r in res["recepten"]:
+        for rg in r["regels"]:
+            if rg["soort"] == "MAG" or (not rg["naam"] and rg["componenten"]):
+                comps = [" ".join(x for x in (c["naam"], c["hoeveelheid"], c["eenheid"]) if x) for c in rg["componenten"] if c["naam"]]
+                if not rg["naam"] and comps:
+                    rg["naam"] = "Magistraal: " + ", ".join(comps)
+                elif comps:
+                    rg["naam"] = rg["naam"] + " (" + ", ".join(comps) + ")"
+    if not res["ondersteund"]:
+        res["waarschuwingen"].append(f"Berichttype '{res['berichttype'] or 'onbekend'}' is geen receptaanvraag (MEDREC) — alleen de inhoud wordt getoond, er kan geen order van worden gemaakt.")
+    elif not res["recepten"]:
+        res["waarschuwingen"].append("Geen recepten gevonden in dit bericht.")
+    return res
+
+
+def _zm_kies_voorschrijver(res: dict, regel: dict | None = None) -> dict:
+    """Bepaalt wie de voorschrijver is: zender (MS) als dat een persoon is; anders de 'BV'-partij
+    (contactpersoon/huisarts); anders de zender-organisatie. Een verwijzing op regelniveau gaat voor."""
+    partijen = res.get("partijen") or []
+    if regel and regel.get("voorschrijver_ref"):
+        for p in partijen:
+            if p["seq"] and p["seq"] == regel["voorschrijver_ref"]:
+                return p
+    zender = next((p for p in partijen if p["rol"] == "MS"), None)
+    bv = next((p for p in partijen if p["rol"] == "BV"), None)
+    if zender and zender["codelijst"] in ("CGP", "CMS"):
+        return zender
+    return bv or zender or {}
+
+
+def _zm_samenvatting(parsed: dict) -> dict:
+    """Korte samenvatting voor in de inbox-lijst."""
+    if not parsed:
+        return {}
+    recepten = parsed.get("recepten") or []
+    pat = (recepten[0].get("patient") or {}) if recepten else {}
+    medicijnen = [rg["naam"] for r in recepten for rg in r.get("regels", []) if rg.get("naam")]
+    vs = _zm_kies_voorschrijver(parsed)
+    return {"patient": pat.get("naam", ""), "geboortedatum": pat.get("geboortedatum", ""),
+            "medicijnen": medicijnen[:3], "aantal_regels": len(medicijnen),
+            "aantal_recepten": len(recepten), "voorschrijver": vs.get("naam", ""),
+            "functie": parsed.get("functie_tekst", ""), "ondersteund": parsed.get("ondersteund", False)}
+
+
+# ---------------------------------------------------------------------
+# Opslag
+# ---------------------------------------------------------------------
+def _zm_init_db():
+    global _ZM_DB_KLAAR
+    if _ZM_DB_KLAAR or not _DATABASE_URL:
+        return
+    conn = _pg_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS zorgmail_berichten (
+                id SERIAL PRIMARY KEY,
+                unique_id TEXT UNIQUE,
+                bron TEXT DEFAULT 'zorgmail',
+                ontvangen_op TIMESTAMPTZ DEFAULT NOW(),
+                zorgmail_tijd TEXT,
+                onderwerp TEXT,
+                afzender TEXT,
+                document_type TEXT,
+                document_format TEXT,
+                content_type TEXT,
+                metadata JSONB,
+                inhoud_b64 TEXT,
+                parsed JSONB,
+                parse_fout TEXT,
+                status TEXT DEFAULT 'nieuw',
+                wc_order_ids JSONB DEFAULT '[]'::jsonb,
+                gezien_op TIMESTAMPTZ,
+                verwerkt_op TIMESTAMPTZ
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS zorgmail_berichten_status_idx ON zorgmail_berichten (status)")
+        conn.commit()
+        _ZM_DB_KLAAR = True
+    finally:
+        cur.close(); conn.close()
+
+
+def _zm_tekst(inhoud: bytes) -> str:
+    try:
+        return inhoud.decode("utf-8")
+    except UnicodeDecodeError:
+        return inhoud.decode("iso-8859-1", errors="replace")
+
+
+def _zm_bewaar(unique_id: str, meta: dict, inhoud: bytes, bron: str = "zorgmail") -> int | None:
+    """Slaat een bericht op (en parseert het). Geeft id terug, of None als het al bestond."""
+    _zm_init_db()
+    tekst = _zm_tekst(inhoud)
+    parsed, parse_fout = None, None
+    herkend = (meta.get("documentType", "").upper() == "MEDREC" or tekst.lstrip("﻿ \r\n").startswith(("UNA", "UNB")))
+    if herkend:
+        try:
+            parsed = _edi_parse_medrec(tekst)
+        except Exception as e:
+            parse_fout = f"Uitlezen mislukt: {e}"
+            print(f"[zorgmail] parse-fout: {e}")
+    conn = _pg_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO zorgmail_berichten (unique_id, bron, zorgmail_tijd, onderwerp, afzender, document_type,
+                                            document_format, content_type, metadata, inhoud_b64, parsed, parse_fout)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (unique_id) DO NOTHING
+            RETURNING id
+        """, (unique_id, bron, meta.get("receiveTimestamp"), meta.get("headerSubject") or meta.get("documentSubject"),
+              meta.get("headerFrom") or meta.get("sourceAddress") or meta.get("sourceAccountId"),
+              meta.get("documentType"), meta.get("documentFormat"), meta.get("contentType"),
+              json.dumps(meta), base64.b64encode(inhoud).decode("ascii"),
+              json.dumps(parsed) if parsed is not None else None, parse_fout))
+        rij = cur.fetchone()
+        conn.commit()
+        return rij[0] if rij else None
+    finally:
+        cur.close(); conn.close()
+
+
+def _zm_ophalen_eenmalig(max_berichten: int = 100) -> dict:
+    """Haalt alle berichten uit de ZorgMail-inbox: ophalen → opslaan → verwijderen.
+    Veilig tegen parallelle aanroepen. Verwijdert NOOIT vóór een geslaagde opslag."""
+    resultaat = {"opgehaald": 0, "nieuw": 0, "fouten": [], "geconfigureerd": _zm_geconfigureerd()}
+    if not resultaat["geconfigureerd"]:
+        resultaat["fouten"].append("ZorgMail niet geconfigureerd (ZORGMAIL_ACCOUNT_ID + ZORGMAIL_USER/ZORGMAIL_PASSWORD)")
+        return resultaat
+    if not _DATABASE_URL:
+        resultaat["fouten"].append("Geen database verbinding")
+        return resultaat
+    if not _ZM_LOCK.acquire(blocking=False):
+        resultaat["fouten"].append("Er loopt al een ophaalronde")
+        return resultaat
+    import datetime as _dt
+    try:
+        _ZM_STATE["bezig"] = True
+        _ZM_STATE["laatste_poll"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        try:
+            uids = _zm_list()
+        except _ZorgmailFout as e:
+            _ZM_STATE["laatste_fout"] = str(e)
+            resultaat["fouten"].append(str(e))
+            return resultaat
+        for uid in uids[:max_berichten]:
+            try:
+                try:
+                    meta, inhoud = _zm_retrieve(uid)
+                except _ZorgmailFout as e1:
+                    if "decode" in str(e1).lower():
+                        meta, inhoud = _zm_retrieve(uid, rfc822=True)   # multipart: volledig RFC822-bericht
+                    else:
+                        raise
+                nieuw_id = _zm_bewaar(uid, meta, inhoud)
+                resultaat["opgehaald"] += 1
+                if nieuw_id:
+                    resultaat["nieuw"] += 1
+                _zm_delete(uid)          # pas NA geslaagde opslag
+            except Exception as e:
+                msg = f"{uid}: {e}"
+                print(f"[zorgmail] bericht mislukt — blijft in de ZorgMail-inbox: {msg}")
+                resultaat["fouten"].append(msg)
+        resultaat["nog_in_inbox"] = max(0, len(uids) - max_berichten)
+        if resultaat["fouten"]:
+            _ZM_STATE["laatste_fout"] = resultaat["fouten"][-1]
+        else:
+            _ZM_STATE["laatste_fout"] = None
+            _ZM_STATE["laatste_succes"] = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        return resultaat
+    finally:
+        _ZM_STATE["bezig"] = False
+        _ZM_LOCK.release()
+
+
+async def _zorgmail_poller_loop():
+    """Achtergrond-poller. ZorgMail verbiedt vaker dan elke 10 seconden pollen — wij doen minimaal 15."""
+    if os.getenv("ZORGMAIL_AUTO_POLL", "1") == "0":
+        print("[zorgmail] automatisch ophalen staat uit (ZORGMAIL_AUTO_POLL=0)")
+        return
+    try:
+        interval = max(15, int(os.getenv("ZORGMAIL_POLL_SECONDS", "60")))
+    except ValueError:
+        interval = 60
+    await asyncio.sleep(20)
+    while True:
+        if _zm_geconfigureerd():
+            try:
+                await asyncio.to_thread(_zm_ophalen_eenmalig)
+            except Exception as e:
+                print(f"[zorgmail] poller-fout: {e}")
+        await asyncio.sleep(interval)
+
+
+# ---------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------
+@app.get("/zorgmail", response_class=HTMLResponse)
+async def zorgmail_pagina():
+    return HTMLResponse(content=(BASE_DIR / "templates" / "zorgmail.html").read_text(encoding="utf-8"))
+
+
+@app.get("/api/zorgmail/status")
+async def zorgmail_status():
+    uit = {"geconfigureerd": _zm_geconfigureerd(), "nieuw": 0, "totaal": 0, "nieuwste_id": 0,
+           "laatste_poll": _ZM_STATE["laatste_poll"], "laatste_succes": _ZM_STATE["laatste_succes"],
+           "laatste_fout": _ZM_STATE["laatste_fout"], "bezig": _ZM_STATE["bezig"]}
+    if not _DATABASE_URL:
+        return JSONResponse(content=uit)
+    try:
+        _zm_init_db()
+        conn = _pg_conn(); cur = conn.cursor()
+        try:
+            cur.execute("SELECT COUNT(*) FILTER (WHERE status='nieuw'), COUNT(*), COALESCE(MAX(id),0) FROM zorgmail_berichten")
+            n, t, m = cur.fetchone()
+            uit.update({"nieuw": n, "totaal": t, "nieuwste_id": m})
+        finally:
+            cur.close(); conn.close()
+    except Exception as e:
+        uit["fout"] = str(e)
+    return JSONResponse(content=uit)
+
+
+@app.post("/api/zorgmail/ophalen")
+async def zorgmail_ophalen():
+    """Nu handmatig de inbox ophalen (naast de automatische poller)."""
+    res = await asyncio.to_thread(_zm_ophalen_eenmalig)
+    return JSONResponse(content=res)
+
+
+@app.post("/api/zorgmail/test")
+async def zorgmail_test():
+    """Test inloggegevens/verbinding met een Stat-request (verandert niets in de inbox)."""
+    if not _zm_geconfigureerd():
+        return JSONResponse(content={"ok": False, "fout": "Niet geconfigureerd: zet ZORGMAIL_ACCOUNT_ID en ZORGMAIL_USER + ZORGMAIL_PASSWORD (of een clientcertificaat) in Railway."})
+    try:
+        n = await asyncio.to_thread(_zm_stat)
+        return JSONResponse(content={"ok": True, "berichten_in_inbox": n})
+    except Exception as e:
+        return JSONResponse(content={"ok": False, "fout": str(e)})
+
+
+@app.get("/api/zorgmail/berichten")
+async def zorgmail_berichten(status: str = "", limit: int = 100):
+    if not _DATABASE_URL:
+        return JSONResponse(status_code=500, content={"fout": "Geen database verbinding"})
+    _zm_init_db()
+    conn = _pg_conn(); cur = conn.cursor()
+    try:
+        where, params = "", []
+        if status in ("nieuw", "gelezen", "verwerkt", "genegeerd"):
+            where, params = "WHERE status = %s", [status]
+        elif status == "open":
+            where = "WHERE status IN ('nieuw','gelezen')"
+        cur.execute(f"""
+            SELECT id, ontvangen_op, zorgmail_tijd, onderwerp, afzender, document_type, status, parsed, parse_fout, wc_order_ids, bron
+            FROM zorgmail_berichten {where} ORDER BY ontvangen_op DESC, id DESC LIMIT %s
+        """, params + [max(1, min(limit, 500))])
+        uit = []
+        for (i, ont, zt, ond, afz, dt, st, parsed, pf, wcs, bron) in cur.fetchall():
+            uit.append({"id": i, "ontvangen_op": ont.isoformat() if ont else None, "zorgmail_tijd": zt, "onderwerp": ond,
+                        "afzender": afz, "document_type": dt, "status": st, "parse_fout": pf, "bron": bron,
+                        "wc_order_ids": wcs or [], "samenvatting": _zm_samenvatting(parsed)})
+        return JSONResponse(content={"berichten": uit})
+    finally:
+        cur.close(); conn.close()
+
+
+def _zm_zoek_patient_match(bsn: str, achternaam: str, voornaam: str, geboortedatum_nl: str) -> list:
+    """Zoekt bestaande patiënten bij BSN, of anders achternaam + geboortedatum."""
+    if not _DATABASE_URL:
+        return []
+    conn = _pg_conn(); cur = conn.cursor()
+    try:
+        kandidaten = []
+        if bsn:
+            cur.execute("""SELECT id, email, voornaam, achternaam, geboortedatum::text, bsn, telefoon, adres, postcode, plaats
+                           FROM patienten WHERE bsn = %s LIMIT 5""", (bsn,))
+            kandidaten += [("bsn", r) for r in cur.fetchall()]
+        if not kandidaten and achternaam and geboortedatum_nl:
+            d, m, j = geboortedatum_nl.split("-") if geboortedatum_nl.count("-") == 2 else ("", "", "")
+            varianten = [f"{j}-{m}-{d}", f"{d}-{m}-{j}", f"{m}/{d}/{j}", f"{j}/{m}/{d}"] if d else []
+            if varianten:
+                cur.execute("""SELECT id, email, voornaam, achternaam, geboortedatum::text, bsn, telefoon, adres, postcode, plaats
+                               FROM patienten
+                               WHERE LOWER(achternaam) = LOWER(%s) AND LEFT(COALESCE(geboortedatum::text,''), 10) = ANY(%s) LIMIT 5""",
+                            (achternaam.split()[-1] if achternaam else "", varianten))
+                kandidaten += [("naam+geboortedatum", r) for r in cur.fetchall()]
+        uit = []
+        for hoe, r in kandidaten:
+            cur.execute("SELECT COUNT(*) FROM orders WHERE patient_id = %s", (r[0],))
+            aantal = cur.fetchone()[0]
+            uit.append({"match_op": hoe, "id": r[0], "email": r[1] or "", "voornaam": r[2] or "", "achternaam": r[3] or "",
+                        "geboortedatum": r[4] or "", "bsn": r[5] or "", "telefoon": r[6] or "", "adres": r[7] or "",
+                        "postcode": r[8] or "", "plaats": r[9] or "", "aantal_orders": aantal})
+        return uit
+    except Exception as e:
+        print(f"[zorgmail] patiëntmatch fout: {e}")
+        return []
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/zorgmail/bericht/{bericht_id}")
+async def zorgmail_bericht(bericht_id: int):
+    if not _DATABASE_URL:
+        return JSONResponse(status_code=500, content={"fout": "Geen database verbinding"})
+    _zm_init_db()
+    conn = _pg_conn(); cur = conn.cursor()
+    try:
+        cur.execute("""SELECT id, ontvangen_op, zorgmail_tijd, onderwerp, afzender, document_type, document_format, content_type,
+                              metadata, inhoud_b64, parsed, parse_fout, status, wc_order_ids, bron
+                       FROM zorgmail_berichten WHERE id = %s""", (bericht_id,))
+        r = cur.fetchone()
+        if not r:
+            return JSONResponse(status_code=404, content={"fout": "Bericht niet gevonden"})
+        (i, ont, zt, ond, afz, dt, df, ct, meta, b64, parsed, pf, st, wcs, bron) = r
+        if st == "nieuw":
+            cur.execute("UPDATE zorgmail_berichten SET status='gelezen', gezien_op=NOW() WHERE id=%s", (bericht_id,))
+            conn.commit(); st = "gelezen"
+        inhoud = base64.b64decode(b64) if b64 else b""
+        is_tekst = (df or "").lower() in ("edifact", "xml", "hl7v2", "email", "") or (ct or "").lower().startswith(("text/", "application/edifact", "application/xml"))
+        # Per regel de voorschrijver vooraf bepalen (de pagina toont/bewerkt die)
+        patient_matches = []
+        if parsed:
+            for rec in parsed.get("recepten", []):
+                p = rec.get("patient") or {}
+                rec["patient_matches"] = _zm_zoek_patient_match(p.get("bsn", ""), p.get("achternaam", ""), p.get("voornaam", ""), p.get("geboortedatum", ""))
+                for rg in rec.get("regels", []):
+                    rg["voorschrijver"] = _zm_kies_voorschrijver(parsed, rg)
+        return JSONResponse(content={
+            "id": i, "ontvangen_op": ont.isoformat() if ont else None, "zorgmail_tijd": zt, "onderwerp": ond, "afzender": afz,
+            "document_type": dt, "document_format": df, "content_type": ct, "metadata": meta, "status": st,
+            "wc_order_ids": wcs or [], "bron": bron, "parsed": parsed, "parse_fout": pf,
+            "ruwe_tekst": _zm_tekst(inhoud) if (is_tekst and len(inhoud) < 2_000_000) else None,
+            "grootte_bytes": len(inhoud),
+        })
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/api/zorgmail/bericht/{bericht_id}/ruw")
+async def zorgmail_bericht_ruw(bericht_id: int):
+    """Download de onbewerkte inhoud van het bericht."""
+    conn = _pg_conn(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT inhoud_b64, document_type, content_type FROM zorgmail_berichten WHERE id=%s", (bericht_id,))
+        r = cur.fetchone()
+        if not r:
+            return JSONResponse(status_code=404, content={"fout": "Niet gevonden"})
+        data = base64.b64decode(r[0] or "")
+        ext = "edi" if (r[1] or "").upper().startswith("MED") else "bin"
+        return Response(content=data, media_type=r[2] or "application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="zorgmail_{bericht_id}.{ext}"'})
+    finally:
+        cur.close(); conn.close()
+
+
+@app.post("/api/zorgmail/bericht/{bericht_id}/status")
+async def zorgmail_bericht_status(bericht_id: int, request: Request):
+    """Zet status (nieuw/gelezen/verwerkt/genegeerd) en/of koppelt een aangemaakte WC-order."""
+    data = await request.json()
+    status = data.get("status")
+    order_id = data.get("wc_order_id")
+    if status and status not in ("nieuw", "gelezen", "verwerkt", "genegeerd"):
+        return JSONResponse(status_code=400, content={"ok": False, "fout": "Ongeldige status"})
+    conn = _pg_conn(); cur = conn.cursor()
+    try:
+        if order_id:
+            cur.execute("""UPDATE zorgmail_berichten SET wc_order_ids = COALESCE(wc_order_ids,'[]'::jsonb) || to_jsonb(%s::text)
+                           WHERE id=%s AND NOT (COALESCE(wc_order_ids,'[]'::jsonb) ? %s)""", (str(order_id), bericht_id, str(order_id)))
+        if status:
+            cur.execute("UPDATE zorgmail_berichten SET status=%s, verwerkt_op = CASE WHEN %s='verwerkt' THEN NOW() ELSE verwerkt_op END WHERE id=%s",
+                        (status, status, bericht_id))
+        conn.commit()
+        return JSONResponse(content={"ok": True})
+    except Exception as e:
+        conn.rollback()
+        return JSONResponse(status_code=500, content={"ok": False, "fout": str(e)})
+    finally:
+        cur.close(); conn.close()
+
+
+@app.post("/api/zorgmail/importeer")
+async def zorgmail_importeer(bestand: UploadFile = File(...)):
+    """Importeert handmatig een .edi-bestand in de inbox (voor testen, of een bericht dat per e-mail/USB binnenkwam)."""
+    inhoud = await bestand.read()
+    if not inhoud:
+        return JSONResponse(content={"ok": False, "fout": "Leeg bestand"})
+    import hashlib, uuid as _uuid
+    uid = "upload:" + hashlib.sha1(inhoud).hexdigest()[:16] + ":" + _uuid.uuid4().hex[:6]
+    meta = {"documentFormat": "Edifact", "documentType": "MEDREC", "contentType": "application/edifact",
+            "headerSubject": bestand.filename or "geüpload bestand", "headerFrom": "handmatige import"}
+    try:
+        nieuw_id = _zm_bewaar(uid, meta, inhoud, bron="upload")
+        return JSONResponse(content={"ok": True, "id": nieuw_id})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "fout": str(e)})
+
+
+@app.post("/api/zorgmail/bericht/{bericht_id}/opnieuw-uitlezen")
+async def zorgmail_opnieuw_uitlezen(bericht_id: int):
+    """Leest het opgeslagen bericht opnieuw uit (na een verbetering van de parser)."""
+    conn = _pg_conn(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT inhoud_b64 FROM zorgmail_berichten WHERE id=%s", (bericht_id,))
+        r = cur.fetchone()
+        if not r:
+            return JSONResponse(status_code=404, content={"ok": False, "fout": "Niet gevonden"})
+        try:
+            parsed = _edi_parse_medrec(_zm_tekst(base64.b64decode(r[0] or "")))
+            cur.execute("UPDATE zorgmail_berichten SET parsed=%s, parse_fout=NULL WHERE id=%s", (json.dumps(parsed), bericht_id))
+            conn.commit()
+            return JSONResponse(content={"ok": True})
+        except Exception as e:
+            return JSONResponse(content={"ok": False, "fout": str(e)})
+    finally:
+        cur.close(); conn.close()
+
 
 @app.get("/emails", response_class=HTMLResponse)
 async def emails_pagina():
