@@ -1160,3 +1160,30 @@
     if (!treffer) return null;
     return window._medicijnPermutaties.find(m => (m.naam_canoniek || m.naam_woocommerce || m.naam_smarthub) === treffer) || null;
   }
+
+// ---- Zorgmail: badge + melding bij nieuw bericht (op elke pagina) ----
+(function () {
+  if (location.pathname.indexOf('/zorgmail') === 0) return;   // de Zorgmail-pagina doet dit zelf
+  var link = document.querySelector('a[href="/zorgmail"]');
+  if (!link) return;
+  var badge = document.createElement('span');
+  badge.style.cssText = 'display:none;background:#e74c3c;color:#fff;font-size:10px;font-weight:600;border-radius:9px;padding:1px 6px;margin-left:6px;';
+  link.appendChild(badge);
+  function sg(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+  function ss(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} }
+  function controleer() {
+    fetch('/api/zorgmail/status').then(function (r) { return r.json(); }).then(function (s) {
+      badge.style.display = s.nieuw ? '' : 'none'; badge.textContent = s.nieuw || '';
+      var vorige = sg('zm_laatste_id');
+      if (vorige !== null && s.nieuwste_id > parseInt(vorige, 10)) {
+        var t = document.createElement('div');
+        t.style.cssText = 'position:fixed;right:18px;bottom:18px;background:#1d5c5c;color:#fff;padding:12px 16px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);font:13px sans-serif;cursor:pointer;z-index:9999;';
+        t.innerHTML = '<b>\uD83D\uDCE8 Nieuw Zorgmail-bericht</b><br>Klik om de inbox te openen';
+        t.onclick = function () { location.href = '/zorgmail'; };
+        document.body.appendChild(t); setTimeout(function () { t.remove(); }, 12000);
+      }
+      ss('zm_laatste_id', String(s.nieuwste_id || 0));
+    }).catch(function () {});
+  }
+  controleer(); setInterval(controleer, 20000);
+})();
