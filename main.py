@@ -6713,18 +6713,40 @@ def _zm_fault_tekst(r) -> str:
     return (r.text or "")[:200].strip()
 
 
+def _zm_xml_root(r):
+    """Parseert een SOAP-antwoord (ook als ZorgMail het als multipart/MTOM verpakt).
+    Bij een onleesbaar antwoord een foutmelding MET status, content-type en beginstuk van het antwoord."""
+    ct = r.headers.get("Content-Type", "") or ""
+    data = r.content
+    try:
+        if "multipart" in ct.lower():
+            import email as _em
+            msg = _em.message_from_bytes(b"Content-Type: " + ct.encode("latin-1", "replace") + b"\r\nMIME-Version: 1.0\r\n\r\n" + data)
+            delen = [p for p in msg.walk() if not p.is_multipart()]
+            deel = next((p for p in delen if "xml" in (p.get_content_type() or "").lower()), delen[0] if delen else None)
+            data = deel.get_payload(decode=True) if deel is not None else b""
+        return _zm_ET.fromstring(data.lstrip(b"\xef\xbb\xbf \r\n\t"))
+    except Exception as e:
+        begin = r.content[:300].decode("utf-8", errors="replace").replace("\r", " ").replace("\n", " ")
+        raise _ZorgmailFout(f"Onleesbaar antwoord van ZorgMail (HTTP {r.status_code}, {ct or 'geen content-type'}; {e}). "
+                            f"URL: {r.url} — begin van het antwoord: {begin!r}")
+
+
 def _zm_stat() -> int:
     r = _zm_soap(f"<mail:StatRequest><mail:accountId>{_zm_xml_escape(_zm_cfg()['account'])}</mail:accountId></mail:StatRequest>")
-    root = _zm_ET.fromstring(r.content)
+    root = _zm_xml_root(r)
     for e in root.iter():
         if e.tag.split("}")[-1] == "count":
             return int((e.text or "0").strip())
-    return 0
+    raise _ZorgmailFout("Onverwacht antwoord op Stat (geen count) — controleer ZORGMAIL_URL en inloggegevens.")
 
 
 def _zm_list() -> list:
     r = _zm_soap(f"<mail:ListRequest><mail:accountId>{_zm_xml_escape(_zm_cfg()['account'])}</mail:accountId></mail:ListRequest>")
-    root = _zm_ET.fromstring(r.content)
+    root = _zm_xml_root(r)
+    if not any(e.tag.split("}")[-1] == "ListResponse" for e in root.iter()):
+        begin = r.content[:200].decode("utf-8", errors="replace").replace("\n", " ")
+        raise _ZorgmailFout(f"Onverwacht antwoord op List (geen ListResponse) — controleer ZORGMAIL_URL en inloggegevens. Begin: {begin!r}")
     return [(e.text or "").strip() for e in root.iter() if e.tag.split("}")[-1] == "uniqueIds" and (e.text or "").strip()]
 
 
@@ -6748,7 +6770,10 @@ def _zm_parse_retrieve(content_type: str, body: bytes) -> tuple:
         xml_bytes = root_deel.get_payload(decode=True) or b""
     else:
         xml_bytes = body
-    root = _zm_ET.fromstring(xml_bytes)
+    try:
+        root = _zm_ET.fromstring(xml_bytes.lstrip(b"\xef\xbb\xbf \r\n\t"))
+    except Exception as e:
+        raise _ZorgmailFout(f"Onleesbaar Retrieve-antwoord ({e}); begin: {xml_bytes[:200]!r}")
 
     meta, content_el = {}, None
     for e in root.iter():
