@@ -7535,6 +7535,53 @@ async def zorgmail_berichten(status: str = "", limit: int = 100):
         cur.close(); conn.close()
 
 
+_ZM_MAIL_RE = _zm_re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_ZM_TEL_RE = _zm_re.compile(r"(?<!\d)(?:\+\s?31|0031|\(?0\)?)[\s.\-]*\(?\d{1,3}\)?(?:[\s.\-]*\d){6,8}(?!\d)")
+_ZM_LABEL_RE = _zm_re.compile(r"(?i)\b(?:e-?mail(?:adres)?|mail|tel(?:efoon)?(?:\.?\s*(?:nr|nummer))?\.?|mob(?:iel)?|gsm|contact(?:gegevens)?|pati[eë]nt)\b\s*[:=]?")
+
+
+def _zm_telefoon_normaal(ruw: str) -> str:
+    """Nederlandse nummers naar 10 cijfers (0612345678); anders leeg."""
+    t = _zm_re.sub(r"\(0\)", "", ruw)
+    d = _zm_re.sub(r"\D", "", t)
+    if d.startswith("0031"):
+        d = "0" + d[4:]
+    elif d.startswith("31") and "+" in ruw:
+        d = "0" + d[2:]
+    return d if (len(d) == 10 and d.startswith("0")) else ""
+
+
+def _zm_vrije_tekst(gebruik: str, opmerkingen: str) -> dict:
+    """Zoekt in BEIDE vrije-tekstvelden (opmerkingen + gebruiksaanwijzing) naar e-mailadres,
+    telefoonnummer en de tekst die overblijft (vaak het echt voorgeschreven medicijn: artsen zetten
+    dat daar neer omdat het niet in de Z-index staat). Geeft per veld de resterende tekst terug."""
+    uit = {"emails": [], "telefoons": [], "delen": []}
+    for bron, tekst in (("opmerkingen", opmerkingen or ""), ("gebruiksaanwijzing", gebruik or "")):
+        tekst = " ".join(tekst.split())
+        if not tekst:
+            continue
+        for m in _ZM_MAIL_RE.findall(tekst):
+            m = m.strip(".,;:").lower()
+            if m not in uit["emails"]:
+                uit["emails"].append(m)
+        rest = _ZM_MAIL_RE.sub(" ", tekst)
+
+        def _tel(mm):
+            n = _zm_telefoon_normaal(mm.group(0))
+            if not n:
+                return mm.group(0)          # geen telefoonnummer (bijv. een datum): laten staan
+            if n not in uit["telefoons"]:
+                uit["telefoons"].append(n)
+            return " "
+        rest = _ZM_TEL_RE.sub(_tel, rest)
+        rest = _ZM_LABEL_RE.sub(" ", rest)
+        rest = _zm_re.sub(r"\(\s*\)", " ", rest)
+        rest = _zm_re.sub(r"\s+", " ", rest).strip(" \t,;:/|-–—()")
+        heeft_tekst = len(_zm_re.findall(r"[A-Za-zÀ-ÿ]", rest)) >= 3
+        uit["delen"].append({"bron": bron, "tekst": tekst, "rest": rest if heeft_tekst else ""})
+    return uit
+
+
 def _zm_zoek_patient_match(bsn: str, achternaam: str, voornaam: str, geboortedatum_nl: str) -> list:
     """Zoekt bestaande patiënten bij BSN, of anders achternaam + geboortedatum."""
     if not _DATABASE_URL:
@@ -7597,6 +7644,7 @@ async def zorgmail_bericht(bericht_id: int):
                 rec["patient_matches"] = _zm_zoek_patient_match(p.get("bsn", ""), p.get("achternaam", ""), p.get("voornaam", ""), p.get("geboortedatum", ""))
                 for rg in rec.get("regels", []):
                     rg["voorschrijver"] = _zm_kies_voorschrijver(parsed, rg)
+                    rg["vrije_tekst"] = _zm_vrije_tekst(rg.get("gebruiksaanwijzing", ""), rg.get("opmerkingen", ""))
         return JSONResponse(content={
             "id": i, "ontvangen_op": ont.isoformat() if ont else None, "zorgmail_tijd": zt, "onderwerp": ond, "afzender": afz,
             "document_type": dt, "document_format": df, "content_type": ct, "metadata": meta, "status": st,
