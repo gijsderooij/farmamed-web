@@ -79,6 +79,7 @@
   .veld.breed { grid-column: span 2; }
   .veld.vol { grid-column: 1 / -1; }
   .veld label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+  .veld select { width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; font-family: inherit; font-size: 13px; background: var(--cream); }
   .veld input, .veld textarea { width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; font-family: inherit; font-size: 13px; background: var(--cream); }
   .veld textarea { resize: vertical; min-height: 44px; }
   .veld input:focus, .veld textarea:focus { outline: none; border-color: var(--teal); background: white; }
@@ -132,7 +133,21 @@
   <div class="detail" id="detail"><div class="leeg">← Kies een bericht uit de inbox</div></div>
 </div>
 
+<script src="/gedeeld.js"></script>
 <script>
+  if (typeof laadMedicijnPermutaties === 'function') laadMedicijnPermutaties().then(() => { try { medicijnGewijzigd(); } catch (e) {} });
+  // Serverfouten als platte tekst ("Internal Server Error") omzetten naar leesbare JSON-fout
+  (function () {
+    const orig = window.fetch.bind(window);
+    window.fetch = async function (...a) {
+      const r = await orig(...a);
+      if (!r.ok && !(r.headers.get('content-type') || '').includes('json')) {
+        const t = (await r.clone().text()).slice(0, 200);
+        return new Response(JSON.stringify({ ok: false, fout: `Serverfout ${r.status}: ${t} — zie de Railway-log` }), { status: r.status, headers: { 'Content-Type': 'application/json' } });
+      }
+      return r;
+    };
+  })();
   let huidig = null;          // volledig geopend bericht
   let receptIdx = 0, regelIdx = 0;
   let tab = 'order';
@@ -264,7 +279,7 @@
   // ---------- Bericht openen ----------
   async function openBericht(id) {
     const r = await fetch('/api/zorgmail/bericht/' + id);
-    if (!r.ok) { meld('fout', '✕ Bericht kon niet worden geladen'); return; }
+    if (!r.ok) { let f = ''; try { f = (await r.json()).fout || ''; } catch (e) {} meld('fout', '✕ Bericht kon niet worden geladen' + (f ? ': ' + esc(f) : '')); return; }
     huidig = await r.json(); receptIdx = 0; regelIdx = 0; tab = 'order';
     renderDetail(); laadLijst(true); laadStatus();
   }
@@ -300,7 +315,7 @@
     if (tab === 'order') el.innerHTML = orderTabHtml();
     else if (tab === 'inhoud') el.innerHTML = inhoudTabHtml();
     else el.innerHTML = detailsTabHtml();
-    if (tab === 'order') valideerVelden();
+    if (tab === 'order') { valideerVelden(); try { medicijnGewijzigd(); } catch (e) {} }
   }
 
   // ---------- Tab: Order maken ----------
@@ -329,8 +344,38 @@
     const pcPlaats = [pt.postcode, pt.plaats].filter(Boolean).join(' ');
     // Geautomatiseerd invullen vanuit exacte (BSN) match als iets ontbreekt
     const exact = m.find(x => x.match_op === 'bsn');
-    const email = (exact && exact.email) || '';
-    const tel = (exact && exact.telefoon) || '';
+    // Vrije tekst (opmerkingen + gebruiksaanwijzing): artsen zetten hier het echte medicijn en
+    // het e-mailadres / telefoonnummer van de patiënt neer. Dit gaat vóór de dossiergegevens.
+    const vt = rg.vrije_tekst || { emails: [], telefoons: [], delen: [] };
+    const vtMail = (vt.emails || [])[0] || '';
+    const vtTel = (vt.telefoons || [])[0] || '';
+    const dossierMail = (exact && exact.email) || '';
+    const dossierTel = (exact && exact.telefoon) || '';
+    const email = vtMail || dossierMail;
+    const tel = vtTel || dossierTel;
+    const cijfers = s => (s || '').replace(/\D/g, '');
+    const mailHint = vtMail ? `Uit ${esc(vt.delen.find(d => d.tekst.toLowerCase().includes(vtMail)) ?.bron || 'vrije tekst')}` +
+      (dossierMail && dossierMail.toLowerCase() !== vtMail ? ` — let op: dossier heeft ${esc(dossierMail)}` : '') : '';
+    const telHint = vtTel ? `Uit vrije tekst` +
+      (dossierTel && cijfers(dossierTel) !== vtTel ? ` — let op: dossier heeft ${esc(dossierTel)}` : '') : '';
+    // Medicijn: kandidaten in volgorde CLI-naam, opmerkingen, gebruiksaanwijzing
+    const delenOp = Object.fromEntries((vt.delen || []).map(d => [d.bron, d.rest || '']));
+    const kandidaten = [[rg.naam, 'medicijnregel'], [delenOp.opmerkingen, 'opmerkingen'], [delenOp.gebruiksaanwijzing, 'gebruiksaanwijzing']]
+      .filter(k => k[0] && k[0].trim());
+    let medMatch = '', medBron = '';
+    for (const [tekst, bron] of kandidaten) {
+      const t = (typeof _matchMedicijnOptie === 'function') ? _matchMedicijnOptie(tekst) : '';
+      if (t) { medMatch = t; medBron = bron; break; }
+    }
+    const medVrij = medMatch ? '' : ((rg.naam || '') || (delenOp.opmerkingen || delenOp.gebruiksaanwijzing || ''));
+    const medSelect = (typeof _bouwMedicijnSelectHtml === 'function')
+      ? _bouwMedicijnSelectHtml('o-medicijn', medMatch, 'medicijnGewijzigd()').replace('class="veld-input" style="width:100%;"', '')
+      : '<select id="o-medicijn"></select>';
+    const gebrTekst = (vt.delen || []).map(d => d.rest).filter(t => t && t !== rg.naam).join(' — ')
+      || [rg.gebruiksaanwijzing, rg.opmerkingen].filter(Boolean).join(' — ');
+    const vtPaneel = (vt.delen || []).length ? `<div class="melding info" style="font-size:11px"><b>Vrije tekst in het bericht</b><br>` +
+      vt.delen.map(d => `${esc(d.bron)}: “${esc(d.tekst)}”`).join('<br>') +
+      (medMatch ? `<br>→ medicijn herkend in <b>${esc(medBron)}</b>` : `<br>→ geen medicijn uit de lijst herkend: kies er een, of typ het medicijn in het vrije veld`) + `</div>` : '';
 
     let matchHtml = '';
     if (m.length) {
@@ -356,18 +401,20 @@
           <div class="veld"><label>Achternaam</label><input id="o-achternaam" value="${esc(pt.achternaam_volledig)}"></div>
           <div class="veld"><label>Geboortedatum (DD-MM-JJJJ)</label><input id="o-geboortedatum" value="${esc(pt.geboortedatum)}"></div>
           <div class="veld"><label>BSN</label><input id="o-bsn" value="${esc(pt.bsn)}" oninput="valideerVelden()"><div class="hint" id="h-bsn"></div></div>
-          <div class="veld"><label>E-mail (nodig voor bestelmail)</label><input id="o-email" value="${esc(email)}" oninput="valideerVelden()"><div class="hint" id="h-email"></div></div>
-          <div class="veld"><label>Telefoon</label><input id="o-telefoon" value="${esc(tel)}"></div>
+          <div class="veld"><label>E-mail (nodig voor bestelmail)</label><input id="o-email" value="${esc(email)}" oninput="valideerVelden()"><div class="hint" id="h-email"></div>${mailHint ? `<div class="hint" style="color:var(--teal)">${mailHint}</div>` : ''}</div>
+          <div class="veld"><label>Telefoon</label><input id="o-telefoon" value="${esc(tel)}">${telHint ? `<div class="hint" style="color:var(--teal)">${telHint}</div>` : ''}</div>
           <div class="veld breed"><label>Straat + huisnummer</label><input id="o-straat" value="${esc(pt.straat)}"></div>
           <div class="veld"><label>Postcode + plaats</label><input id="o-postcode_plaats" value="${esc(pcPlaats)}"></div>
         </div></div>
       <div class="sectie"><h3>Medicijn <span style="font-weight:400;text-transform:none;letter-spacing:0">${esc(rg.codelijst ? rg.codelijst + ' ' + rg.code : '')}${rc.locatie ? ' · ' + esc(rc.locatie) : ''}</span></h3>
         <div class="grid">
-          <div class="veld vol"><label>Medicijn</label><input id="o-medicijn" value="${esc(rg.naam)}"></div>
-          <div class="veld"><label>Hoeveelheid</label><input id="o-hoeveelheid" value="${esc((rg.hoeveelheid || '') + eenh)}">${rg.hoeveelheid && !rg.eenheid ? `<div class="hint">Eenheid onbekend (code ${esc(rg.eenheid_code)}) — vul aan, bijv. “gram”</div>` : ''}</div>
+          ${vtPaneel ? `<div class="vol" style="grid-column:1/-1">${vtPaneel}</div>` : ''}
+          <div class="veld vol"><label>Medicijn (kies uit de lijst)</label>${medSelect}</div>
+          <div class="veld vol"><label>…of ander medicijn (vrije tekst; heeft voorrang als ingevuld)${rg.naam ? ' — in bericht: ' + esc(rg.naam) : ''}</label><input id="o-medicijn-vrij" value="${esc(medVrij)}" oninput="medicijnGewijzigd()"></div>
+          <div class="veld"><label>Hoeveelheid</label><input id="o-hoeveelheid" list="hoeveelheden" value="${esc((rg.hoeveelheid || '') + eenh)}"><datalist id="hoeveelheden"></datalist>${rg.hoeveelheid && !rg.eenheid ? `<div class="hint">Eenheid onbekend (code ${esc(rg.eenheid_code)}) — vul aan, bijv. “gram”</div>` : ''}</div>
           <div class="veld"><label>Herhalingen (iter)</label><input id="o-iter" value="${esc(rg.herhalingen)}"></div>
           <div class="veld"><label>Receptdatum</label><input id="o-recept_datum" value="${esc(rg.startdatum || (huidig.parsed && huidig.parsed.bericht_datum) || '')}"></div>
-          <div class="veld vol"><label>Gebruiksaanwijzing</label><textarea id="o-gebruiksaanwijzing">${esc([rg.gebruiksaanwijzing, rg.opmerkingen].filter(Boolean).join(' — '))}</textarea></div>
+          <div class="veld vol"><label>Gebruiksaanwijzing</label><textarea id="o-gebruiksaanwijzing">${esc(gebrTekst)}</textarea></div>
         </div></div>
       <div class="sectie"><h3>Voorschrijver</h3>
         <div class="grid">
@@ -386,6 +433,20 @@
     </div>`;
   }
   function kiesRegel(ri, gi) { receptIdx = ri; regelIdx = gi; renderTab(); }
+  // Gekozen medicijn: bruikbare hoeveelheden voorstellen (datalist), vrije tekst heeft voorrang
+  function huidigMedicijn() {
+    const vrij = ((document.getElementById('o-medicijn-vrij') || {}).value || '').trim();
+    return vrij || ((document.getElementById('o-medicijn') || {}).value || '');
+  }
+  function medicijnGewijzigd() {
+    const dl = document.getElementById('hoeveelheden'); if (!dl) return;
+    let html = '';
+    try {
+      const pm = (typeof _vindPermutaties === 'function') ? _vindPermutaties(huidigMedicijn()) : null;
+      if (pm && pm.hoeveelheden) html = pm.hoeveelheden.map(h => `<option value="${esc(h + ' ' + _eenheidLabel(pm.eenheid_type))}">`).join('');
+    } catch (e) { /* geen suggesties */ }
+    dl.innerHTML = html;
+  }
   function valideerVelden() {
     const bsn = document.getElementById('o-bsn'), em = document.getElementById('o-email');
     if (!bsn) return;
@@ -415,7 +476,7 @@
       patient_naam: `${v('o-voornaam')} ${v('o-achternaam')}`.trim(),
       geboortedatum: v('o-geboortedatum'), bsn: v('o-bsn'), email: v('o-email'), telefoon: v('o-telefoon'),
       straat: v('o-straat'), postcode_plaats: v('o-postcode_plaats'),
-      medicijn: v('o-medicijn'), hoeveelheid: v('o-hoeveelheid'), iter: v('o-iter'),
+      medicijn: huidigMedicijn(), hoeveelheid: v('o-hoeveelheid'), iter: v('o-iter'),
       gebruiksaanwijzing: v('o-gebruiksaanwijzing'), recept_datum: v('o-recept_datum'),
       voorschrijver: v('o-voorschrijver'), agb_code: v('o-agb_code'),
       bron: 'zorgmail', zorgmail_id: huidig.id,
