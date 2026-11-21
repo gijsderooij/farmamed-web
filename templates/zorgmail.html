@@ -362,8 +362,16 @@
     const delenOp = Object.fromEntries((vt.delen || []).map(d => [d.bron, d.rest || '']));
     const kandidaten = [[rg.naam, 'medicijnregel'], [delenOp.opmerkingen, 'opmerkingen'], [delenOp.gebruiksaanwijzing, 'gebruiksaanwijzing']]
       .filter(k => k[0] && k[0].trim());
-    let medMatch = '', medBron = '';
-    for (const [tekst, bron] of kandidaten) {
+    let medMatch = '', medBron = '', proefHint = false;
+    // Een proefpakket/proefbehandeling in de vrije tekst gaat voor op het (formele) voorgeschreven medicijn
+    const proefTekst = [delenOp.opmerkingen, delenOp.gebruiksaanwijzing, (vt.delen || []).map(d => d.tekst).join(' '), rg.naam].filter(Boolean).join(' ');
+    if (/proef\s*-?\s*(pakket|behandeling)/i.test(proefTekst) && typeof MEDICIJN_OPTIES !== 'undefined') {
+      const proef = MEDICIJN_OPTIES.filter(o => o[2] === 'Proefbehandeling');
+      const v02 = /v\s*-?\s*02/i.test(proefTekst);
+      const kies = proef.find(o => (v02 ? /V02/ : /Kopsky/).test(o[0])) || proef[0];
+      if (kies) { medMatch = kies[0]; medBron = 'proefpakket in de tekst'; proefHint = !/kopsky|v\s*-?\s*02/i.test(proefTekst); }
+    }
+    for (const [tekst, bron] of (medMatch ? [] : kandidaten)) {
       const t = (typeof _matchMedicijnOptie === 'function') ? _matchMedicijnOptie(tekst) : '';
       if (t) { medMatch = t; medBron = bron; break; }
     }
@@ -375,7 +383,7 @@
       || [rg.gebruiksaanwijzing, rg.opmerkingen].filter(Boolean).join(' — ');
     const vtPaneel = (vt.delen || []).length ? `<div class="melding info" style="font-size:11px"><b>Vrije tekst in het bericht</b><br>` +
       vt.delen.map(d => `${esc(d.bron)}: “${esc(d.tekst)}”`).join('<br>') +
-      (medMatch ? `<br>→ medicijn herkend in <b>${esc(medBron)}</b>` : `<br>→ geen medicijn uit de lijst herkend: kies er een, of typ het medicijn in het vrije veld`) + `</div>` : '';
+      (medMatch ? `<br>→ medicijn herkend in <b>${esc(medBron)}</b>${proefHint ? ' — Kopsky of V02 staat niet in de tekst: <b>controleer welke variant</b>' : ''}` : `<br>→ geen medicijn uit de lijst herkend: kies er een, of typ het medicijn in het vrije veld`) + `</div>` : '';
 
     let matchHtml = '';
     if (m.length) {
