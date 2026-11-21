@@ -1289,6 +1289,7 @@ async def verstuur_smarthub(request: Request):
         print(f"[SmartHUB] Bericht: {json.dumps(smarthub_bericht, ensure_ascii=False)[:500]}")
         # Markeer als verstuurd in DB
         if ok:
+            _vk_zet(order_id, "smarthub")
             try:
                 conn = _pg_conn()
                 cur = conn.cursor()
@@ -2890,6 +2891,7 @@ async def haal_bestellingen_op():
 
     # Verwerk orders
     orders = []
+    vk = _vk_haal([o["id"] for o in orders_raw])
     for o in orders_raw:
         billing = o.get("billing", {})
         meta = {m["key"]: m["value"] for m in o.get("meta_data", [])}
@@ -2897,6 +2899,10 @@ async def haal_bestellingen_op():
         naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
         medicijn = items[0]["name"] if items else "—"
         order_id = str(o["id"])
+        v = vk.get(order_id)
+        if not v and meta.get("_farmamed_verstrekking", "") == "1":
+            _vk_zet(order_id, "woocommerce-meta")
+            v = {"op": "", "bron": "woocommerce-meta"}
 
         # Betaalstatus: Pay, Bank, Anders of Niet betaald
         betaal_methode = o.get("payment_method", "")
@@ -2952,6 +2958,9 @@ async def haal_bestellingen_op():
             "tracking_url": tracking_url,
             "tracking_nr": tracking_nr,
             "oorsprong": oorsprong,
+            "heeft_verstrekking": bool(v),
+            "verstrekking_bron": (v or {}).get("bron", ""),
+            "verstrekking_op": (v or {}).get("op", ""),
         })
 
     return JSONResponse(content={"orders": orders})
@@ -3499,6 +3508,97 @@ async def kloon_order(request: Request):
     return await maak_order(request.__class__(request._scope, request._receive))
 
 
+# ---------------------------------------------------------------------
+# VERSTREKKINGSSTATUS — één vaste plek: tabel order_verstrekking
+# ---------------------------------------------------------------------
+# "Is er voor deze order een verstrekkingsverzoek aangemaakt?" staat ALLEEN
+# hier (niet meer in WooCommerce-meta of in de browsersessie). Wordt gezet:
+#   - automatisch bij een geslaagde SmartHUB-verzending           (bron 'smarthub')
+#   - handmatig via 'Verstrekking aangemaakt' (Orders/Werklijst)  (bron 'handmatig')
+#   - automatisch als SendCloud een verzending ziet               (bron 'verzonden')
+# Oude data telt mee: orders met SmartHUB-verzending in de orders-tabel, en
+# orders met de oude WooCommerce-meta _farmamed_verstrekking, worden herkend
+# (die laatste worden bij het eerste lezen overgenomen in de tabel).
+_VK_KLAAR = False
+
+
+def _vk_init():
+    global _VK_KLAAR
+    if _VK_KLAAR or not _DATABASE_URL:
+        return
+    conn = _pg_conn(); cur = conn.cursor()
+    try:
+        cur.execute("""CREATE TABLE IF NOT EXISTS order_verstrekking (
+            wc_order_id TEXT PRIMARY KEY,
+            aangemaakt_op TIMESTAMPTZ DEFAULT NOW(),
+            bron TEXT
+        )""")
+        conn.commit()
+        _VK_KLAAR = True
+    finally:
+        cur.close(); conn.close()
+
+
+def _vk_haal(order_ids: list) -> dict:
+    """{order_id(str): {"op": 'YYYY-MM-DD HH:MM', "bron": str}} voor orders met verstrekking."""
+    uit = {}
+    ids = [str(i) for i in order_ids]
+    if not ids or not _DATABASE_URL:
+        return uit
+    try:
+        _vk_init()
+        conn = _pg_conn(); cur = conn.cursor()
+        try:
+            cur.execute("SELECT wc_order_id, aangemaakt_op, bron FROM order_verstrekking WHERE wc_order_id = ANY(%s)", (ids,))
+            for oid, op, bron in cur.fetchall():
+                uit[str(oid)] = {"op": str(op)[:16] if op else "", "bron": bron or ""}
+            cur.execute("SELECT wc_order_id::text, smarthub_verstuurd_op FROM orders WHERE smarthub_verstuurd = 1 AND wc_order_id::text = ANY(%s)", (ids,))
+            for oid, op in cur.fetchall():
+                uit.setdefault(str(oid), {"op": str(op)[:16] if op else "", "bron": "smarthub"})
+        finally:
+            cur.close(); conn.close()
+    except Exception as e:
+        print(f"[verstrekking] lezen mislukt: {e}")
+    return uit
+
+
+def _vk_zet(order_id, bron: str = "handmatig") -> bool:
+    if not _DATABASE_URL:
+        return False
+    try:
+        _vk_init()
+        conn = _pg_conn(); cur = conn.cursor()
+        try:
+            cur.execute("INSERT INTO order_verstrekking (wc_order_id, bron) VALUES (%s, %s) ON CONFLICT (wc_order_id) DO NOTHING",
+                        (str(order_id), bron))
+            conn.commit()
+            return True
+        finally:
+            cur.close(); conn.close()
+    except Exception as e:
+        print(f"[verstrekking] zetten mislukt voor {order_id}: {e}")
+        return False
+
+
+def _vk_wis(order_id) -> bool:
+    if not _DATABASE_URL:
+        return False
+    try:
+        _vk_init()
+        conn = _pg_conn(); cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM order_verstrekking WHERE wc_order_id = %s", (str(order_id),))
+            # Een SmartHUB-verzending telt ook mee; bij 'ongedaan maken' die vlag ook terugzetten
+            cur.execute("UPDATE orders SET smarthub_verstuurd = 0 WHERE wc_order_id::text = %s", (str(order_id),))
+            conn.commit()
+            return True
+        finally:
+            cur.close(); conn.close()
+    except Exception as e:
+        print(f"[verstrekking] wissen mislukt voor {order_id}: {e}")
+        return False
+
+
 @app.get("/api/orders")
 async def haal_orders_op(toon_alle: bool = False):
     """Haalt openstaande WooCommerce orders op (pending + processing)."""
@@ -3533,6 +3633,7 @@ async def haal_orders_op(toon_alle: bool = False):
                 pagina += 1
 
         orders = []
+        vk = _vk_haal([o["id"] for o in orders_raw])
         for o in orders_raw:
             billing = o.get("billing", {})
             meta = {m["key"]: m["value"] for m in o.get("meta_data", [])}
@@ -3541,12 +3642,17 @@ async def haal_orders_op(toon_alle: bool = False):
             naam = f"{billing.get('first_name','')} {billing.get('last_name','')}".strip()
             geboortedatum = meta.get("billing_birth") or meta.get("_billing_birth", "")
             recept_url = o.get("recept_url") or meta.get("recept_url", "")
-            heeft_verstrekking = meta.get("_farmamed_verstrekking", "") == "1"
             created_via = o.get("created_via", "")
-
+            v = vk.get(str(o["id"]))
+            # Oude WooCommerce-meta overnemen in de eigen tabel (eenmalig per order)
+            if not v and meta.get("_farmamed_verstrekking", "") == "1":
+                _vk_zet(o["id"], "woocommerce-meta")
+                v = {"op": "", "bron": "woocommerce-meta"}
+            heeft_verstrekking = bool(v)
             # Admin-orders altijd als verstrekt markeren
-            if created_via == "admin":
+            if created_via == "admin" and not v:
                 heeft_verstrekking = True
+                v = {"op": "", "bron": "admin"}
 
             # Filter admin-orders tenzij toon_alle
             if created_via == "admin" and not toon_alle:
@@ -3571,6 +3677,8 @@ async def haal_orders_op(toon_alle: bool = False):
                 "heeft_recept": bool(recept_url),
                 "recept_url": recept_url,
                 "heeft_verstrekking": heeft_verstrekking,
+                "verstrekking_bron": (v or {}).get("bron", ""),
+                "verstrekking_op": (v or {}).get("op", ""),
             })
 
         orders.sort(key=lambda o: o["id"], reverse=True)
@@ -4669,24 +4777,19 @@ def _vergelijk_order_recept(wc_order: dict, recept: dict) -> dict:
 
 @app.post("/api/order-verstrekking")
 async def order_verstrekking(request: Request):
-    """Slaat verstrekkingsverzoek op als WooCommerce meta veld."""
+    """Zet (of wist) de status 'verstrekkingsverzoek aangemaakt' voor een order — in de eigen database.
+    Body: {order_id, aangemaakt: true|false (standaard true), bron: 'handmatig'|'verzonden'|...}"""
     body = await request.json()
     order_id = body.get("order_id")
-    wc_url = os.getenv("WC_URL", "")
-    wc_key = os.getenv("WC_KEY", "")
-    wc_secret = os.getenv("WC_SECRET", "")
-    if not order_id or not wc_url:
-        return JSONResponse(content={"ok": False, "fout": "Onvoldoende gegevens"})
-    try:
-        resp = http_requests.put(
-            f"{wc_url}/wp-json/wc/v3/orders/{order_id}",
-            headers=_wc_auth(wc_key, wc_secret),
-            json={"meta_data": [{"key": "_farmamed_verstrekking", "value": "1"}]},
-            timeout=10,
-        )
-        return JSONResponse(content={"ok": resp.status_code == 200})
-    except Exception as e:
-        return JSONResponse(content={"ok": False, "fout": str(e)})
+    if not order_id:
+        return JSONResponse(content={"ok": False, "fout": "Geen order_id opgegeven"})
+    if not _DATABASE_URL:
+        return JSONResponse(content={"ok": False, "fout": "Geen database verbinding"})
+    if body.get("aangemaakt", True):
+        ok = _vk_zet(order_id, str(body.get("bron") or "handmatig")[:30])
+    else:
+        ok = _vk_wis(order_id)
+    return JSONResponse(content={"ok": ok, "fout": None if ok else "Opslaan in database mislukt (zie log)"})
 
 
 @app.get("/bank", response_class=HTMLResponse)
