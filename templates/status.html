@@ -26,8 +26,8 @@
     .filter-btn { padding:5px 12px; border:1px solid var(--border); border-radius:6px; background:white; cursor:pointer; font-size:12px; font-family:'DM Sans',sans-serif; color:var(--muted); }
     .filter-btn.actief { background:var(--teal-lt); border-color:var(--teal); color:var(--teal-dk); font-weight:500; }
     .tabel { background:white; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
-    .tabel-header { display:grid; grid-template-columns:32px 130px 160px 110px 1fr 1fr 1fr 1fr; gap:8px; padding:10px 16px; background:var(--cream); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); border-bottom:1px solid var(--border); }
-    .tabel-rij { display:grid; grid-template-columns:32px 130px 160px 110px 1fr 1fr 1fr 1fr; gap:8px; padding:11px 16px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; transition:background 0.1s; }
+    .tabel-header { display:grid; grid-template-columns:32px 110px 150px 90px 110px 1fr 1fr 1fr; gap:8px; padding:10px 16px; background:var(--cream); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); border-bottom:1px solid var(--border); }
+    .tabel-rij { display:grid; grid-template-columns:32px 110px 150px 90px 110px 1fr 1fr 1fr; gap:8px; padding:11px 16px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; transition:background 0.1s; }
     .tabel-rij:last-child { border-bottom:none; }
     .tabel-rij:hover { background:#fafafa; }
     .tabel-rij.geselecteerd { background:var(--teal-lt); }
@@ -40,6 +40,10 @@
     .betaal-bank { background:#e8f0ff; color:#3a6fd8; }
     .betaal-anders { background:var(--teal-lt); color:var(--teal-dk); }
     .betaal-niet { background:#fdecea; color:var(--danger); }
+    .oorsprong { font-size:10px; font-weight:500; padding:2px 7px; border-radius:10px; background:var(--teal-lt); color:var(--teal-dk); display:inline-block; }
+    .filter-btn .tel { margin-left:4px; font-size:10px; background:var(--cream); border-radius:8px; padding:0 6px; color:var(--muted); }
+    .filter-btn.actief .tel { background:white; }
+    .filter-btn.alarm .tel { background:#fdecea; color:var(--danger); font-weight:500; }
     .vinkje { font-size:16px; text-align:center; cursor:pointer; display:block; }
     .vinkje.klaar { color:var(--success); cursor:default; }
     .vinkje.open { color:var(--border); }
@@ -75,12 +79,12 @@
   </div>
 
   <div class="filterbalk">
-    <button class="filter-btn actief" onclick="setFilter('alle',this)">Alle open</button>
-    <button class="filter-btn" onclick="setFilter('pending',this)">Wacht op betaling</button>
-    <button class="filter-btn" onclick="setFilter('processing',this)">In behandeling</button>
-    <button class="filter-btn" onclick="setFilter('onbetaald',this)">Niet betaald</button>
-    <button class="filter-btn" onclick="setFilter('geen-verstrekking',this)">Geen verstrekking</button>
-    <button class="filter-btn" onclick="setFilter('niet-verzonden',this)">Niet verzonden</button>
+    <button class="filter-btn actief" data-f="todo" onclick="setFilter('todo',this)">Te doen<span class="tel"></span></button>
+    <button class="filter-btn" data-f="verstrekking" onclick="setFilter('verstrekking',this)">Wacht op verstrekking<span class="tel"></span></button>
+    <button class="filter-btn" data-f="betaling" onclick="setFilter('betaling',this)">Wacht op betaling<span class="tel"></span></button>
+    <button class="filter-btn" data-f="verzenden" onclick="setFilter('verzenden',this)">Te verzenden<span class="tel"></span></button>
+    <button class="filter-btn" data-f="klaar" onclick="setFilter('klaar',this)">Klaar<span class="tel"></span></button>
+    <button class="filter-btn" data-f="alle" onclick="setFilter('alle',this)">Alle<span class="tel"></span></button>
   </div>
 
   <div class="tabel" id="tabel">
@@ -90,11 +94,32 @@
 
 <script>
   let alleOrders = [];
-  let huidigFilter = 'alle';
+  let huidigFilter = 'todo';
+
+  // Fase van een order = wat moet er nu mee gebeuren (volgorde = prioriteit):
+  //   verstrekking → er is een order maar nog geen verstrekkingsverzoek (route A, of B tussen de twee stappen)
+  //   betaling     → verstrekking is er, maar de order is nog niet betaald (B en C)
+  //   verzenden    → betaald + verstrekking, nog niet verzonden
+  //   klaar        → alles ✓
+  function faseVan(o) {
+    if (!o.heeft_verstrekking) return 'verstrekking';
+    if (o.betaal_type === 'onbetaald') return 'betaling';
+    if (!o.verzonden) return 'verzenden';
+    return 'klaar';
+  }
+  function werkTellersBij() {
+    const t = { todo: 0, verstrekking: 0, betaling: 0, verzenden: 0, klaar: 0, alle: alleOrders.length };
+    alleOrders.forEach(o => { const f = faseVan(o); t[f]++; if (f !== 'klaar') t.todo++; });
+    document.querySelectorAll('.filter-btn').forEach(b => {
+      const f = b.dataset.f, el = b.querySelector('.tel');
+      if (el) el.textContent = t[f];
+      b.classList.toggle('alarm', f === 'verstrekking' && t.verstrekking > 0);
+    });
+  }
   let geselecteerd = new Set();
 
   // De verstrekkingsstatus komt uit de database (o.heeft_verstrekking) — dezelfde bron als de pagina Orders.
-  const bronNl = { smarthub: 'via SmartHUB', handmatig: 'handmatig', verzonden: 'automatisch (verzending gezien)', 'woocommerce-meta': 'eerder gemarkeerd', admin: 'admin-order' };
+  const bronNl = { smarthub: 'via SmartHUB', handmatig: 'handmatig', verzonden: 'automatisch (verzending gezien)', zorgmail: 'Zorgmail-bericht (is de verstrekking)', 'woocommerce-meta': 'eerder gemarkeerd', admin: 'admin-order' };
 
   async function laadOrders() {
     document.getElementById('tabel').innerHTML = '<div class="laden"><span class="spinner"></span>Orders laden…</div>';
@@ -124,23 +149,22 @@
     const statusCls = { processing:'status-processing', pending:'status-pending', 'on-hold':'status-on-hold' };
     const betaalCls = { pay:'betaal-pay', bank:'betaal-bank', anders:'betaal-anders', onbetaald:'betaal-niet' };
 
+    werkTellersBij();
     let gefilterd = alleOrders.filter(o => {
-      if (huidigFilter === 'pending') return o.status === 'pending';
-      if (huidigFilter === 'processing') return o.status === 'processing';
-      if (huidigFilter === 'onbetaald') return o.betaal_type === 'onbetaald';
-      if (huidigFilter === 'geen-verstrekking') return !o.heeft_verstrekking;
-      if (huidigFilter === 'niet-verzonden') return o.verzend_status === 'Niet verzonden';
-      return true;
+      const f = faseVan(o);
+      if (huidigFilter === 'todo') return f !== 'klaar';
+      if (huidigFilter === 'alle') return true;
+      return f === huidigFilter;
     });
 
     if (gefilterd.length === 0) { document.getElementById('tabel').innerHTML = '<div class="laden">Geen orders gevonden</div>'; return; }
 
-    let html = `<div class="tabel-header"><span></span><span>Order / Datum</span><span>Patiënt</span><span>Status</span><span style="text-align:center">Verstrekking</span><span style="text-align:center">Verzonden</span><span>Betaald</span></div>`;
+    let html = `<div class="tabel-header"><span></span><span>Order / Datum</span><span>Patiënt</span><span>Oorsprong</span><span>Status</span><span style="text-align:center">Verstrekking</span><span style="text-align:center">Verzonden</span><span>Betaald</span></div>`;
 
     gefilterd.forEach(o => {
       const sel = geselecteerd.has(o.id);
       const heeftV = o.heeft_verstrekking;
-      const isVerzonden = o.verzend_status && o.verzend_status !== 'Niet verzonden';
+      const isVerzonden = !!o.verzonden;
 
       const verstrekkingHtml = heeftV
         ? `<span class="vinkje klaar" style="cursor:pointer" onclick="wisVerstrekking(${o.id},this)" title="${(bronNl[o.verstrekking_bron] || o.verstrekking_bron || '') + (o.verstrekking_op ? ' · ' + o.verstrekking_op : '')} — klik om ongedaan te maken">✓</span>`
@@ -154,6 +178,7 @@
         <input type="checkbox" ${sel?'checked':''} onchange="toggleSelectie(${o.id},this)" style="cursor:pointer;">
         <div><div style="font-weight:500;">#${o.id}</div><div style="font-size:11px;color:var(--muted);">${o.datum}</div></div>
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.klant_naam||'—'}</div>
+        <span><span class="oorsprong">${o.oorsprong || '—'}</span></span>
         <span class="status-badge ${statusCls[o.status]||''}">${statusNl[o.status]||o.status}</span>
         <div id="verstr-${o.id}" style="text-align:center;">${verstrekkingHtml}</div>
         <div id="verzond-${o.id}">${verzondHtml}</div>
@@ -179,6 +204,8 @@
       Object.entries(data.resultaten).forEach(([orderId, info]) => {
         const id = parseInt(orderId);
         if (info.verzonden) {
+          const ov = alleOrders.find(x => x.id === id);
+          if (ov && !ov.verzonden) { ov.verzonden = true; ov.tracking_url = ov.tracking_url || info.tracking_url || ''; verstrekkingGewijzigd = true; }
           // Update verzend icoon via ID
           const verzondCel = document.getElementById('verzond-' + orderId);
           if (verzondCel) {
@@ -202,7 +229,7 @@
           }
         }
       });
-
+      if (verstrekkingGewijzigd) toonOrders();   // tellers en fases bijwerken
 
     } catch(e) {
       console.log('Verzendstatus ophalen mislukt:', e.message);
@@ -255,7 +282,11 @@
   }
 
   async function rondeAfBatch() {
-    if (!confirm(`${geselecteerd.size} order(s) afronden?`)) return;
+    const nogOpen = alleOrders.filter(o => geselecteerd.has(o.id) && faseVan(o) !== 'klaar');
+    const waarschuwing = nogOpen.length
+      ? `\n\nLet op: ${nogOpen.length} van deze order(s) heeft nog openstaande stappen (verstrekking, betaling of verzending): ` + nogOpen.map(o => '#' + o.id).join(', ')
+      : '';
+    if (!confirm(`${geselecteerd.size} order(s) afronden?${waarschuwing}`)) return;
     const btn = document.getElementById('btn-afronden');
     btn.disabled = true; btn.textContent = '⏳ Bezig…';
     try {

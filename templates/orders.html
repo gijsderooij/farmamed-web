@@ -319,7 +319,7 @@
   let vkFilter = 'todo';   // 'todo' | 'klaar' | 'alle'
 
   function bronTekst(b) {
-    return { smarthub: 'via SmartHUB', handmatig: 'handmatig', verzonden: 'automatisch (verzending gezien)',
+    return { smarthub: 'via SmartHUB', handmatig: 'handmatig', verzonden: 'automatisch (verzending gezien)', zorgmail: 'Zorgmail-bericht',
              'woocommerce-meta': 'eerder gemarkeerd', admin: 'admin-order' }[b] || (b || '');
   }
   function zetVkFilter(f) {
