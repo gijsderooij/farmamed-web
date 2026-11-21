@@ -7564,6 +7564,10 @@ def _zm_vrije_tekst(gebruik: str, opmerkingen: str) -> dict:
         tekst = _zm_re.sub(r"(?<=\w)\s*@\s*(?=\w)", "@", tekst)
         tekst = _zm_re.sub(r"(@[\w-]+(?:\.[\w-]+)*)\s*\.\s*(com|nl|be|de|org|net|eu|info|co\.uk|me|nu|email)\b",
                            r"\1.\2", tekst, flags=_zm_re.I)
+        # Uitgang door een spatie gesplitst: "gmail.co m" -> "gmail.com", "x.n l" -> "x.nl"
+        for tld in ("com", "nl", "be", "de", "org", "net", "eu"):
+            gesplitst = r"\s*".join(tld)
+            tekst = _zm_re.sub(r"(@[\w-]+(?:\.[\w-]+)*\.)" + gesplitst + r"\b(?![\w-])", r"\1" + tld, tekst, flags=_zm_re.I)
         for m in _ZM_MAIL_RE.findall(tekst):
             m = m.strip(".,;:").lower()
             if m not in uit["emails"]:
