@@ -49,6 +49,9 @@
     .badge { font-size: 10px; font-weight: 500; padding: 2px 7px; border-radius: 10px; }
     .badge-ok { background: #e8f8ee; color: var(--success); }
     .badge-warn { background: #fef3e2; color: var(--warn); }
+    .vk-tabs { display:flex; gap:4px; padding:8px 12px; border-bottom:1px solid var(--border); background:white; }
+    .vk-tab { flex:1; font-size:11px; padding:5px 6px; border:1px solid var(--border); border-radius:6px; background:white; cursor:pointer; color:var(--muted); font-family:inherit; }
+    .vk-tab.actief { background:var(--teal-lt); border-color:var(--teal); color:var(--teal-dk); font-weight:500; }
     .badge-fout { background: #fdecea; color: var(--danger); }
     .badge-info { background: var(--teal-lt); color: var(--teal-dk); }
     .laden-tekst { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
@@ -157,7 +160,12 @@
     <div class="wachtrij-header">
       <span class="wachtrij-titel">Wachtrij</span>
       <button class="vernieuwen-btn" onclick="laadOrders()">↻ Vernieuwen</button>
-      <button class="vernieuwen-btn" id="btnToonAlle" onclick="toggleAlleOrders()" style="font-size:11px;">Alle orders</button>
+      <button class="vernieuwen-btn" id="btnToonAlle" onclick="toggleAlleOrders()" style="font-size:11px;">+ Wacht op betaling</button>
+    </div>
+    <div class="vk-tabs">
+      <button class="vk-tab actief" id="vkTab-todo" onclick="zetVkFilter('todo')">Te doen</button>
+      <button class="vk-tab" id="vkTab-klaar" onclick="zetVkFilter('klaar')">Aangemaakt</button>
+      <button class="vk-tab" id="vkTab-alle" onclick="zetVkFilter('alle')">Alle</button>
     </div>
     <div class="order-lijst" id="orderLijst">
       <div class="laden-tekst"><span class="spinner-klein"></span>Orders laden…</div>
@@ -199,7 +207,7 @@
         </div>
         <div id="ostap6" style="flex:1;padding:8px 14px;display:flex;align-items:center;gap:8px;opacity:0.4;">
           <span id="onr6" style="width:18px;height:18px;border-radius:50%;background:var(--border);color:var(--muted);font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;">6</span>
-          <div style="font-size:11px;font-weight:500;">Afronden</div>
+          <div style="font-size:11px;font-weight:500;">Verstrekking</div>
         </div>
       </div>
     </div>
@@ -226,7 +234,8 @@
       <div style="width:0.5px;align-self:stretch;background:var(--border);"></div>
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
         <button class="btn" onclick="downloadRecept()" style="font-size:12px;padding:6px 12px;">⬇ Recept opslaan</button>
-        <button class="btn" onclick="orderAfronden()" id="btnAfronden" style="font-size:12px;padding:6px 14px;border:1px solid var(--danger);background:#fdecea;color:var(--danger);">✓ Afronden</button>
+        <span id="vkStatus" style="font-size:12px;"></span>
+        <button class="btn" onclick="verstrekkingAangemaakt()" id="btnAfronden" style="font-size:12px;padding:6px 14px;border:1px solid var(--success);background:#e8f8ee;color:var(--success);" title="Markeer dat er voor deze order een verstrekkingsverzoek is aangemaakt (bijv. handmatig in SmartHUB)">✓ Verstrekking aangemaakt</button>
       </div>
     </div>
 
@@ -295,23 +304,28 @@
   function toggleAlleOrders() {
     toonAlle = !toonAlle;
     const btn = document.getElementById('btnToonAlle');
-    btn.textContent = toonAlle ? '← Mijn orders' : 'Alle orders';
+    btn.textContent = toonAlle ? '← Alleen in behandeling' : '+ Wacht op betaling';
     btn.style.background = toonAlle ? 'var(--teal-lt)' : 'white';
     laadOrders();
   }
   let huidigeReceptData = null;
   let huidigeVergelijking = null;  // laatste order-vs-recept score (voor de mismatch-banner)
 
-  // Bijhouden welke orders lokaal zijn afgerond (overleeft vernieuwen)
-  function getAfgerond() {
-    return JSON.parse(sessionStorage.getItem('farmamed_afgerond_orders') || '[]');
+  // --- Verstrekkingsstatus: staat in de database (tabel order_verstrekking), niet meer
+  // in de browser. Een order is "aangemaakt" zodra er een verstrekkingsverzoek is —
+  // automatisch bij een geslaagde SmartHUB-verzending, of handmatig met de knop
+  // "Verstrekking aangemaakt". ---
+  let alleOrders = [];
+  let vkFilter = 'todo';   // 'todo' | 'klaar' | 'alle'
+
+  function bronTekst(b) {
+    return { smarthub: 'via SmartHUB', handmatig: 'handmatig', verzonden: 'automatisch (verzending gezien)',
+             'woocommerce-meta': 'eerder gemarkeerd', admin: 'admin-order' }[b] || (b || '');
   }
-  function markeerAfgerond(orderId) {
-    const lijst = getAfgerond();
-    if (!lijst.includes(orderId)) {
-      lijst.push(orderId);
-      sessionStorage.setItem('farmamed_afgerond_orders', JSON.stringify(lijst));
-    }
+  function zetVkFilter(f) {
+    vkFilter = f;
+    ['todo', 'klaar', 'alle'].forEach(x => document.getElementById('vkTab-' + x).classList.toggle('actief', x === f));
+    toonLijst();
   }
 
   // --- Orders laden ---
@@ -325,39 +339,92 @@
         lijst.innerHTML = '<div class="laden-tekst" style="color:var(--danger)">Fout: ' + data.fout + '</div>';
         return;
       }
-      if (!data.orders || data.orders.length === 0) {
-        lijst.innerHTML = '<div class="laden-tekst">Geen openstaande orders</div>';
-        return;
-      }
-      const afgerond = getAfgerond();
-      const zichtbaar = data.orders.filter(o => !afgerond.includes(o.id));
-      document.getElementById('badge-orders') && (document.getElementById('badge-orders').textContent = zichtbaar.length);
-
-      lijst.innerHTML = '';
-      zichtbaar.forEach(order => {
-        const div = document.createElement('div');
-        div.className = 'order-item';
-        div.onclick = () => selecteerOrder(order);
-
-        const receptBadge = order.heeft_recept
-          ? '<span class="badge badge-ok">📄 Recept</span>'
-          : '<span class="badge badge-warn">⚠ Geen recept</span>';
-
-        div.innerHTML = `
-          <div class="order-nr">#${order.id} — ${order.datum}</div>
-          <div class="order-naam">${order.klant_naam}</div>
-          <div class="order-medicijn">${order.medicijn}</div>
-          <div class="order-badges">${receptBadge}</div>
-        `;
-        lijst.appendChild(div);
-      });
+      alleOrders = data.orders || [];
+      toonLijst();
     } catch(e) {
       lijst.innerHTML = '<div class="laden-tekst" style="color:var(--danger)">Verbindingsfout: ' + e.message + '</div>';
     }
   }
 
+  function toonLijst() {
+    const lijst = document.getElementById('orderLijst');
+    const todo = alleOrders.filter(o => !o.heeft_verstrekking);
+    const klaar = alleOrders.filter(o => o.heeft_verstrekking);
+    document.getElementById('vkTab-todo').textContent = `Te doen (${todo.length})`;
+    document.getElementById('vkTab-klaar').textContent = `Aangemaakt (${klaar.length})`;
+    document.getElementById('vkTab-alle').textContent = `Alle (${alleOrders.length})`;
+    const badgeNav = document.getElementById('badge-orders');
+    if (badgeNav) badgeNav.textContent = todo.length;
+
+    const zichtbaar = vkFilter === 'todo' ? todo : vkFilter === 'klaar' ? klaar : alleOrders;
+    if (zichtbaar.length === 0) {
+      lijst.innerHTML = '<div class="laden-tekst">' + (vkFilter === 'todo' ? 'Niets meer te doen 🎉' : 'Geen orders') + '</div>';
+      return;
+    }
+    lijst.innerHTML = '';
+    zichtbaar.forEach(order => {
+      const div = document.createElement('div');
+      div.className = 'order-item' + (huidigeOrder && huidigeOrder.id === order.id ? ' actief' : '');
+      div.onclick = (ev) => selecteerOrder(order, ev);
+
+      const receptBadge = order.heeft_recept
+        ? '<span class="badge badge-ok">📄 Recept</span>'
+        : '<span class="badge badge-warn">⚠ Geen recept</span>';
+      const vkBadge = order.heeft_verstrekking
+        ? `<span class="badge badge-ok" title="${bronTekst(order.verstrekking_bron)}${order.verstrekking_op ? ' · ' + order.verstrekking_op : ''}">✓ Verstrekking</span>`
+        : '<span class="badge badge-warn">○ Nog geen verstrekking</span>';
+      const statusBadge = order.status === 'pending' ? '<span class="badge badge-warn">Wacht op betaling</span>' : '';
+
+      div.innerHTML = `
+        <div class="order-nr">#${order.id} — ${order.datum}</div>
+        <div class="order-naam">${order.klant_naam}</div>
+        <div class="order-medicijn">${order.medicijn}</div>
+        <div class="order-badges">${vkBadge}${receptBadge}${statusBadge}</div>
+      `;
+      lijst.appendChild(div);
+    });
+  }
+
+  // Zet/wis de verstrekkingsstatus van de geopende order (en de database)
+  async function zetVerstrekking(aangemaakt, bron) {
+    if (!huidigeOrder) return;
+    const st = document.getElementById('vkStatus');
+    try {
+      const res = await fetch('/api/order-verstrekking', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: huidigeOrder.id, aangemaakt, bron: bron || 'handmatig' })
+      });
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.fout || 'opslaan mislukt');
+      huidigeOrder.heeft_verstrekking = aangemaakt;
+      huidigeOrder.verstrekking_bron = aangemaakt ? (bron || 'handmatig') : '';
+      const o = alleOrders.find(x => x.id === huidigeOrder.id);
+      if (o) { o.heeft_verstrekking = aangemaakt; o.verstrekking_bron = huidigeOrder.verstrekking_bron; }
+      toonVerstrekkingStatus();
+      toonLijst();
+    } catch (e) {
+      if (st) { st.style.color = 'var(--danger)'; st.textContent = '✕ ' + e.message; }
+    }
+  }
+  function verstrekkingAangemaakt() { zetVerstrekking(true, 'handmatig'); }
+  function verstrekkingOngedaan() {
+    if (confirm('Verstrekking van deze order weer op "nog niet aangemaakt" zetten?')) zetVerstrekking(false);
+  }
+  function toonVerstrekkingStatus() {
+    const st = document.getElementById('vkStatus'), btn = document.getElementById('btnAfronden');
+    if (!st || !btn || !huidigeOrder) return;
+    if (huidigeOrder.heeft_verstrekking) {
+      st.style.color = 'var(--success)';
+      st.innerHTML = `✓ Verstrekking aangemaakt (${bronTekst(huidigeOrder.verstrekking_bron)}) · <a href="#" onclick="verstrekkingOngedaan();return false;" style="color:var(--muted)">ongedaan maken</a>`;
+      btn.style.display = 'none';
+    } else {
+      st.textContent = '';
+      btn.style.display = '';
+    }
+  }
+
   // --- Order selecteren: dispatcht naar één van de vier paden ---
-  async function selecteerOrder(order) {
+  async function selecteerOrder(order, ev) {
     huidigeOrder = order;
     huidigeReceptData = null;
     huidigeVergelijking = null;
@@ -367,7 +434,8 @@
 
     // Markeer actief in lijst
     document.querySelectorAll('.order-item').forEach(i => i.classList.remove('actief'));
-    event.currentTarget.classList.add('actief');
+    if (ev && ev.currentTarget) ev.currentTarget.classList.add('actief');
+    toonVerstrekkingStatus();
 
     // Toon detail
     document.getElementById('detailLeeg').style.display = 'none';
@@ -807,6 +875,10 @@ Apotheek Farmamed`;
         status.style.color = 'var(--success)';
         status.textContent = 'Verstuurd';
         markeerStapKlaar(4);
+        // De server heeft de verstrekking al vastgelegd (bron smarthub) — scherm bijwerken
+        huidigeOrder.heeft_verstrekking = true; huidigeOrder.verstrekking_bron = 'smarthub';
+        const oo = alleOrders.find(x => x.id === huidigeOrder.id); if (oo) { oo.heeft_verstrekking = true; oo.verstrekking_bron = 'smarthub'; }
+        toonVerstrekkingStatus(); toonLijst();
       } else {
         btn.textContent = '✗ SmartHUB versturen';
         btn.style.background = 'var(--danger)';
@@ -965,25 +1037,6 @@ Apotheek Farmamed`;
     const nr_el = document.getElementById('onr' + n);
     if (stap) stap.style.opacity = '1';
     if (nr_el) { nr_el.style.background = 'var(--success)'; nr_el.style.color = 'white'; nr_el.textContent = '✓'; }
-  }
-
-  function orderAfronden() {
-    if (!huidigeOrder) return;
-    for (let n = 1; n <= 6; n++) markeerStapKlaar(n);
-    // Markeer als afgerond in sessie zodat hij niet terugkomt bij vernieuwen
-    if (huidigeOrder) markeerAfgerond(huidigeOrder.id);
-    // Verwijder uit wachtrij
-    document.querySelectorAll('.order-item').forEach(item => {
-      if (item.classList.contains('actief')) item.remove();
-    });
-    // Reset detail
-    setTimeout(() => {
-      document.getElementById('detailSplit').style.display = 'none';
-      document.getElementById('order-stappen').style.display = 'none';
-      document.getElementById('order-acties').style.display = 'none';
-      document.getElementById('detailLeeg').style.display = 'flex';
-      huidigeOrder = null;
-    }, 1500);
   }
 
   function toonTab(naam) {

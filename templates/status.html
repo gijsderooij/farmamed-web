@@ -56,6 +56,7 @@
     <a href="/">Balie</a>
     <a href="/orders">Orders</a>
     <a href="/emails">E-mails</a>
+    <a href="/zorgmail">Zorgmail</a>
     <a href="/status" class="actief">Werklijst</a>
     <a href="/bank">Bank</a>
     <a href="/patient">Patiënten</a>
@@ -92,11 +93,8 @@
   let huidigFilter = 'alle';
   let geselecteerd = new Set();
 
-  function getVerstrekkingen() { return JSON.parse(sessionStorage.getItem('farmamed_verstrekkingen') || '[]'); }
-  function setVerstrekking(id) {
-    const l = getVerstrekkingen();
-    if (!l.includes(id)) { l.push(id); sessionStorage.setItem('farmamed_verstrekkingen', JSON.stringify(l)); }
-  }
+  // De verstrekkingsstatus komt uit de database (o.heeft_verstrekking) — dezelfde bron als de pagina Orders.
+  const bronNl = { smarthub: 'via SmartHUB', handmatig: 'handmatig', verzonden: 'automatisch (verzending gezien)', 'woocommerce-meta': 'eerder gemarkeerd', admin: 'admin-order' };
 
   async function laadOrders() {
     document.getElementById('tabel').innerHTML = '<div class="laden"><span class="spinner"></span>Orders laden…</div>';
@@ -122,7 +120,6 @@
   }
 
   function toonOrders() {
-    const verstrekkingen = getVerstrekkingen();
     const statusNl = { processing:'In behandeling', pending:'Wacht op betaling', 'on-hold':'In de wacht' };
     const statusCls = { processing:'status-processing', pending:'status-pending', 'on-hold':'status-on-hold' };
     const betaalCls = { pay:'betaal-pay', bank:'betaal-bank', anders:'betaal-anders', onbetaald:'betaal-niet' };
@@ -131,7 +128,7 @@
       if (huidigFilter === 'pending') return o.status === 'pending';
       if (huidigFilter === 'processing') return o.status === 'processing';
       if (huidigFilter === 'onbetaald') return o.betaal_type === 'onbetaald';
-      if (huidigFilter === 'geen-verstrekking') return !verstrekkingen.includes(o.id);
+      if (huidigFilter === 'geen-verstrekking') return !o.heeft_verstrekking;
       if (huidigFilter === 'niet-verzonden') return o.verzend_status === 'Niet verzonden';
       return true;
     });
@@ -146,7 +143,7 @@
       const isVerzonden = o.verzend_status && o.verzend_status !== 'Niet verzonden';
 
       const verstrekkingHtml = heeftV
-        ? `<span class="vinkje klaar">✓</span>`
+        ? `<span class="vinkje klaar" style="cursor:pointer" onclick="wisVerstrekking(${o.id},this)" title="${(bronNl[o.verstrekking_bron] || o.verstrekking_bron || '') + (o.verstrekking_op ? ' · ' + o.verstrekking_op : '')} — klik om ongedaan te maken">✓</span>`
         : `<span class="vinkje open" onclick="toggleVerstrekking(${o.id},this)" title="Klik om af te vinken">○</span>`;
 
       const verzondHtml = isVerzonden
@@ -177,7 +174,6 @@
         body: JSON.stringify({ order_ids: ids })
       });
       const data = await res.json();
-      const verstrekkingen = getVerstrekkingen();
       let verstrekkingGewijzigd = false;
 
       Object.entries(data.resultaten).forEach(([orderId, info]) => {
@@ -196,9 +192,9 @@
             fetch('/api/order-verstrekking', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ order_id: id })
+              body: JSON.stringify({ order_id: id, bron: 'verzonden' })
             });
-            orderObj.heeft_verstrekking = true;
+            orderObj.heeft_verstrekking = true; orderObj.verstrekking_bron = 'verzonden';
             const verstrCel = document.getElementById('verstr-' + orderId);
             if (verstrCel) {
               verstrCel.innerHTML = `<span class="vinkje klaar">✓</span>`;
@@ -216,18 +212,33 @@
   async function toggleVerstrekking(id, el) {
     el.textContent = '⏳'; el.style.cursor = 'wait';
     try {
-      await fetch('/api/order-verstrekking', {
+      const d = await (await fetch('/api/order-verstrekking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: id })
-      });
-      el.textContent = '✓'; el.className = 'vinkje klaar'; el.onclick = null; el.style.cursor = 'default';
-      // Update lokaal in alleOrders
+        body: JSON.stringify({ order_id: id, bron: 'handmatig' })
+      })).json();
+      if (!d.ok) throw new Error(d.fout || 'opslaan mislukt');
       const o = alleOrders.find(x => x.id === id);
-      if (o) o.heeft_verstrekking = true;
+      if (o) { o.heeft_verstrekking = true; o.verstrekking_bron = 'handmatig'; }
+      toonOrders();
     } catch(e) {
       el.textContent = '○'; el.style.cursor = 'pointer';
     }
+  }
+
+  async function wisVerstrekking(id, el) {
+    if (!confirm('Verstrekking van order #' + id + ' weer op "nog niet aangemaakt" zetten?')) return;
+    el.textContent = '⏳';
+    try {
+      const d = await (await fetch('/api/order-verstrekking', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: id, aangemaakt: false })
+      })).json();
+      if (!d.ok) throw new Error(d.fout || 'mislukt');
+      const o = alleOrders.find(x => x.id === id);
+      if (o) { o.heeft_verstrekking = false; o.verstrekking_bron = ''; }
+      toonOrders();
+    } catch (e) { alert('Fout: ' + e.message); toonOrders(); }
   }
 
   function toggleSelectie(id, cb) {
