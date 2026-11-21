@@ -7560,6 +7560,10 @@ def _zm_vrije_tekst(gebruik: str, opmerkingen: str) -> dict:
         tekst = " ".join(tekst.split())
         if not tekst:
             continue
+        # Typfouten in e-mailadressen herstellen: "naam@gmail. com", "naam @gmail.com", "naam@gmail .com"
+        tekst = _zm_re.sub(r"(?<=\w)\s*@\s*(?=\w)", "@", tekst)
+        tekst = _zm_re.sub(r"(@[\w-]+(?:\.[\w-]+)*)\s*\.\s*(com|nl|be|de|org|net|eu|info|co\.uk|me|nu|email)\b",
+                           r"\1.\2", tekst, flags=_zm_re.I)
         for m in _ZM_MAIL_RE.findall(tekst):
             m = m.strip(".,;:").lower()
             if m not in uit["emails"]:
