@@ -2527,6 +2527,11 @@ async def maak_order(request: Request):
                 _zc.commit(); _zcur.close(); _zc.close()
             except Exception as _e:
                 print(f"[maak-order] Zorgmail-koppeling mislukt: {_e}")
+            # Het Zorgmail-bericht ÍS de verstrekking: leg dat vast met het bericht-ID
+            try:
+                _vk_zet(order["id"], "zorgmail", int(data["zorgmail_id"]))
+            except Exception as _e:
+                print(f"[maak-order] Verstrekking (zorgmail) vastleggen mislukt: {_e}")
 
         return JSONResponse(content={
             "order_id": order["id"],
@@ -2891,7 +2896,9 @@ async def haal_bestellingen_op():
 
     # Verwerk orders
     orders = []
-    vk = _vk_haal([o["id"] for o in orders_raw])
+    _ids = [o["id"] for o in orders_raw]
+    vk = _vk_haal(_ids)      # verstrekking (eigen tabel)
+    vz = _vz_haal(_ids)      # verzending (eigen tabel)
     for o in orders_raw:
         billing = o.get("billing", {})
         meta = {m["key"]: m["value"] for m in o.get("meta_data", [])}
@@ -2902,7 +2909,7 @@ async def haal_bestellingen_op():
         v = vk.get(order_id)
         if not v and meta.get("_farmamed_verstrekking", "") == "1":
             _vk_zet(order_id, "woocommerce-meta")
-            v = {"op": "", "bron": "woocommerce-meta"}
+            v = {"op": "", "bron": "woocommerce-meta", "zorgmail_id": None}
 
         # Betaalstatus: Pay, Bank, Anders of Niet betaald
         betaal_methode = o.get("payment_method", "")
@@ -2935,12 +2942,33 @@ async def haal_bestellingen_op():
             tracking_nr = zending["tracking"]
         else:
             pass  # Ordernotities worden niet opgehaald voor snelheid
-            
+
+        # Verzonden: SendCloud-zending of eerder vastgelegd in de eigen tabel (ordernotitie met tracking)
+        verzonden = bool(zending) or (order_id in vz)
+        if zending and order_id not in vz:
+            _vz_zet(order_id, tracking_url, "sendcloud")
+        if not zending and order_id in vz:
+            verzend_status = "Verzonden"
+            tracking_url = vz[order_id].get("tracking_url", "")
+
         # Oorsprong
         oorsprong = meta.get("oorsprong", "")
         if not oorsprong:
             via = o.get("created_via", "")
             oorsprong = "Webshop" if via == "checkout" else "API"
+        if v and v.get("bron") == "zorgmail":
+            oorsprong = "Zorgmail"
+
+        heeft_v = bool(v)
+        # Fase: wat moet er nu met deze order gebeuren (volgorde = prioriteit)
+        if not heeft_v:
+            fase = "verstrekking"
+        elif betaal_type == "onbetaald":
+            fase = "betaling"
+        elif not verzonden:
+            fase = "verzenden"
+        else:
+            fase = "klaar"
 
         # Haal ordernotities op
         o["order_notes"] = []
@@ -2958,9 +2986,12 @@ async def haal_bestellingen_op():
             "tracking_url": tracking_url,
             "tracking_nr": tracking_nr,
             "oorsprong": oorsprong,
-            "heeft_verstrekking": bool(v),
+            "verzonden": verzonden,
+            "heeft_verstrekking": heeft_v,
             "verstrekking_bron": (v or {}).get("bron", ""),
             "verstrekking_op": (v or {}).get("op", ""),
+            "zorgmail_id": (v or {}).get("zorgmail_id"),
+            "fase": fase,
         })
 
     return JSONResponse(content={"orders": orders})
@@ -3204,6 +3235,8 @@ async def haal_verzend_status(request: Request):
     for oid in order_ids:
         verzonden, tracking_url = _is_order_verzonden(oid, wc_url, wc_key, wc_secret)
         resultaten[str(oid)] = {"verzonden": verzonden, "tracking_url": tracking_url}
+        if verzonden:
+            _vz_zet(oid, tracking_url, "ordernotitie")   # vastleggen: één bron voor kolom én filter
 
     return JSONResponse(content={"resultaten": resultaten})
 
@@ -3509,16 +3542,14 @@ async def kloon_order(request: Request):
 
 
 # ---------------------------------------------------------------------
-# VERSTREKKINGSSTATUS — één vaste plek: tabel order_verstrekking
+# VERSTREKKING + VERZENDING — één vaste plek per ding, in eigen tabellen
 # ---------------------------------------------------------------------
-# "Is er voor deze order een verstrekkingsverzoek aangemaakt?" staat ALLEEN
-# hier (niet meer in WooCommerce-meta of in de browsersessie). Wordt gezet:
-#   - automatisch bij een geslaagde SmartHUB-verzending           (bron 'smarthub')
-#   - handmatig via 'Verstrekking aangemaakt' (Orders/Werklijst)  (bron 'handmatig')
-#   - automatisch als SendCloud een verzending ziet               (bron 'verzonden')
-# Oude data telt mee: orders met SmartHUB-verzending in de orders-tabel, en
-# orders met de oude WooCommerce-meta _farmamed_verstrekking, worden herkend
-# (die laatste worden bij het eerste lezen overgenomen in de tabel).
+# order_verstrekking: "is er voor deze order een verstrekkingsverzoek?"
+#   bron: 'smarthub' (geslaagde SmartHUB-verzending) | 'handmatig' (aangevinkt) |
+#         'zorgmail' (order gemaakt uit een Zorgmail-bericht: het bericht ÍS de verstrekking;
+#                     zorgmail_id verwijst naar zorgmail_berichten.id) |
+#         'verzonden' (automatisch: verzending gezien) | 'woocommerce-meta' / 'admin' (oude data)
+# order_verzending: "is deze order verzonden?" (SendCloud-zending of ordernotitie met tracking)
 _VK_KLAAR = False
 
 
@@ -3533,6 +3564,13 @@ def _vk_init():
             aangemaakt_op TIMESTAMPTZ DEFAULT NOW(),
             bron TEXT
         )""")
+        cur.execute("ALTER TABLE order_verstrekking ADD COLUMN IF NOT EXISTS zorgmail_id INTEGER")
+        cur.execute("""CREATE TABLE IF NOT EXISTS order_verzending (
+            wc_order_id TEXT PRIMARY KEY,
+            verzonden_op TIMESTAMPTZ DEFAULT NOW(),
+            tracking_url TEXT,
+            bron TEXT
+        )""")
         conn.commit()
         _VK_KLAAR = True
     finally:
@@ -3540,7 +3578,7 @@ def _vk_init():
 
 
 def _vk_haal(order_ids: list) -> dict:
-    """{order_id(str): {"op": 'YYYY-MM-DD HH:MM', "bron": str}} voor orders met verstrekking."""
+    """{order_id(str): {"op", "bron", "zorgmail_id"}} voor orders met verstrekking."""
     uit = {}
     ids = [str(i) for i in order_ids]
     if not ids or not _DATABASE_URL:
@@ -3549,12 +3587,12 @@ def _vk_haal(order_ids: list) -> dict:
         _vk_init()
         conn = _pg_conn(); cur = conn.cursor()
         try:
-            cur.execute("SELECT wc_order_id, aangemaakt_op, bron FROM order_verstrekking WHERE wc_order_id = ANY(%s)", (ids,))
-            for oid, op, bron in cur.fetchall():
-                uit[str(oid)] = {"op": str(op)[:16] if op else "", "bron": bron or ""}
+            cur.execute("SELECT wc_order_id, aangemaakt_op, bron, zorgmail_id FROM order_verstrekking WHERE wc_order_id = ANY(%s)", (ids,))
+            for oid, op, bron, zid in cur.fetchall():
+                uit[str(oid)] = {"op": str(op)[:16] if op else "", "bron": bron or "", "zorgmail_id": zid}
             cur.execute("SELECT wc_order_id::text, smarthub_verstuurd_op FROM orders WHERE smarthub_verstuurd = 1 AND wc_order_id::text = ANY(%s)", (ids,))
             for oid, op in cur.fetchall():
-                uit.setdefault(str(oid), {"op": str(op)[:16] if op else "", "bron": "smarthub"})
+                uit.setdefault(str(oid), {"op": str(op)[:16] if op else "", "bron": "smarthub", "zorgmail_id": None})
         finally:
             cur.close(); conn.close()
     except Exception as e:
@@ -3562,15 +3600,17 @@ def _vk_haal(order_ids: list) -> dict:
     return uit
 
 
-def _vk_zet(order_id, bron: str = "handmatig") -> bool:
+def _vk_zet(order_id, bron: str = "handmatig", zorgmail_id=None) -> bool:
     if not _DATABASE_URL:
         return False
     try:
         _vk_init()
         conn = _pg_conn(); cur = conn.cursor()
         try:
-            cur.execute("INSERT INTO order_verstrekking (wc_order_id, bron) VALUES (%s, %s) ON CONFLICT (wc_order_id) DO NOTHING",
-                        (str(order_id), bron))
+            cur.execute("""INSERT INTO order_verstrekking (wc_order_id, bron, zorgmail_id) VALUES (%s, %s, %s)
+                           ON CONFLICT (wc_order_id) DO UPDATE
+                           SET zorgmail_id = COALESCE(order_verstrekking.zorgmail_id, EXCLUDED.zorgmail_id)""",
+                        (str(order_id), bron, zorgmail_id))
             conn.commit()
             return True
         finally:
@@ -3596,6 +3636,46 @@ def _vk_wis(order_id) -> bool:
             cur.close(); conn.close()
     except Exception as e:
         print(f"[verstrekking] wissen mislukt voor {order_id}: {e}")
+        return False
+
+
+def _vz_haal(order_ids: list) -> dict:
+    """{order_id(str): {"op", "tracking_url"}} voor orders die als verzonden zijn vastgelegd."""
+    uit = {}
+    ids = [str(i) for i in order_ids]
+    if not ids or not _DATABASE_URL:
+        return uit
+    try:
+        _vk_init()
+        conn = _pg_conn(); cur = conn.cursor()
+        try:
+            cur.execute("SELECT wc_order_id, verzonden_op, tracking_url FROM order_verzending WHERE wc_order_id = ANY(%s)", (ids,))
+            for oid, op, url in cur.fetchall():
+                uit[str(oid)] = {"op": str(op)[:16] if op else "", "tracking_url": url or ""}
+        finally:
+            cur.close(); conn.close()
+    except Exception as e:
+        print(f"[verzending] lezen mislukt: {e}")
+    return uit
+
+
+def _vz_zet(order_id, tracking_url: str = "", bron: str = "") -> bool:
+    if not _DATABASE_URL:
+        return False
+    try:
+        _vk_init()
+        conn = _pg_conn(); cur = conn.cursor()
+        try:
+            cur.execute("""INSERT INTO order_verzending (wc_order_id, tracking_url, bron) VALUES (%s, %s, %s)
+                           ON CONFLICT (wc_order_id) DO UPDATE
+                           SET tracking_url = CASE WHEN COALESCE(order_verzending.tracking_url,'') = '' THEN EXCLUDED.tracking_url ELSE order_verzending.tracking_url END""",
+                        (str(order_id), tracking_url or "", bron))
+            conn.commit()
+            return True
+        finally:
+            cur.close(); conn.close()
+    except Exception as e:
+        print(f"[verzending] zetten mislukt voor {order_id}: {e}")
         return False
 
 
@@ -3647,12 +3727,12 @@ async def haal_orders_op(toon_alle: bool = False):
             # Oude WooCommerce-meta overnemen in de eigen tabel (eenmalig per order)
             if not v and meta.get("_farmamed_verstrekking", "") == "1":
                 _vk_zet(o["id"], "woocommerce-meta")
-                v = {"op": "", "bron": "woocommerce-meta"}
+                v = {"op": "", "bron": "woocommerce-meta", "zorgmail_id": None}
             heeft_verstrekking = bool(v)
             # Admin-orders altijd als verstrekt markeren
             if created_via == "admin" and not v:
                 heeft_verstrekking = True
-                v = {"op": "", "bron": "admin"}
+                v = {"op": "", "bron": "admin", "zorgmail_id": None}
 
             # Filter admin-orders tenzij toon_alle
             if created_via == "admin" and not toon_alle:
