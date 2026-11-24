@@ -3681,6 +3681,16 @@ def _vz_zet(order_id, tracking_url: str = "", bron: str = "") -> bool:
         return False
 
 
+def _wc_variatie_waarde(item: dict, naam: str) -> str:
+    """Leest een variatie-eigenschap (bijv. 'Dosering', 'Verpakking') uit de meta_data van een WooCommerce-orderregel."""
+    for m in item.get("meta_data", []) or []:
+        sleutel = str(m.get("display_key") or m.get("key") or "").strip().lower().replace("pa_", "")
+        if sleutel == naam.lower():
+            waarde = m.get("display_value") if m.get("display_value") not in (None, "") else m.get("value")
+            return str(waarde or "").strip()
+    return ""
+
+
 @app.get("/api/orders")
 async def haal_orders_op(toon_alle: bool = False):
     """Haalt openstaande WooCommerce orders op (pending + processing)."""
@@ -3753,6 +3763,9 @@ async def haal_orders_op(toon_alle: bool = False):
                 "bsn": meta.get("billing_bsn") or meta.get("_billing_bsn") or meta.get("bsn") or "",
                 "geboortedatum": _amerikaans_naar_nederlands(geboortedatum),
                 "medicijn": medicijn,
+                "dosering": _wc_variatie_waarde(items[0] if items else {}, "dosering"),
+                "verpakking": _wc_variatie_waarde(items[0] if items else {}, "verpakking"),
+                "datum_tijd": o.get("date_created", ""),
                 "hoeveelheid": float(items[0].get("quantity", 1)) * 30 if items else 30,
                 "aantal": int(items[0].get("quantity", 1)) if items else 1,
                 "totaal": o.get("total", "0"),
@@ -8184,6 +8197,107 @@ async def api_tellers():
         print(f"[tellers] e-mails tellen mislukt: {e}")
         emails = 0
     return JSONResponse(content={"orders": await asyncio.to_thread(_tel_orders_te_doen), "emails": emails})
+
+
+def _excel_medicijnnaam(wc_naam: str, dosering: str) -> str:
+    """Medicijnnaam voor het Excel-bestand, bijv. 'MINOXIDIL TABLET SAW 2.5 MG'.
+    WooCommerce-productnamen van variabele producten bevatten alle doseringen en de gekozen variatie
+    ('MINOXIDIL TABLET SAW 1,0 MG / 1,25 MG / 2,5 MG - 2,5 mg, 365 tabletten'): die staart wordt eraf gehaald
+    en de gekozen dosering uit de variatie (dosering) erachter gezet."""
+    naam = (wc_naam or "").split(" - ")[0].strip()
+    dos = (dosering or "").strip()
+    if dos:
+        naam = _zm_re.sub(r"\s+\d[\d.,]*\s*(?:MG|MCG|µG|UG|G|ML|%|IE)\b.*$", "", naam, flags=_zm_re.I).strip()
+        naam = f"{naam} {dos}"
+    return _zm_re.sub(r"\s+", " ", naam.replace(",", ".") if dos else naam).strip().upper()
+
+
+@app.post("/api/order-excel")
+async def order_naar_excel(request: Request):
+    """Schrijft één order naar een Excel-bestand in het vaste formaat (Order / Patiënt / Medicatie & voorschrijver / Bezorgadres)."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from fastapi.responses import Response as _Resp
+    from datetime import datetime as _dt
+    d = await request.json()
+
+    def tekst(k):
+        return str(d.get(k) or "").strip()
+
+    def datum(s, tijd=False):
+        s = (s or "").strip()
+        for fmt in (("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S") if tijd else ()) + ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                return _dt.strptime(s[:19] if tijd else s[:10], fmt)
+            except ValueError:
+                continue
+        return s or None
+
+    bsn = _zm_re.sub(r"\D", "", tekst("bsn"))
+    voornaam = tekst("voornaam")
+    achternaam = tekst("achternaam")
+    volledig = tekst("naam") or f"{voornaam} {achternaam}".strip()
+    email = tekst("email")
+    # Met een gekozen dosering (variabel product) gaat de WooCommerce-variatie voor; anders de SmartHUB-artikelnaam
+    if tekst("dosering"):
+        medicijn = _excel_medicijnnaam(tekst("medicijn"), tekst("dosering"))
+    else:
+        medicijn = (tekst("artikel_naam") or _excel_medicijnnaam(tekst("medicijn"), "")).upper()
+    hoeveelheid = (tekst("verpakking") or tekst("hoeveelheid")).upper()
+
+    rijen = [
+        ("Order", "Order", "kop"),
+        ("Ordernummer", int(d["order_id"]) if str(d.get("order_id", "")).isdigit() else tekst("order_id"), None),
+        ("Organisatie ", "RAB", None),
+        ("Systeem ", "Farmamed", None),
+        ("Patiënt", "Patiënt", "kop"),
+        ("Code ", email, None),
+        ("Voorletters ", (voornaam[:1].upper() + ".") if voornaam else "", None),
+        ("Voornaam ", voornaam, None),
+        ("Achternaam ", achternaam, None),
+        ("Volledige naam ", volledig, None),
+        ("Geboortedatum ", datum(tekst("geboortedatum")), "datum"),
+        ("BSN ", int(bsn) if bsn else "", None),
+        ("E-mail ", email, None),
+        ("Telefoon ", tekst("telefoon"), None),
+        ("Medicatie & voorschrijver", "Medicatie & voorschrijver", "kop"),
+        ("Medicijn ", medicijn, None),
+        ("Artikelcode ", tekst("artikel_code"), None),
+        ("Hoveelheid / Aantal ", hoeveelheid, None),
+        ("Gebruik", tekst("gebruiksaanwijzing"), None),
+        ("Voorschrift-nummer ", int(d["order_id"]) if str(d.get("order_id", "")).isdigit() else tekst("order_id"), None),
+        ("Voorschriftdatum ", datum(tekst("voorschriftdatum"), tijd=True), "datumtijd"),
+        ("Voorschrijver ", tekst("voorschrijver"), None),
+        ("AGB-code ", int(_zm_re.sub(r"\D", "", tekst("agb_code"))) if _zm_re.sub(r"\D", "", tekst("agb_code")) else "", None),
+        ("Bezorgadres", "Bezorgadres", "kop"),
+        ("Straat ", tekst("straat"), None),
+        ("Postcode ", tekst("postcode").replace(" ", "").upper(), None),
+        ("Plaats ", tekst("plaats"), None),
+        ("Verzendmethode ", tekst("verzendmethode"), None),
+    ]
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    kopvulling = PatternFill("solid", fgColor="D9E2F3")
+    for i, (label, waarde, soort) in enumerate(rijen, start=1):
+        a, b = ws.cell(row=i, column=1, value=label), ws.cell(row=i, column=2, value=waarde if waarde != "" else None)
+        if soort == "kop":
+            for c in (a, b):
+                c.font = Font(bold=True); c.fill = kopvulling
+        elif soort == "datum":
+            b.number_format = "DD-MM-YYYY"
+        elif soort == "datumtijd":
+            b.number_format = "DD-MM-YYYY HH:MM:SS"
+        if soort != "kop":
+            b.alignment = Alignment(horizontal="left")
+    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["B"].width = 48
+    uit = io.BytesIO()
+    wb.save(uit)
+    bestandsnaam = f"{tekst('order_id')}_Farmamed_{_zm_re.sub(r'[^A-Za-z0-9]+', '_', achternaam) or 'order'}_RAB.xlsx"
+    return _Resp(content=uit.getvalue(),
+                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                 headers={"Content-Disposition": f'attachment; filename="{bestandsnaam}"'})
 
 
 @app.post("/api/email-verwerkt")
