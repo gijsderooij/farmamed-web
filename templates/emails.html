@@ -1054,6 +1054,7 @@
       document.getElementById('stappenbalk').style.display = 'none';
 
       huidigeEmail = null;
+      if (window.verversTellers) window.verversTellers();
 
     } catch(e) {
       btn.disabled = false; btn.textContent = '✓ Markeer als afgehandeld';

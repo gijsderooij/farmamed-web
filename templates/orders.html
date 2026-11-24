@@ -402,6 +402,7 @@
       if (o) { o.heeft_verstrekking = aangemaakt; o.verstrekking_bron = huidigeOrder.verstrekking_bron; }
       toonVerstrekkingStatus();
       toonLijst();
+      if (window.verversTellers) window.verversTellers();
     } catch (e) {
       if (st) { st.style.color = 'var(--danger)'; st.textContent = '✕ ' + e.message; }
     }
