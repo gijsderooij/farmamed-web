@@ -233,6 +233,7 @@
       </div>
       <div style="width:0.5px;align-self:stretch;background:var(--border);"></div>
       <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+        <button class="btn" onclick="naarExcel()" id="btnExcel" style="font-size:12px;padding:6px 12px;" title="Schrijf deze order naar een Excel-bestand">📊 Naar Excel</button>
         <button class="btn" onclick="downloadRecept()" style="font-size:12px;padding:6px 12px;">⬇ Recept opslaan</button>
         <span id="vkStatus" style="font-size:12px;"></span>
         <button class="btn" onclick="verstrekkingAangemaakt()" id="btnAfronden" style="font-size:12px;padding:6px 14px;border:1px solid var(--success);background:#e8f8ee;color:var(--success);" title="Markeer dat er voor deze order een verstrekkingsverzoek is aangemaakt (bijv. handmatig in SmartHUB)">✓ Verstrekking aangemaakt</button>
@@ -833,6 +834,66 @@ Apotheek Farmamed`;
         <div class="json-box" style="margin-top:6px;">${jsonTekst}</div>
       </details>`;
     document.getElementById('smarthubInhoud').innerHTML = html;
+  }
+
+  // --- Naar Excel: de order als Excel-bestand (vaste indeling), met de waarden uit de
+  // vergelijkingstabel (o-*-velden) en dosering/verpakking uit WooCommerce ---
+  async function naarExcel() {
+    if (!huidigeOrder) return;
+    const order = huidigeOrder, recept = huidigeReceptData;
+    const btn = document.getElementById('btnExcel');
+    const v = (id, terugval) => document.getElementById(id)?.value || terugval || '';
+    btn.disabled = true; btn.textContent = '⏳ Bezig…';
+    try {
+      const medicijn = v('o-medicijn', order.medicijn);
+      let artikel = {};
+      try { artikel = await (await fetch('/api/zoek-artikel?naam=' + encodeURIComponent(order.medicijn || medicijn || ''))).json(); } catch (e) {}
+      const naam = `${v('o-voornaam')} ${v('o-achternaam')}`.trim() || order.klant_naam || '';
+      const delen = naam.split(' ');
+      const pcRuw = v('o-postcode_plaats', `${order.postcode || ''} ${order.plaats || ''}`.trim());
+      const pcM = pcRuw.match(/^(\d{4}\s?[A-Za-z]{2})\s*(.*)$/i);
+      const body = {
+        order_id: order.id,
+        naam,
+        voornaam: v('o-voornaam') || delen[0] || '',
+        achternaam: v('o-achternaam') || delen.slice(1).join(' ') || '',
+        geboortedatum: v('o-geboortedatum', order.geboortedatum),
+        bsn: v('o-bsn', order.bsn),
+        email: v('o-email', order.email),
+        telefoon: v('o-telefoon', order.telefoon),
+        medicijn: order.medicijn || medicijn,            // WooCommerce-productnaam
+        dosering: order.dosering || '',                    // WooCommerce-variatie
+        verpakking: order.verpakking || '',                // WooCommerce-variatie
+        hoeveelheid: v('o-hoeveelheid'),
+        artikel_naam: (artikel && artikel.code && artikel.code !== 'ONBEKEND') ? (artikel.name || '') : '',
+        artikel_code: (artikel && artikel.code && artikel.code !== 'ONBEKEND') ? artikel.code : '',
+        gebruiksaanwijzing: v('o-gebruiksaanwijzing'),
+        voorschriftdatum: order.datum_tijd || order.datum || '',
+        voorschrijver: v('o-voorschrijver', recept?.voorschrijver),
+        agb_code: v('o-agb_code', recept?.agb_code),
+        straat: v('o-straat', order.adres),
+        postcode: (pcM ? pcM[1] : (order.postcode || '')),
+        plaats: (pcM && pcM[2]) ? pcM[2].trim() : (order.plaats || ''),
+        verzendmethode: ''
+      };
+      const res = await fetch('/api/order-excel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error('Serverfout ' + res.status);
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="([^"]+)"/);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = m ? m[1] : `${order.id}_Farmamed_RAB.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      btn.textContent = '✓ Excel gemaakt';
+      setTimeout(() => { btn.textContent = '📊 Naar Excel'; }, 2500);
+    } catch (e) {
+      btn.textContent = '✕ ' + e.message;
+      setTimeout(() => { btn.textContent = '📊 Naar Excel'; }, 4000);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   // --- Download functies ---
