@@ -3612,6 +3612,7 @@ def _vk_zet(order_id, bron: str = "handmatig", zorgmail_id=None) -> bool:
                            SET zorgmail_id = COALESCE(order_verstrekking.zorgmail_id, EXCLUDED.zorgmail_id)""",
                         (str(order_id), bron, zorgmail_id))
             conn.commit()
+            _TELLERS_CACHE["t"] = 0.0
             return True
         finally:
             cur.close(); conn.close()
@@ -3631,6 +3632,7 @@ def _vk_wis(order_id) -> bool:
             # Een SmartHUB-verzending telt ook mee; bij 'ongedaan maken' die vlag ook terugzetten
             cur.execute("UPDATE orders SET smarthub_verstuurd = 0 WHERE wc_order_id::text = %s", (str(order_id),))
             conn.commit()
+            _TELLERS_CACHE["t"] = 0.0
             return True
         finally:
             cur.close(); conn.close()
@@ -8132,6 +8134,56 @@ async def haal_emails_op(verwerkt: str = "nee"):
         email_slim["bijlagen"] = [{"naam": b["naam"], "type": b["type"], "heeft_data": bool(b.get("data"))} for b in e.get("bijlagen", [])]
         emails_zonder_data.append(email_slim)
     return JSONResponse(content={"emails": emails_zonder_data})
+
+
+_TELLERS_CACHE = {"t": 0.0, "orders": 0}
+
+
+def _tel_orders_te_doen() -> int:
+    """Aantal WooCommerce-orders (status processing) zonder verstrekking = het 'Te doen'-aantal
+    in de Orders-stroom. Maximaal 1x per 60 sec berekend (WooCommerce-aanroep)."""
+    import time as _t
+    if _t.time() - _TELLERS_CACHE["t"] < 60:
+        return _TELLERS_CACHE["orders"]
+    wc_url = os.getenv("WC_URL", ""); wc_key = os.getenv("WC_KEY", ""); wc_secret = os.getenv("WC_SECRET", "")
+    if not wc_url:
+        return _TELLERS_CACHE["orders"]
+    try:
+        orders_raw, pagina = [], 1
+        while True:
+            r = http_requests.get(f"{wc_url}/wp-json/wc/v3/orders", headers=_wc_auth(wc_key, wc_secret),
+                                  params={"status": "processing", "per_page": 100, "page": pagina}, timeout=20)
+            if r.status_code != 200:
+                break
+            batch = r.json()
+            if not batch:
+                break
+            orders_raw.extend(batch)
+            if len(batch) < 100:
+                break
+            pagina += 1
+        vk = _vk_haal([o["id"] for o in orders_raw])
+        n = 0
+        for o in orders_raw:
+            meta = {m["key"]: m["value"] for m in o.get("meta_data", [])}
+            if str(o["id"]) in vk or meta.get("_farmamed_verstrekking", "") == "1" or o.get("created_via") == "admin":
+                continue
+            n += 1
+        _TELLERS_CACHE.update({"t": _t.time(), "orders": n})
+    except Exception as e:
+        print(f"[tellers] orders tellen mislukt: {e}")
+    return _TELLERS_CACHE["orders"]
+
+
+@app.get("/api/tellers")
+async def api_tellers():
+    """Aantallen voor de rode bolletjes in het menu: orders zonder verstrekking, e-mails in de inbox."""
+    try:
+        emails = len([e for e in _haal_emails_op_db(500) if not e.get("verwerkt")])
+    except Exception as e:
+        print(f"[tellers] e-mails tellen mislukt: {e}")
+        emails = 0
+    return JSONResponse(content={"orders": await asyncio.to_thread(_tel_orders_te_doen), "emails": emails})
 
 
 @app.post("/api/email-verwerkt")

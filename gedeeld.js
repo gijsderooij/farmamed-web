@@ -1187,3 +1187,27 @@
   }
   controleer(); setInterval(controleer, 20000);
 })();
+
+// ---- Rode bolletjes in het menu: Orders (nog geen verstrekking) en E-mails (nog in de inbox) ----
+(function () {
+  var badges = {};
+  ['orders', 'emails'].forEach(function (naam) {
+    var link = document.querySelector('a[href="/' + naam + '"]');
+    if (!link) return;
+    var b = document.createElement('span');
+    b.style.cssText = 'display:none;background:#e74c3c;color:#fff;font-size:10px;font-weight:600;border-radius:9px;padding:1px 6px;margin-left:6px;';
+    link.appendChild(b); badges[naam] = b;
+  });
+  if (!Object.keys(badges).length) return;
+  function ververs() {
+    fetch('/api/tellers').then(function (r) { return r.json(); }).then(function (t) {
+      Object.keys(badges).forEach(function (naam) {
+        var n = t[naam] || 0;
+        badges[naam].style.display = n ? '' : 'none';
+        badges[naam].textContent = n || '';
+      });
+    }).catch(function () {});
+  }
+  window.verversTellers = ververs;
+  ververs(); setInterval(ververs, 30000);
+})();
